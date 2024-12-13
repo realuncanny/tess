@@ -3,13 +3,12 @@
   <img height="247" width="400" alt="iced-trade" src="https://github.com/user-attachments/assets/c862ba41-71f9-411d-bfe4-97f716c36b56">
 </div>
 
-### Currently features:
-- Customizable and savable grid layouts
-- 4 crypto tickers, from Binance and Bybit; BTCUSDT, ETHUSDT, SOLUSDT, LTCUSDT (perpetual swaps)
-- 1m, 3m, 5m, 15m and 30m timeframe selections for candlestick and footprint charts. <sup>Tick based "timeframe" selections is planned</sup>
+### Some of the features:
+- Customizable and savable grid layouts, selectable themes
+- From Binance & Bybit: most of spot & linear perp pairs
+- Orderbook total bid/ask levels: 1000 for Binance Perp/Spot; 500 for Bybit Perps, 200 for Bybit Spot
+- Binance perp/spot & Bybit perp streams @100ms; Bybit spot pairs streams @200ms,
 - Tick size multipliers for price grouping on footprint and heatmap charts
-- Size filtering for trades showing up in time&sales tables and heatmap charts
-- Each grid (pane) can have its own ticker/exchange pair of streams. You can open up however many panes you want. Though, if for example the layout is filled with more than a reasonable amount of heatmap charts, via the most cpu time demanding chart instance between renders, then performance/resource usage might become a slight concern. But there is no limit to it yet to test out the boundries
 
 <div align="center">
   <img height="200" width="300" alt="iced-trade" src="https://github.com/user-attachments/assets/89894672-4ad6-41a2-ab7f-84c5acdb76a9">
@@ -17,8 +16,8 @@
 </div>
 
 ##### There is no server-side yet. User receives market data directly from exchange APIs
-- As historical data, currently it can only fetch OHLCV. So, the footprint chart gets populated via candlesticks but not historical trades. Trades gets inserted to the latest candlestick as we receive them from related websocket stream in real-time
-
+- As historical data, currently it can only fetch OHLCV and open interest. So, footprint chart gets populated via candlesticks but not historical trades. Trades gets inserted to the latest candlestick as we receive them from related websocket stream in real-time
+  
 ## Build from source
 The releases might not be up-to-date with newest features.<sup>or bugs :)</sup>
 - For that, you could
