@@ -105,6 +105,15 @@ where
         })
 }
 
+#[cfg(target_os = "linux")]
+pub fn settings() -> Settings {
+    use iced::window;
+
+    Settings {
+        ..Default::default()
+    }
+}
+
 #[cfg(target_os = "macos")]
 pub fn settings() -> Settings {
     use iced::window;
@@ -115,6 +124,15 @@ pub fn settings() -> Settings {
             titlebar_transparent: true,
             fullsize_content_view: true,
         },
+        ..Default::default()
+    }
+}
+
+#[cfg(target_os = "windows")]
+pub fn settings() -> Settings {
+    use iced::window;
+
+    Settings {
         ..Default::default()
     }
 }

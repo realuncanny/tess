@@ -208,10 +208,19 @@ fn main() {
                 iced::window::Position::Centered
             }
         },
-        platform_specific: iced::window::settings::PlatformSpecific {
-            title_hidden: true,
-            titlebar_transparent: true,
-            fullsize_content_view: true,
+        platform_specific: {
+            #[cfg(target_os = "macos")]
+            {
+                iced::window::settings::PlatformSpecific {
+                    title_hidden: true,
+                    titlebar_transparent: true,
+                    fullsize_content_view: true,
+                }
+            }
+            #[cfg(not(target_os = "macos"))]
+            {
+                Default::default()
+            }
         },
         exit_on_close_request: false,
         min_size: Some(iced::Size::new(800.0, 600.0)),
@@ -657,22 +666,6 @@ impl State {
             .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
             .into();
         } else {
-            let branding_logo = center(
-                text("FLOWSURFACE")
-                    .font(
-                        iced::Font {
-                            weight: iced::font::Weight::Bold,
-                            ..Default::default()
-                        }
-                    )
-                    .size(16)
-                    .style(style::branding_text)
-                    .align_x(Alignment::Center)
-                )
-            .height(20)
-            .align_y(Alignment::Center)
-            .padding(padding::right(8).top(4));
-
             let tooltip_position = if self.sidebar_location == Sidebar::Left {
                 tooltip::Position::Right
             } else {
@@ -798,7 +791,28 @@ impl State {
                 .map(Message::Dashboard);
 
             let content = column![
-                branding_logo,
+                {
+                    #[cfg(target_os = "macos")] {
+                        center(
+                            text("FLOWSURFACE")
+                                .font(
+                                    iced::Font {
+                                        weight: iced::font::Weight::Bold,
+                                        ..Default::default()
+                                    }
+                                )
+                                .size(16)
+                                .style(style::branding_text)
+                                .align_x(Alignment::Center)
+                            )
+                        .height(20)
+                        .align_y(Alignment::Center)
+                        .padding(padding::right(8).top(4))
+                    }
+                    #[cfg(not(target_os = "macos"))] {
+                        column![]
+                    }
+                },
                 match self.sidebar_location {
                     Sidebar::Left => row![
                         sidebar,
