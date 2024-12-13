@@ -15,7 +15,7 @@
   <img height="235" width="200" alt="iced-trade" src="https://github.com/user-attachments/assets/a93ff39f-e80a-4f87-a99b-d4582f4bb818">
 </div>
 
-##### There is no server-side yet. User receives market data directly from exchange APIs
+##### There is no server-side. User receives market data directly from exchange APIs
 - As historical data, currently it can only fetch OHLCV and open interest. So, footprint chart gets populated via candlesticks but not historical trades. Trades gets inserted to the latest candlestick as we receive them from related websocket stream in real-time
   
 ## Build from source
@@ -29,7 +29,7 @@ Requirements:
 
 ```bash
 # Clone the repository
-git clone https://github.com/akenshaw/iced-trade
+git clone https://github.com/akenshaw/flowsurface
 
 cd iced-trade
 
