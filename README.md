@@ -31,7 +31,7 @@ Requirements:
 # Clone the repository
 git clone https://github.com/akenshaw/flowsurface
 
-cd iced-trade
+cd flowsurface
 
 # Build and run
 cargo build --release
