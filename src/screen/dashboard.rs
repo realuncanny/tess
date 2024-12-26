@@ -63,6 +63,22 @@ pub enum Message {
     ),
     DistributeFetchedKlines(StreamType, Result<Vec<Kline>, String>),
     ChartMessage(pane_grid::Pane, window::Id, ChartMessage),
+
+    // Batched trade fetching
+    FetchTrades(
+        window::Id,
+        pane_grid::Pane,
+        i64,
+        i64,
+        StreamType,
+    ),
+    DistributeFetchedTrades(
+        window::Id,
+        pane_grid::Pane,
+        Vec<Trade>,
+        StreamType,
+        i64,
+    ),
 }
 
 pub struct Dashboard {
@@ -74,6 +90,7 @@ pub struct Dashboard {
     notification_manager: NotificationManager,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     timezone: UserTimezone,
+    pub trade_fetch_enabled: bool,
 }
 
 impl Default for Dashboard {
@@ -93,6 +110,7 @@ impl Dashboard {
             tickers_info: HashMap::new(),
             popout: HashMap::new(),
             timezone: UserTimezone::default(),
+            trade_fetch_enabled: false,
         }
     }
 
@@ -148,6 +166,7 @@ impl Dashboard {
     pub fn from_config(
         panes: Configuration<PaneState>,
         popout_windows: Vec<(Configuration<PaneState>, (Point, Size))>,
+        trade_fetch_enabled: bool,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);
 
@@ -169,6 +188,7 @@ impl Dashboard {
             tickers_info: HashMap::new(),
             popout,
             timezone: UserTimezone::default(),
+            trade_fetch_enabled,
         }
     }
 
@@ -342,7 +362,11 @@ impl Dashboard {
 
                         // set pane's stream and content identifiers
                         if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
-                            if let Err(err) = pane_state.set_content(ticker_info, &content_str, timezone) {
+                            if let Err(err) = pane_state.set_content(
+                                ticker_info,
+                                &content_str, 
+                                timezone
+                            ) {
                                 return err_occurred(err);
                             }
                         } else {
@@ -452,6 +476,9 @@ impl Dashboard {
                             pane_state.content.toggle_indicator(indicator_str);
                         }
                     }
+                    pane::Message::HideNotification(pane, notification) => {
+                        self.notification_manager.find_and_remove(window, pane, notification);
+                    }
                 }
             }
             Message::FetchEvent(req_id, klines, pane_stream, pane_id, window) => {
@@ -485,24 +512,30 @@ impl Dashboard {
                 }
             }
             Message::OIFetchEvent(req_id, oi, pane_stream, pane_id, window) => {
-                match oi {
-                    Ok(oi) => {
-                        if let StreamType::Kline { .. } = pane_stream {
-                            if let Some(pane_state) =
-                                self.get_mut_pane(main_window.id, window, pane_id)
-                            {
+                self.notification_manager.remove_info_type(
+                    window,
+                    &pane_id,
+                    &InfoType::FetchingOI,
+                );
+
+                if let Some(pane_state) =
+                    self.get_mut_pane(main_window.id, window, pane_id)
+                {
+                    match oi {
+                        Ok(oi) => {
+                            if let StreamType::Kline { .. } = pane_stream {
                                 pane_state.insert_oi_vec(req_id, oi);
                             }
                         }
-                    }
-                    Err(err) => {
-                        return Task::perform(async { err }, move |err: String| {
-                            Message::ErrorOccurred(
-                                window,
-                                Some(pane_id),
-                                DashboardError::Fetch(err),
-                            )
-                        })
+                        Err(err) => {
+                            return Task::perform(async { err }, move |err: String| {
+                                Message::ErrorOccurred(
+                                    window,
+                                    Some(pane_id),
+                                    DashboardError::Fetch(err),
+                                )
+                            })
+                        }
                     }
                 }
             }
@@ -538,16 +571,17 @@ impl Dashboard {
                             if state.matches_stream(&stream_type) {
                                 if let StreamType::Kline { timeframe, .. } = stream_type {
                                     match &mut state.content {
-                                        PaneContent::Candlestick(chart, _) => {
+                                        PaneContent::Candlestick(chart, indicators) => {
                                             let tick_size = chart.get_tick_size();
                                             *chart = CandlestickChart::new(
                                                 klines.clone(),
                                                 timeframe,
                                                 tick_size,
                                                 timezone,
+                                                indicators,
                                             );
                                         }
-                                        PaneContent::Footprint(chart, _) => {
+                                        PaneContent::Footprint(chart, indicators) => {
                                             let (raw_trades, tick_size) =
                                                 (chart.get_raw_trades(), chart.get_tick_size());
                                             *chart = FootprintChart::new(
@@ -556,6 +590,7 @@ impl Dashboard {
                                                 klines.clone(),
                                                 raw_trades,
                                                 timezone,
+                                                indicators,
                                             );
                                         }
                                         _ => {}
@@ -577,7 +612,118 @@ impl Dashboard {
                 Err(err) => {
                     log::error!("{err}");
                 }
-            },
+            }
+            Message::FetchTrades(
+                window_id,
+                pane,
+                from_time,
+                to_time,
+                stream_type,
+            ) => {
+                if let StreamType::DepthAndTrades { exchange, ticker } = stream_type {
+                    if exchange == Exchange::BinanceFutures || exchange == Exchange::BinanceSpot {
+                        return Task::perform(
+                            binance::fetch_trades(ticker, from_time),
+                            move |result| match result {
+                                Ok(trades) => Message::DistributeFetchedTrades(
+                                    window_id,
+                                    pane,
+                                    trades,
+                                    stream_type,
+                                    to_time,
+                                ),
+                                Err(err) => Message::ErrorOccurred(
+                                    window_id,
+                                    Some(pane),
+                                    DashboardError::Fetch(err.to_string()),
+                                ),
+                            },
+                        );
+                    } else {
+                        self.notification_manager.remove_info_type(
+                            window_id,
+                            &pane,
+                            &InfoType::FetchingTrades(0),
+                        );
+
+                        return Task::done(Message::ErrorOccurred(
+                            window_id,
+                            Some(pane),
+                            DashboardError::Fetch(format!(
+                                "No trade fetch support for {exchange:?}"
+                            )),
+                        ));
+                    }
+                }
+            }
+            Message::DistributeFetchedTrades(
+                window_id,
+                pane,
+                trades,
+                stream_type,
+                to_time,
+            ) => {
+                let last_trade_time = trades.last()
+                    .map_or(0, |trade| trade.time);
+
+                self.notification_manager.increment_fetching_trades(
+                    window_id,
+                    &pane,
+                    trades.len(),
+                );
+
+                if last_trade_time < to_time {
+                    match self.insert_fetched_trades(
+                        main_window.id,
+                        window_id,
+                        pane,
+                        &trades,
+                        false,
+                    ) {
+                        Ok(_) => {
+                            return Task::done(Message::FetchTrades(
+                                window_id,
+                                pane,
+                                last_trade_time,
+                                to_time,
+                                stream_type,
+                            ));
+                        }
+                        Err(err) => {
+                            self.notification_manager.remove_info_type(
+                                window_id,
+                                &pane,
+                                &InfoType::FetchingTrades(0),
+                            );
+
+                            return Task::done(
+                                Message::ErrorOccurred(window_id, Some(pane), err)
+                            );
+                        }
+                    }
+                } else {
+                    self.notification_manager.remove_info_type(
+                        window_id,
+                        &pane,
+                        &InfoType::FetchingTrades(0),
+                    );
+
+                    match self.insert_fetched_trades(
+                        main_window.id,
+                        window_id,
+                        pane,
+                        &trades,
+                        true,
+                    ) {
+                        Ok(_) => {}
+                        Err(err) => {
+                            return Task::done(
+                                Message::ErrorOccurred(window_id, Some(pane), err)
+                            );
+                        }
+                    }
+                }
+            }
             Message::RefreshStreams => {
                 self.pane_streams = self.get_all_diff_streams(main_window.id);
             }
@@ -622,6 +768,12 @@ impl Dashboard {
 
                                 if let Some(stream) = kline_stream {    
                                     let stream = *stream;
+
+                                    self.notification_manager.push(
+                                        window,
+                                        pane,
+                                        Notification::Info(InfoType::FetchingOI),
+                                    );
             
                                     return get_oi_fetch_task(
                                         window,
@@ -631,6 +783,37 @@ impl Dashboard {
                                         Some((from, to)),
                                     );
                                 }
+                        }
+                        FetchRange::Trades(from, to) => {
+                            if !self.trade_fetch_enabled {
+                                return Task::none();
+                            }
+
+                            let trade_stream = self
+                                .get_pane(main_window.id, window, pane)
+                                .and_then(|pane| {
+                                    pane.stream.iter().find(|stream| {
+                                        matches!(stream, StreamType::DepthAndTrades { .. })
+                                    })
+                                });
+
+                            if let Some(stream) = trade_stream {
+                                let stream = *stream;
+
+                                self.notification_manager.push(
+                                    window,
+                                    pane,
+                                    Notification::Info(InfoType::FetchingTrades(0)),
+                                );
+
+                                return Task::done(Message::FetchTrades(
+                                    window,
+                                    pane,
+                                    from,
+                                    to,
+                                    stream,
+                                ));
+                            }
                         }
                     }
                 }
@@ -836,7 +1019,10 @@ impl Dashboard {
         if !self.notification_manager.global_notifications.is_empty() {
             dashboard_notification(
                 base,
-                create_notis_column(&self.notification_manager.global_notifications),
+                create_notis_column(
+                    &self.notification_manager.global_notifications, 
+                    Message::ClearLastGlobalNotification,
+                ),
             )
         } else {
             base.into()
@@ -913,18 +1099,18 @@ impl Dashboard {
         if let Some(pane_state) = self.get_mut_pane(main_window, window, pane) {
             pane_state.settings.tick_multiply = Some(new_tick_multiply);
 
-            if let Some(min_tick_size) = pane_state.settings.min_tick_size {
+            if let Some(ticker_info) = pane_state.settings.ticker_info {
                 match pane_state.content {
                     PaneContent::Footprint(ref mut chart, _) => {
                         chart.change_tick_size(
-                            new_tick_multiply.multiply_with_min_tick_size(min_tick_size),
+                            new_tick_multiply.multiply_with_min_tick_size(ticker_info),
                         );
 
                         chart.reset_request_handler();
                     }
                     PaneContent::Heatmap(ref mut chart, _) => {
                         chart.change_tick_size(
-                            new_tick_multiply.multiply_with_min_tick_size(min_tick_size),
+                            new_tick_multiply.multiply_with_min_tick_size(ticker_info),
                         );
                     }
                     _ => {
@@ -1048,6 +1234,42 @@ impl Dashboard {
         }
 
         Task::none()
+    }
+
+    pub fn toggle_trade_fetch(&mut self, is_enabled: bool, main_window: &Window) {
+        self.trade_fetch_enabled = is_enabled;
+
+        self.iter_all_panes_mut(main_window.id)
+            .for_each(|(_, _, pane_state)| {
+                if let PaneContent::Footprint(chart, _) = &mut pane_state.content {
+                    chart.reset_request_handler();
+                }
+            });
+    }
+
+    fn insert_fetched_trades(
+        &mut self,
+        main_window: window::Id,
+        window: window::Id,
+        pane: pane_grid::Pane,
+        trades: &[Trade],
+        is_batches_done: bool,
+    ) -> Result<(), DashboardError> {
+        self.get_mut_pane(main_window, window, pane)
+            .map_or_else(
+                || Err(
+                    DashboardError::Unknown("Couldnt get the pane for fetched trades".to_string())
+                ),
+                |pane_state| match &mut pane_state.content {
+                    PaneContent::Footprint(chart, _) => {
+                        chart.insert_trades(trades.to_owned(), is_batches_done);
+                        Ok(())
+                    }
+                    _ => Err(
+                        DashboardError::Unknown("No matching chart found for fetched trades".to_string())
+                    ),
+                }
+            )
     }
 
     pub fn update_latest_klines(

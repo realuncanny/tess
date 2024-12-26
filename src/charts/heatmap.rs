@@ -1,18 +1,19 @@
-use std::{cmp::Ordering, collections::BTreeMap};
+use std::{cmp::Ordering, collections::{BTreeMap, HashMap}};
 
 use iced::{
-    mouse, theme::palette::Extended, Alignment, Color, Element, Point, Rectangle, Renderer, Size,
-    Theme, Vector, Task
+    mouse, theme::palette::Extended, Alignment, Color, Element, 
+    Point, Rectangle, Renderer, Size, Task, Theme, Vector
 };
-use iced::widget::{column, canvas::{self, Event, Geometry, Path}};
+use iced::widget::canvas::{self, Event, Geometry, Path};
 
+use crate::data_providers::TickerInfo;
 use crate::{
     data_providers::{Depth, Trade},
     screen::UserTimezone,
 };
 
-use super::indicators::Indicator;
-use super::{Caches, Chart, ChartConstants, CommonChartData, Interaction, Message};
+use super::indicators::{HeatmapIndicator, Indicator};
+use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
 use super::{canvas_interaction, view_chart, update_chart, count_decimals, convert_to_qty_abbr};
 
 use ordered_float::OrderedFloat;
@@ -43,8 +44,12 @@ impl Chart for HeatmapChart {
         canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
-    fn view_indicator<I: Indicator>(&self, indicators: &[I]) -> Element<Message> {
-        self.view_indicators(indicators)
+    fn view_indicator<I: Indicator>(
+        &self, 
+        indicators: &[I], 
+        ticker_info: Option<TickerInfo>
+    ) -> Option<Element<Message>> {
+        self.view_indicators(indicators, ticker_info)
     }
 
     fn get_visible_timerange(&self) -> (i64, i64) {
@@ -221,22 +226,21 @@ pub struct GroupedTrade {
 }
 
 #[allow(dead_code)]
-enum Indicators {
-    Volume(Caches, BTreeMap<i64, (f32, f32)>),
-    Spread(Caches, BTreeMap<i64, f32>),
+enum IndicatorData {
+    Volume,
 }
 
 pub struct HeatmapChart {
     chart: CommonChartData,
     data_points: Vec<(i64, Box<[GroupedTrade]>, (f32, f32))>,
-    indicators: Vec<Indicators>,
+    indicators: HashMap<HeatmapIndicator, IndicatorData>,
     orderbook: Orderbook,
     trade_size_filter: f32,
     order_size_filter: f32,
 }
 
 impl HeatmapChart {
-    pub fn new(tick_size: f32, aggr_time: i64, timezone: UserTimezone) -> Self {
+    pub fn new(tick_size: f32, aggr_time: i64, timezone: UserTimezone, enabled_indicators: &[HeatmapIndicator]) -> Self {
         HeatmapChart {
             chart: CommonChartData {
                 cell_width: Self::DEFAULT_CELL_WIDTH,
@@ -247,11 +251,26 @@ impl HeatmapChart {
                 timezone,
                 ..Default::default()
             },
+            indicators: {
+                let mut indicators = HashMap::new();
+
+                for indicator in enabled_indicators {
+                    indicators.insert(
+                        *indicator,
+                        match indicator {
+                            HeatmapIndicator::Volume => {
+                                IndicatorData::Volume
+                            },
+                        }
+                    );
+                }
+
+                indicators
+            },
             orderbook: Orderbook::new(tick_size, aggr_time),
             data_points: Vec::new(),
             trade_size_filter: 0.0,
             order_size_filter: 0.0,
-            indicators: vec![],
         }
     }
 
@@ -379,6 +398,21 @@ impl HeatmapChart {
         self.orderbook = Orderbook::new(new_tick_size, aggr_time);
     }
 
+    pub fn toggle_indicator(&mut self, indicator: HeatmapIndicator) {
+        if self.indicators.contains_key(&indicator) {
+            self.indicators.remove(&indicator);
+        } else {
+            match indicator {
+                HeatmapIndicator::Volume => {
+                    self.indicators.insert(
+                        indicator,
+                        IndicatorData::Volume,
+                    );
+                },
+            }
+        }
+    }
+
     fn render_start(&mut self) {
         let chart_state = self.get_common_data_mut();
 
@@ -447,18 +481,20 @@ impl HeatmapChart {
         }
     }
 
-    /// gonna have to implement this later
-    pub fn view_indicators<I: Indicator>(&self, _indis: &[I]) -> Element<Message> {
-        let indicators: iced::widget::Column<'_, Message> = column![];
-        indicators.into()
+    pub fn view_indicators<I: Indicator>(&self, _indis: &[I], _ticker_info: Option<TickerInfo>) -> Option<Element<Message>> {
+        None
     }
 
     pub fn update(&mut self, message: &Message) -> Task<Message> {
         self.update_chart(message)
     }
 
-    pub fn view<'a, I: Indicator>(&'a self, indicators: &'a [I]) -> Element<Message> {
-        view_chart(self, indicators)
+    pub fn view<'a, I: Indicator>(
+        &'a self, 
+        indicators: &'a [I], 
+        ticker_info: Option<TickerInfo>
+    ) -> Element<Message> {
+        view_chart(self, indicators, ticker_info)
     }
 }
 
@@ -493,6 +529,8 @@ impl canvas::Program<Message> for HeatmapChart {
         let bounds_size = bounds.size();
 
         let palette = theme.extended_palette();
+        
+        let volume_indicator = self.indicators.contains_key(&HeatmapIndicator::Volume);
 
         let heatmap = chart.cache.main.draw(renderer, bounds_size, |frame| {
             frame.with_save(|frame| {
@@ -638,31 +676,33 @@ impl canvas::Program<Message> for HeatmapChart {
                             }
                         });
 
-                        let bar_width = (chart.cell_width / 2.0) * 0.9;
+                        if volume_indicator {
+                            let bar_width = (chart.cell_width / 2.0) * 0.9;
 
-                        let buy_bar_height =
-                            (buy_volume / max_aggr_volume) * (bounds.height / chart.scaling) * 0.1;
-                        let sell_bar_height =
-                            (sell_volume / max_aggr_volume) * (bounds.height / chart.scaling) * 0.1;
+                            let buy_bar_height =
+                                (buy_volume / max_aggr_volume) * (bounds.height / chart.scaling) * 0.1;
+                            let sell_bar_height =
+                                (sell_volume / max_aggr_volume) * (bounds.height / chart.scaling) * 0.1;
 
-                        frame.fill_rectangle(
-                            Point::new(x_position, (region.y + region.height) - buy_bar_height),
-                            Size::new(bar_width, buy_bar_height),
-                            palette.success.base.color,
-                        );
+                            frame.fill_rectangle(
+                                Point::new(x_position, (region.y + region.height) - buy_bar_height),
+                                Size::new(bar_width, buy_bar_height),
+                                palette.success.base.color,
+                            );
 
-                        frame.fill_rectangle(
-                            Point::new(
-                                x_position - bar_width,
-                                (region.y + region.height) - sell_bar_height,
-                            ),
-                            Size::new(bar_width, sell_bar_height),
-                            palette.danger.base.color,
-                        );
+                            frame.fill_rectangle(
+                                Point::new(
+                                    x_position - bar_width,
+                                    (region.y + region.height) - sell_bar_height,
+                                ),
+                                Size::new(bar_width, sell_bar_height),
+                                palette.danger.base.color,
+                            );
+                        }
                     },
                 );
 
-                if max_aggr_volume > 0.0 {
+                if volume_indicator && max_aggr_volume > 0.0 {
                     let text_size = 9.0 / chart.scaling;
                     let text_content = convert_to_qty_abbr(max_aggr_volume);
                     let text_width = (text_content.len() as f32 * text_size) / 1.5;

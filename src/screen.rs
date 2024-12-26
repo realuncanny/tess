@@ -6,7 +6,7 @@ use iced::{
 use iced_futures::MaybeSend;
 use serde::{Deserialize, Serialize};
 
-use crate::{style, tooltip};
+use crate::tooltip;
 
 pub mod dashboard;
 pub mod modal;
@@ -23,7 +23,7 @@ pub fn create_button<'a, M: Clone + 'a>(
         .on_press(message);
         
     if let Some(text) = tooltip_text {
-        tooltip(btn, Some(text), tooltip_pos).into()
+        tooltip(btn, Some(text), tooltip_pos)
     } else {
         btn.into()
     }
@@ -76,12 +76,14 @@ impl Serialize for UserTimezone {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InfoType {
     FetchingKlines,
+    FetchingTrades(usize),
+    FetchingOI,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Notification {
     Error(String),
     Info(InfoType),
@@ -137,6 +139,43 @@ impl NotificationManager {
     pub fn push(&mut self, window: window::Id, pane: pane_grid::Pane, notification: Notification) {
         self.get_or_create_notifications(window, pane)
             .push(notification);
+    }
+
+    pub fn increment_fetching_trades(
+        &mut self,
+        window: window::Id,
+        pane: &pane_grid::Pane,
+        increment_by: usize,
+    ) {
+        if let Some(window_map) = self.notifications.get_mut(&window) {
+            if let Some(notification_list) = window_map.get_mut(pane) {
+                let found = notification_list.iter_mut().any(|notification| {
+                    if let Notification::Info(InfoType::FetchingTrades(count)) = notification {
+                        *count += increment_by;
+                        return true;
+                    }
+                    false
+                });
+
+                if !found {
+                    notification_list.push(Notification::Info(InfoType::FetchingTrades(increment_by)));
+                }
+            } else {
+                window_map.insert(*pane, vec![Notification::Info(InfoType::FetchingTrades(increment_by))]);
+            }
+        } else {
+            let mut pane_map = HashMap::new();
+            pane_map.insert(*pane, vec![Notification::Info(InfoType::FetchingTrades(increment_by))]);
+            self.notifications.insert(window, pane_map);
+        }
+    }
+
+    pub fn find_and_remove(&mut self, window: window::Id, pane: pane_grid::Pane, notification: Notification) {
+        if let Some(window_map) = self.notifications.get_mut(&window) {
+            if let Some(notification_list) = window_map.get_mut(&pane) {
+                notification_list.retain(|n| n != &notification);
+            }
+        }
     }
 
     /// Remove notifications of a specific type for a pane in a window
@@ -234,29 +273,32 @@ impl NotificationManager {
     }
 }
 
-fn create_notis_column<'a, M: 'a>(notifications: &'a [Notification]) -> Column<'a, M> {
+fn create_notis_column<'a, M: 'a + Clone>(
+    notifications: &'a [Notification],
+    close_message: M,
+) -> Column<'a, M> {
     let mut notifications_column = column![].align_x(Alignment::End).spacing(6);
 
-    for (index, notification) in notifications.iter().rev().take(5).enumerate() {
+    for notification in notifications.iter().rev().take(5) {
         let notification_str = match notification {
             Notification::Error(error) => error.to_string(),
             Notification::Warn(warn) => warn.to_string(),
             Notification::Info(info) => match info {
                 InfoType::FetchingKlines => "Fetching klines...".to_string(),
+                InfoType::FetchingTrades(total_fetched) => format!(
+                    "Fetching trades...\n({} fetched)",
+                    total_fetched
+                ),
+                InfoType::FetchingOI => "Fetching open interest...".to_string(),
             },
         };
 
-        let color_alpha = 1.0 - (index as f32 * 0.25);
-
-        notifications_column =
-            notifications_column.push(container(text(notification_str)).padding(12).style(
-                move |theme| match notification {
-                    Notification::Error(_) => style::pane_err_notification(theme, color_alpha),
-                    Notification::Warn(_) | Notification::Info(_) => {
-                        style::pane_info_notification(theme, color_alpha)
-                    }
-                },
-            ));
+        notifications_column = notifications_column
+            .push(
+                button(container(text(notification_str)).padding(6))
+                    .on_press(close_message.clone()),
+            )
+            .padding(12);
     }
 
     notifications_column

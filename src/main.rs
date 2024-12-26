@@ -1,197 +1,45 @@
 #![windows_subsystem = "windows"]
 
+mod style;
 mod charts;
-mod data_providers;
+mod window;
 mod layout;
 mod logger;
 mod screen;
-mod style;
-mod tickers_table;
 mod tooltip;
-mod window;
+mod tickers_table;
+mod data_providers;
 
 use tooltip::tooltip;
-use screen::modal::dashboard_modal;
-use layout::{SerializableDashboard, SerializablePane, Sidebar};
-
-use futures::TryFutureExt;
-use iced_futures::MaybeSend;
-use style::{get_icon_text, Icon, ICON_BYTES};
-
-use screen::{create_button, dashboard, handle_error, Notification, UserTimezone};
-use screen::dashboard::{Dashboard, pane, PaneContent, PaneSettings, PaneState};
-use data_providers::{
-    binance, bybit, Exchange, MarketType, StreamType, TickMultiplier, Ticker, TickerInfo, TickerStats, Timeframe
-};
 use tickers_table::TickersTable;
-
-use charts::footprint::FootprintChart;
-use charts::heatmap::HeatmapChart;
-use charts::candlestick::CandlestickChart;
-use charts::timeandsales::TimeAndSales;
+use layout::{SerializableDashboard, Sidebar};
+use style::{get_icon_text, Icon, ICON_BYTES};
+use screen::{
+    create_button, dashboard, handle_error, Notification, UserTimezone, 
+    dashboard::{Dashboard, pane},
+    modal::{confirmation_modal, dashboard_modal}
+};
+use data_providers::{
+    binance, bybit, Exchange, MarketType, StreamType, Ticker, TickerInfo, TickerStats, Timeframe
+};
 use window::{window_events, Window, WindowEvent};
-
-use std::future::Future;
-use std::{collections::HashMap, vec};
-
 use iced::{
-    widget::{button, pick_list, Space, column, container, row, text},
+    widget::{button, pick_list, Space, column, container, row, text, center, responsive, pane_grid},
     padding, Alignment, Element, Length, Point, Size, Subscription, Task, Theme,
 };
-use iced::widget::{center, responsive};
-use iced::widget::pane_grid::{self, Configuration};
+use iced_futures::MaybeSend;
+use futures::TryFutureExt;
+use std::{collections::HashMap, vec, future::Future};
 
 fn main() {
     logger::setup(false, false).expect("Failed to initialize logger");
 
-    let saved_state = match layout::read_from_file("dashboard_state.json") {
-        Ok(state) => {
-            let mut de_state = layout::SavedState {
-                selected_theme: state.selected_theme,
-                layouts: HashMap::new(),
-                favorited_tickers: state.favorited_tickers,
-                last_active_layout: state.last_active_layout,
-                window_size: state.window_size,
-                window_position: state.window_position,
-                timezone: state.timezone,
-                sidebar: state.sidebar,
-            };
+    std::thread::spawn(|| {
+        let data_dir_path = std::path::Path::new("data/futures/um/daily/aggTrades");
+        layout::cleanup_old_data(data_dir_path)
+    });
 
-            fn configuration(pane: SerializablePane) -> Configuration<PaneState> {
-                match pane {
-                    SerializablePane::Split { axis, ratio, a, b } => Configuration::Split {
-                        axis: match axis {
-                            pane::Axis::Horizontal => pane_grid::Axis::Horizontal,
-                            pane::Axis::Vertical => pane_grid::Axis::Vertical,
-                        },
-                        ratio,
-                        a: Box::new(configuration(*a)),
-                        b: Box::new(configuration(*b)),
-                    },
-                    SerializablePane::Starter => {
-                        Configuration::Pane(PaneState::new(vec![], PaneSettings::default()))
-                    }
-                    SerializablePane::CandlestickChart {
-                        stream_type,
-                        settings,
-                        indicators,
-                    } => {
-                        let tick_size = settings.tick_multiply
-                            .unwrap_or(TickMultiplier(1))
-                            .multiply_with_min_tick_size(
-                                settings.min_tick_size
-                                    .expect("No min tick size found, deleting dashboard_state.json probably fixes this")
-                            );
-
-                        let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M5);
-
-                        Configuration::Pane(PaneState::from_config(
-                            PaneContent::Candlestick(
-                                CandlestickChart::new(
-                                    vec![],
-                                    timeframe,
-                                    tick_size,
-                                    UserTimezone::default(),
-                                ),
-                                indicators,
-                            ),
-                            stream_type,
-                            settings,
-                        ))
-                    }
-                    SerializablePane::FootprintChart {
-                        stream_type,
-                        settings,
-                        indicators,
-                    } => {
-                        let tick_size = settings.tick_multiply
-                            .unwrap_or(TickMultiplier(50))
-                            .multiply_with_min_tick_size(
-                                settings.min_tick_size
-                                    .expect("No min tick size found, deleting dashboard_state.json probably fixes this")
-                            );
-
-                        let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M15);
-
-                        Configuration::Pane(PaneState::from_config(
-                            PaneContent::Footprint(
-                                FootprintChart::new(
-                                    timeframe,
-                                    tick_size,
-                                    vec![],
-                                    vec![],
-                                    UserTimezone::default(),
-                                ),
-                                indicators,
-                            ),
-                            stream_type,
-                            settings,
-                        ))
-                    }
-                    SerializablePane::HeatmapChart {
-                        stream_type,
-                        settings,
-                        indicators,
-                    } => {
-                        let tick_size = settings.tick_multiply
-                            .unwrap_or(TickMultiplier(10))
-                            .multiply_with_min_tick_size(
-                                settings.min_tick_size
-                                    .expect("No min tick size found, deleting dashboard_state.json probably fixes this")
-                            );
-
-                        Configuration::Pane(PaneState::from_config(
-                            PaneContent::Heatmap(
-                                HeatmapChart::new(
-                                    tick_size,
-                                    100,
-                                    UserTimezone::default(),
-                                ),
-                                indicators,
-                            ),
-                            stream_type,
-                            settings,
-                        ))
-                    }
-                    SerializablePane::TimeAndSales {
-                        stream_type,
-                        settings,
-                    } => Configuration::Pane(PaneState::from_config(
-                        PaneContent::TimeAndSales(TimeAndSales::new()),
-                        stream_type,
-                        settings,
-                    )),
-                }
-            }
-
-            for (id, dashboard) in &state.layouts {
-                let mut popout_windows: Vec<(Configuration<PaneState>, (Point, Size))> = Vec::new();
-
-                for (popout, pos, size) in &dashboard.popout {
-                    let configuration = configuration(popout.clone());
-                    popout_windows.push((
-                        configuration,
-                        (Point::new(pos.0, pos.1), Size::new(size.0, size.1)),
-                    ));
-                }
-
-                let dashboard =
-                    Dashboard::from_config(configuration(dashboard.pane.clone()), popout_windows);
-
-                de_state.layouts.insert(*id, dashboard);
-            }
-
-            de_state
-        }
-        Err(e) => {
-            log::error!(
-                "Failed to load/find layout state: {}. Starting with a new layout.",
-                e
-            );
-
-            layout::SavedState::default()
-        }
-    };
+    let saved_state = layout::load_saved_state("dashboard_state.json");
 
     let window_size = saved_state.window_size.unwrap_or((1600.0, 900.0));
     let window_position = saved_state.window_position;
@@ -260,6 +108,7 @@ enum Message {
     ToggleModal(DashboardModal),
 
     MarketWsEvent(Exchange, data_providers::Event),
+    ToggleTradeFetch(bool),
 
     WindowEvent(WindowEvent),
     SaveAndExit(HashMap<window::Id, (Point, Size)>),
@@ -279,6 +128,7 @@ enum Message {
     FetchAndUpdateTickersTable,
 
     LoadLayout(layout::LayoutId),
+    ToggleDialogModal(Option<String>),
 }
 
 struct State {
@@ -292,6 +142,7 @@ struct State {
     ticker_info_map: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     show_tickers_dashboard: bool,
     tickers_table: TickersTable,
+    confirmation_dialog: Option<String>,
 }
 
 #[allow(dead_code)]
@@ -305,52 +156,34 @@ impl State {
         let last_active_layout = saved_state.last_active_layout;
 
         let mut ticker_info_map = HashMap::new();
-        let mut ticksizes_tasks = Vec::new();
 
-        for exchange in &Exchange::ALL {
-            ticker_info_map.insert(*exchange, HashMap::new());
+        let exchange_fetch_tasks = {
+            Exchange::MARKET_TYPES.iter()
+                .flat_map(|(exchange, market_type)| {
+                    ticker_info_map.insert(*exchange, HashMap::new());
+                    
+                    let ticksizes_task = match exchange {
+                        Exchange::BinanceFutures | Exchange::BinanceSpot => {
+                            fetch_ticker_info(*exchange, binance::fetch_ticksize(*market_type))
+                        }
+                        Exchange::BybitLinear | Exchange::BybitSpot => {
+                            fetch_ticker_info(*exchange, bybit::fetch_ticksize(*market_type))
+                        }
+                    };
 
-            let fetch_ticksize = match exchange {
-                Exchange::BinanceFutures => {
-                    fetch_ticker_info(*exchange, binance::fetch_ticksize(MarketType::LinearPerps))
-                }
-                Exchange::BybitLinear => {
-                    fetch_ticker_info(*exchange, bybit::fetch_ticksize(MarketType::LinearPerps))
-                }
-                Exchange::BinanceSpot => {
-                    fetch_ticker_info(*exchange, binance::fetch_ticksize(MarketType::Spot))
-                }
-                Exchange::BybitSpot => {
-                    fetch_ticker_info(*exchange, bybit::fetch_ticksize(MarketType::Spot))
-                }
-            };
-            ticksizes_tasks.push(fetch_ticksize);
-        }
+                    let prices_task = match exchange {
+                        Exchange::BinanceFutures | Exchange::BinanceSpot => {
+                            fetch_ticker_prices(*exchange, binance::fetch_ticker_prices(*market_type))
+                        }
+                        Exchange::BybitLinear | Exchange::BybitSpot => {
+                            fetch_ticker_prices(*exchange, bybit::fetch_ticker_prices(*market_type))
+                        }
+                    };
 
-        let bybit_tickers_fetch = fetch_ticker_prices(
-            Exchange::BybitLinear,
-            bybit::fetch_ticker_prices(MarketType::LinearPerps),
-        );
-        let binance_tickers_fetch = fetch_ticker_prices(
-            Exchange::BinanceFutures,
-            binance::fetch_ticker_prices(MarketType::LinearPerps),
-        );
-        let binance_spot_tickers_fetch = fetch_ticker_prices(
-            Exchange::BinanceSpot,
-            binance::fetch_ticker_prices(MarketType::Spot),
-        );
-        let bybit_spot_tickers_fetch = fetch_ticker_prices(
-            Exchange::BybitSpot,
-            bybit::fetch_ticker_prices(MarketType::Spot),
-        );
-
-        let batch_fetch_tasks = Task::batch(vec![
-            bybit_tickers_fetch,
-            binance_tickers_fetch,
-            binance_spot_tickers_fetch,
-            bybit_spot_tickers_fetch,
-            Task::batch(ticksizes_tasks),
-        ]);
+                    vec![ticksizes_task, prices_task]
+                })
+                .collect::<Vec<_>>()
+        };
 
         (
             Self {
@@ -364,13 +197,14 @@ impl State {
                 show_tickers_dashboard: false,
                 sidebar_location: saved_state.sidebar,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
+                confirmation_dialog: None,
             },
             open_main_window
                 .then(|_| Task::none())
                 .chain(Task::batch(vec![
                     Task::done(Message::LoadLayout(last_active_layout)),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
-                    batch_fetch_tasks,
+                    Task::batch(exchange_fetch_tasks),
                 ])),
         )
     }
@@ -458,7 +292,7 @@ impl State {
                         Message::SaveAndExit
                     );
                 }
-            },
+            }
             Message::SaveAndExit(windows) => {
                 self.get_mut_dashboard(self.last_active_layout)
                     .popout
@@ -650,6 +484,18 @@ impl State {
             Message::SidebarPosition(pos) => {
                 self.sidebar_location = pos;
             }
+            Message::ToggleTradeFetch(checked) => {
+                self.layouts.values_mut().for_each(|dashboard| {
+                    dashboard.toggle_trade_fetch(checked, &self.main_window);
+                });
+                    
+                if checked {
+                    self.confirmation_dialog = None;
+                }
+            }
+            Message::ToggleDialogModal(dialog) => {
+                self.confirmation_dialog = dialog;
+            }
         }
         Task::none()
     }
@@ -790,7 +636,7 @@ impl State {
                 .view(&self.main_window)
                 .map(Message::Dashboard);
 
-            let content = column![
+            let base = column![
                 {
                     #[cfg(target_os = "macos")] {
                         center(
@@ -829,23 +675,50 @@ impl State {
 
             match self.active_modal {
                 DashboardModal::Settings => {
-                    let mut all_themes: Vec<Theme> = Theme::ALL.to_vec();
-                    all_themes.push(Theme::Custom(style::custom_theme().into()));
-    
-                    let theme_picklist =
-                        pick_list(all_themes, Some(self.theme.clone()), Message::ThemeSelected);
-    
-                    let timezone_picklist = pick_list(
-                        [UserTimezone::Utc, UserTimezone::Local],
-                        Some(dashboard.get_timezone()),
-                        Message::SetTimezone,
-                    );
-                    let sidebar_pos = pick_list(
-                        [Sidebar::Left, Sidebar::Right],
-                        Some(self.sidebar_location),
-                        Message::SidebarPosition,
-                    );
                     let settings_modal = {
+                        let mut all_themes: Vec<Theme> = Theme::ALL.to_vec();
+                        all_themes.push(Theme::Custom(style::custom_theme().into()));
+
+                        let trade_fetch_checkbox = {
+                            let is_active = dashboard.trade_fetch_enabled;
+                    
+                            let checkbox = iced::widget::checkbox("Fetch trades (Binance)", is_active)
+                                .on_toggle(|checked| {
+                                        if checked {
+                                            Message::ToggleDialogModal(
+                                                Some(
+                                                    "This might be unreliable and take some time to complete"
+                                                    .to_string()
+                                                ),
+                                            )
+                                        } else {
+                                            Message::ToggleTradeFetch(false)
+                                        }
+                                    }
+                                );
+                    
+                            tooltip(
+                                checkbox,
+                                Some("Try to fetch trades for footprint charts"),
+                                tooltip::Position::Top,
+                            )
+                        };
+
+                        let theme_picklist =
+                            pick_list(all_themes, Some(self.theme.clone()), Message::ThemeSelected);
+        
+                        let timezone_picklist = pick_list(
+                            [UserTimezone::Utc, UserTimezone::Local],
+                            Some(dashboard.get_timezone()),
+                            Message::SetTimezone,
+                        );
+
+                        let sidebar_pos = pick_list(
+                            [Sidebar::Left, Sidebar::Right],
+                            Some(self.sidebar_location),
+                            Message::SidebarPosition,
+                        );
+
                         container(
                             column![
                                 column![
@@ -854,6 +727,10 @@ impl State {
                                 ].spacing(4),
                                 column![text("Time zone").size(14), timezone_picklist,].spacing(4),
                                 column![text("Theme").size(14), theme_picklist,].spacing(4),
+                                column![
+                                    text("Experimental").size(14),
+                                    trade_fetch_checkbox,
+                                ].spacing(4),
                             ]
                             .spacing(16),
                         )
@@ -867,15 +744,43 @@ impl State {
                         Sidebar::Left => (Alignment::Start, padding::left(48).top(8)),
                         Sidebar::Right => (Alignment::End, padding::right(48).top(8)),
                     };
-    
-                    dashboard_modal(
-                        content,
+
+                    let base_content = dashboard_modal(
+                        base,
                         settings_modal,
                         Message::ToggleModal(DashboardModal::None),
                         padding,
                         Alignment::End,
                         align_x,
-                    )
+                    );
+
+                    if let Some(confirm_dialog) = &self.confirmation_dialog {
+                        let dialog_content = container(
+                            column![
+                                text(confirm_dialog).size(14),
+                                row![
+                                    button(text("Cancel"))
+                                        .style(|theme, status| style::button_transparent(theme, status, false))
+                                        .on_press(Message::ToggleDialogModal(None)),
+                                    button(text("Confirm"))
+                                        .on_press(Message::ToggleTradeFetch(true)),
+                                ]
+                                .spacing(8),
+                            ]
+                            .align_x(Alignment::Center)
+                            .spacing(16),
+                        )
+                        .padding(24)
+                        .style(style::dashboard_modal);
+    
+                        confirmation_modal(
+                            base_content, 
+                            dialog_content, 
+                            Message::ToggleDialogModal(None)
+                        )
+                    } else {
+                        base_content
+                    }
                 }
                 DashboardModal::Layout => {
                     let layout_picklist = pick_list(
@@ -964,7 +869,7 @@ impl State {
                     };
     
                     dashboard_modal(
-                        content,
+                        base,
                         manage_layout_modal,
                         Message::ToggleModal(DashboardModal::None),
                         padding,
@@ -972,7 +877,7 @@ impl State {
                         align_x,
                     )
                 }
-                DashboardModal::None => content.into(),
+                DashboardModal::None => base.into(),
             }
         }
     }

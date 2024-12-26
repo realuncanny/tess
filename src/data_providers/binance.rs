@@ -1,5 +1,5 @@
-use std::collections::HashMap;
-
+use std::{collections::HashMap, io::BufReader};
+use csv::ReaderBuilder;
 use fastwebsockets::{FragmentCollector, OpCode};
 use ::futures::{SinkExt, Stream};
 use hyper::upgrade::Upgraded;
@@ -10,10 +10,9 @@ use serde::{Deserialize, Serialize};
 use sonic_rs::{to_object_iter_unchecked, FastStr};
 
 use super::{
-    deserialize_string_to_f32,
-    setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
-    Connection, Event, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, 
-    StreamError, Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache,
+    deserialize_string_to_f32, setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
+    Connection, Event, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, StreamError,
+    Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache,
 };
 
 async fn connect(
@@ -717,8 +716,8 @@ pub async fn fetch_klines(
     Ok(klines)
 }
 
-pub async fn fetch_ticksize(market: MarketType) -> Result<HashMap<Ticker, Option<TickerInfo>>, StreamError> {
-    let url = match market {
+pub async fn fetch_ticksize(market_type: MarketType) -> Result<HashMap<Ticker, Option<TickerInfo>>, StreamError> {
+    let url = match market_type {
         MarketType::Spot => "https://api.binance.com/api/v3/exchangeInfo".to_string(),
         MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/exchangeInfo".to_string(),
     };
@@ -727,6 +726,25 @@ pub async fn fetch_ticksize(market: MarketType) -> Result<HashMap<Ticker, Option
 
     let exchange_info: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| StreamError::ParseError(format!("Failed to parse exchange info: {e}")))?;
+
+    let rate_limits = exchange_info["rateLimits"]
+        .as_array()
+        .ok_or_else(|| StreamError::ParseError("Missing rateLimits array".to_string()))?;
+
+    let request_limit = rate_limits
+        .iter()
+        .find(|x| x["rateLimitType"].as_str().unwrap_or_default() == "REQUEST_WEIGHT")
+        .and_then(|x| x["limit"].as_i64())
+        .ok_or_else(|| StreamError::ParseError("Missing request weight limit".to_string()))?;
+
+    log::info!(
+        "Binance req. weight limit per minute {}: {:?}", 
+        match market_type {
+            MarketType::Spot => "Spot",
+            MarketType::LinearPerps => "Linear Perps",
+        },
+        request_limit
+    );
 
     let symbols = exchange_info["symbols"]
         .as_array()
@@ -765,9 +783,9 @@ pub async fn fetch_ticksize(market: MarketType) -> Result<HashMap<Ticker, Option
                 .parse::<f32>()
                 .map_err(|e| StreamError::ParseError(format!("Failed to parse tickSize: {e}")))?;
 
-            ticker_info_map.insert(Ticker::new(ticker, market), Some(TickerInfo { tick_size }));
+            ticker_info_map.insert(Ticker::new(ticker, market_type), Some(TickerInfo { tick_size, market_type }));
         } else {
-            ticker_info_map.insert(Ticker::new(ticker, market), None);
+            ticker_info_map.insert(Ticker::new(ticker, market_type), None);
         }
     }
 
@@ -830,6 +848,206 @@ pub async fn fetch_ticker_prices(market: MarketType) -> Result<HashMap<Ticker, T
     }
 
     Ok(ticker_price_map)
+}
+
+async fn handle_rate_limit(headers: &hyper::HeaderMap, max_limit: f32) -> Result<(), StreamError> {
+    let weight = headers
+        .get("x-mbx-used-weight-1m")
+        .ok_or_else(|| StreamError::ParseError("Missing rate limit header".to_string()))?
+        .to_str()
+        .map_err(|e| StreamError::ParseError(format!("Invalid header value: {e}")))?
+        .parse::<i32>()
+        .map_err(|e| StreamError::ParseError(format!("Invalid weight value: {e}")))?;
+
+    let usage_percentage = (weight as f32 / max_limit) * 100.0;
+
+    match usage_percentage {
+        p if p >= 95.0 => {
+            log::warn!("Rate limit critical ({:.1}%), sleeping for 10s", p);
+            tokio::time::sleep(tokio::time::Duration::from_secs(10)).await;
+        }
+        p if p >= 90.0 => {
+            log::warn!("Rate limit high ({:.1}%), sleeping for 5s", p);
+            tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        }
+        p if p >= 80.0 => {
+            log::warn!("Rate limit warning ({:.1}%), sleeping for 3s", p);
+            tokio::time::sleep(tokio::time::Duration::from_secs(3)).await;
+        }
+        _ => (),
+    }
+
+    Ok(())
+}
+
+pub async fn fetch_trades(
+    ticker: Ticker, 
+    from_time: i64,
+) -> Result<Vec<Trade>, StreamError> {
+    let today_midnight = chrono::Utc::now()
+        .date_naive()
+        .and_hms_opt(0, 0, 0)
+        .unwrap()
+        .and_utc();
+    
+    if from_time >= today_midnight.timestamp_millis() {
+        return fetch_intraday_trades(ticker, from_time).await;
+    }
+
+    let from_date = chrono::DateTime::from_timestamp_millis(from_time)
+        .ok_or_else(|| StreamError::ParseError("Invalid timestamp".into()))?
+        .date_naive();
+
+    match get_hist_trades(ticker, from_date).await {
+        Ok(trades) => Ok(trades),
+        Err(e) => {
+            log::warn!("Historical trades fetch failed: {}, falling back to intraday fetch", e);
+            fetch_intraday_trades(ticker, from_time).await
+        }
+    }
+}
+
+pub async fn fetch_intraday_trades(
+    ticker: Ticker,
+    from: i64,
+) -> Result<Vec<Trade>, StreamError> {
+    let (symbol_str, market_type) = ticker.get_string();
+    let base_url = match market_type {
+        MarketType::Spot => "https://api.binance.com/api/v3/aggTrades",
+        MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/aggTrades",
+    };
+
+    let mut url = format!(
+        "{base_url}?symbol={symbol_str}&limit=1000",
+    );
+
+    url.push_str(&format!("&startTime={}", from));
+
+    let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
+
+    handle_rate_limit(
+        response.headers(), 
+        match market_type {
+            MarketType::Spot => 6000.0,
+            MarketType::LinearPerps => 2400.0,
+        },
+    ).await?;
+
+    let text = response.text().await.map_err(StreamError::FetchError)?;
+
+    let trades: Vec<Trade> = {
+        let de_trades: Vec<SonicTrade> = sonic_rs::from_str(&text)
+            .map_err(|e| StreamError::ParseError(format!("Failed to parse trades: {e}")))?;
+
+        de_trades.into_iter().map(|de_trade| Trade {
+            time: de_trade.time as i64,
+            is_sell: de_trade.is_sell,
+            price: str_f32_parse(&de_trade.price),
+            qty: str_f32_parse(&de_trade.qty),
+        }).collect()
+    };
+
+    Ok(trades)
+}
+
+pub async fn get_hist_trades(
+    ticker: Ticker,
+    date: chrono::NaiveDate,
+) -> Result<Vec<Trade>, StreamError> {    
+    let (symbol, market_type) = ticker.get_string();
+
+    let base_path = match market_type {
+        MarketType::Spot => format!("data/spot/daily/aggTrades/{symbol}"),
+        MarketType::LinearPerps => format!("data/futures/um/daily/aggTrades/{symbol}"),
+    };
+
+    std::fs::create_dir_all(&base_path)
+        .map_err(|e| StreamError::ParseError(format!("Failed to create directories: {e}")))?;
+
+    let zip_path = format!(
+        "{}/{}-aggTrades-{}.zip",
+        base_path,
+        symbol.to_uppercase(), 
+        date.format("%Y-%m-%d"),
+    );
+    
+    if std::fs::metadata(&zip_path).is_ok() {
+        log::info!("Using cached {}", zip_path);
+    } else {
+        let url = format!("https://data.binance.vision/{zip_path}");
+
+        log::info!("Downloading from {}", url);
+        
+        let resp = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
+        
+        if !resp.status().is_success() {
+            return Err(StreamError::InvalidRequest(
+                format!("Failed to fetch from {}: {}", url, resp.status())
+            ));
+        }
+
+        let body = resp.bytes().await.map_err(StreamError::FetchError)?;
+        
+        std::fs::write(&zip_path, &body)
+            .map_err(|e| StreamError::ParseError(format!("Failed to write zip file: {e}")))?;
+    }
+
+    match std::fs::File::open(&zip_path) {
+        Ok(file) => {
+            let mut archive = zip::ZipArchive::new(file)
+                .map_err(|e| StreamError::ParseError(format!("Failed to unzip file: {e}")))?;
+
+            let mut trades = Vec::new();
+            for i in 0..archive.len() {
+                let csv_file = archive.by_index(i)
+                    .map_err(|e| StreamError::ParseError(format!("Failed to read csv: {e}")))?;
+
+                let mut csv_reader = ReaderBuilder::new()
+                    .has_headers(false)
+                    .from_reader(BufReader::new(csv_file));
+
+                trades.extend(csv_reader.records().filter_map(|record| {
+                    record.ok().and_then(|record| {
+                        let time = record[5].parse::<u64>().ok()?;
+                        let is_sell = record[6].parse::<bool>().ok()?;
+                        let price = str_f32_parse(&record[1]);
+                        let qty = str_f32_parse(&record[2]);
+                        
+                        Some(match market_type {
+                            MarketType::Spot => Trade {
+                                time: time as i64,
+                                is_sell,
+                                price,
+                                qty,
+                            },
+                            MarketType::LinearPerps => Trade {
+                                time: time as i64,
+                                is_sell,
+                                price,
+                                qty,
+                            }
+                        })
+                    })
+                }));
+            }
+            
+            if let Some(latest_trade) = trades.last() {
+                match fetch_intraday_trades(ticker, latest_trade.time).await {
+                    Ok(intraday_trades) => {
+                        trades.extend(intraday_trades);
+                    }
+                    Err(e) => {
+                        log::error!("Failed to fetch intraday trades: {}", e);
+                    }
+                }
+            }
+
+            Ok(trades)
+        }
+        Err(e) => Err(
+            StreamError::ParseError(format!("Failed to open compressed file: {e}"))
+        ),
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]

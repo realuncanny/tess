@@ -52,6 +52,7 @@ pub enum StreamError {
 pub struct TickerInfo {
     #[serde(rename = "tickSize")]
     pub tick_size: f32,
+    pub market_type: MarketType,
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -215,7 +216,9 @@ impl TickMultiplier {
     /// Returns the final tick size after applying the user selected multiplier
     ///
     /// Usually used for price steps in chart scales
-    pub fn multiply_with_min_tick_size(&self, min_tick_size: f32) -> f32 {
+    pub fn multiply_with_min_tick_size(&self, ticker_info: TickerInfo) -> f32 {
+        let min_tick_size = ticker_info.tick_size;
+
         let multiplier = if let Some(m) = Decimal::from_f32(f32::from(self.0)) {
             m
         } else {
@@ -279,11 +282,11 @@ impl std::fmt::Display for Exchange {
     }
 }
 impl Exchange {
-    pub const ALL: [Exchange; 4] = [
-        Exchange::BinanceFutures,
-        Exchange::BybitLinear,
-        Exchange::BybitSpot,
-        Exchange::BinanceSpot,
+    pub const MARKET_TYPES: [(Exchange, MarketType); 4] = [
+        (Exchange::BinanceFutures, MarketType::LinearPerps),
+        (Exchange::BybitLinear, MarketType::LinearPerps),
+        (Exchange::BinanceSpot, MarketType::Spot),
+        (Exchange::BybitSpot, MarketType::Spot),
     ];
 }
 

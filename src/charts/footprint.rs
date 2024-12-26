@@ -1,10 +1,12 @@
 use std::collections::{BTreeMap, HashMap};
 
 use iced::widget::canvas::{LineDash, Path, Stroke};
-use iced::{mouse, Alignment, Element, Point, Rectangle, Renderer, Size, Task, Theme, Vector};
+use iced::widget::container;
+use iced::{mouse, Alignment, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme, Vector};
 use iced::widget::{column, canvas::{self, Event, Geometry}};
 use ordered_float::OrderedFloat;
 
+use crate::data_providers::TickerInfo;
 use crate::screen::UserTimezone;
 use crate::data_providers::{
     fetcher::{FetchRange, RequestHandler},
@@ -43,8 +45,12 @@ impl Chart for FootprintChart {
         canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
-    fn view_indicator<I: Indicator>(&self, indicators: &[I]) -> Element<Message> {
-        self.view_indicators(indicators)
+    fn view_indicator<I: Indicator>(
+        &self, 
+        indicators: &[I], 
+        ticker_info: Option<TickerInfo>
+    ) -> Option<Element<Message>> {
+        self.view_indicators(indicators, ticker_info)
     }
 
     fn get_visible_timerange(&self) -> (i64, i64) {
@@ -61,16 +67,16 @@ impl Chart for FootprintChart {
 }
 
 #[allow(dead_code)]
-enum Indicators {
+enum IndicatorData {
     Volume(Caches, BTreeMap<i64, (f32, f32)>),
     OpenInterest(Caches, BTreeMap<i64, f32>),
 }
 
-impl Indicators {
+impl IndicatorData {
     fn clear_cache(&mut self) {
         match self {
-            Indicators::Volume(caches, _) 
-            | Indicators::OpenInterest(caches, _) => {
+            IndicatorData::Volume(caches, _) 
+            | IndicatorData::OpenInterest(caches, _) => {
                 caches.clear_all();
             }
         }
@@ -94,8 +100,9 @@ pub struct FootprintChart {
     chart: CommonChartData,
     data_points: BTreeMap<i64, (HashMap<OrderedFloat<f32>, (f32, f32)>, Kline)>,
     raw_trades: Vec<Trade>,
-    indicators: Vec<Indicators>,
+    indicators: HashMap<FootprintIndicator, IndicatorData>,
     fetching_oi: bool,
+    fetching_trades: bool,
     request_handler: RequestHandler,
 }
 
@@ -106,6 +113,7 @@ impl FootprintChart {
         klines_raw: Vec<Kline>,
         raw_trades: Vec<Trade>,
         timezone: UserTimezone,
+        enabled_indicators: &[FootprintIndicator],
     ) -> Self {
         let mut data_points = BTreeMap::new();
         let mut volume_data = BTreeMap::new();
@@ -173,44 +181,28 @@ impl FootprintChart {
             },
             data_points,
             raw_trades,
-            indicators: vec![
-                Indicators::Volume(Caches::default(), volume_data.clone()),
-                Indicators::OpenInterest(Caches::default(), BTreeMap::new()),
-            ],
-            fetching_oi: false,
-            request_handler: RequestHandler::new(),
-        }
-    }
+            indicators: {
+                let mut indicators = HashMap::new();
 
-    pub fn insert_datapoint(&mut self, trades_buffer: &[Trade], depth_update: i64) {
-        let (tick_size, aggregate_time) = {
-            let chart = self.get_common_data();
-            (chart.tick_size, chart.timeframe as i64)
-        };
-
-        let rounded_depth_update = (depth_update / aggregate_time) * aggregate_time;
-
-        self.data_points
-            .entry(rounded_depth_update)
-            .or_insert((HashMap::new(), Kline::default()));
-
-        for trade in trades_buffer {
-            let price_level = OrderedFloat(round_to_tick(trade.price, tick_size));
-            if let Some((trades, _)) = self.data_points.get_mut(&rounded_depth_update) {
-                if let Some((buy_qty, sell_qty)) = trades.get_mut(&price_level) {
-                    if trade.is_sell {
-                        *sell_qty += trade.qty;
-                    } else {
-                        *buy_qty += trade.qty;
-                    }
-                } else if trade.is_sell {
-                    trades.insert(price_level, (0.0, trade.qty));
-                } else {
-                    trades.insert(price_level, (trade.qty, 0.0));
+                for indicator in enabled_indicators {
+                    indicators.insert(
+                        *indicator,
+                        match indicator {
+                            FootprintIndicator::Volume => {
+                                IndicatorData::Volume(Caches::default(), volume_data.clone())
+                            },
+                            FootprintIndicator::OpenInterest => {
+                                IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
+                            }
+                        }
+                    );
                 }
-            }
 
-            self.raw_trades.push(*trade);
+                indicators
+            },
+            fetching_oi: false,
+            fetching_trades: false,
+            request_handler: RequestHandler::new(),
         }
     }
 
@@ -226,11 +218,10 @@ impl FootprintChart {
                 .insert(kline.time as i64, (HashMap::new(), *kline));
         }
 
-        self.indicators.iter_mut().for_each(|indicator| {
-            if let Indicators::Volume(_, data) = indicator {
+        if let Some(IndicatorData::Volume(_, data)) = 
+            self.indicators.get_mut(&FootprintIndicator::Volume) {
                 data.insert(kline.time as i64, (kline.volume.0, kline.volume.1));
-            }
-        });
+            };
 
         let chart = self.get_common_data_mut();
 
@@ -273,8 +264,28 @@ impl FootprintChart {
             }
         }
 
-        for indicator in &self.indicators {
-            if let Indicators::OpenInterest(_, _) = indicator {
+        if !self.fetching_trades {
+            let (kline_earliest, _) = self.get_trades_timerange(kline_latest);
+
+            if visible_earliest < kline_earliest {
+                let trade_earliest = self.raw_trades.iter()
+                    .filter(|trade| trade.time >= kline_earliest)
+                    .map(|trade| trade.time)
+                    .min();
+            
+                if let Some(earliest) = trade_earliest {
+                    if let Some(task) = request_fetch(
+                        &mut self.request_handler, FetchRange::Trades(visible_earliest, earliest)
+                    ) {
+                        self.fetching_trades = true;
+                        return task;
+                    }
+                }
+            }
+        }
+
+        for data in self.indicators.values() {
+            if let IndicatorData::OpenInterest(_, _) = data {
                 if !self.fetching_oi {
                     let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
 
@@ -307,6 +318,9 @@ impl FootprintChart {
 
     pub fn reset_request_handler(&mut self) {
         self.request_handler = RequestHandler::new();
+        self.fetching_trades = false;
+        self.fetching_oi = false;
+        self.chart.already_fetching = false;
     }
 
     pub fn change_timezone(&mut self, timezone: UserTimezone) {
@@ -316,6 +330,56 @@ impl FootprintChart {
 
     pub fn get_raw_trades(&self) -> Vec<Trade> {
         self.raw_trades.clone()
+    }
+
+    pub fn clear_trades(&mut self, clear_raw: bool) {
+        self.data_points.iter_mut().for_each(|(_, (trades, _))| {
+            trades.clear();
+        });
+
+        if clear_raw {
+            self.raw_trades.clear();
+        } else {
+            let aggregate_time = self.chart.timeframe as i64;
+            let tick_size = self.chart.tick_size;
+
+            for trade in &self.raw_trades {
+                let rounded_time = (trade.time / aggregate_time) * aggregate_time;
+                let price_level = OrderedFloat(round_to_tick(trade.price, tick_size));
+    
+                let entry = self.data_points
+                    .entry(rounded_time)
+                    .or_insert((HashMap::new(), Kline::default()));
+    
+                if let Some((buy_qty, sell_qty)) = entry.0.get_mut(&price_level) {
+                    if trade.is_sell {
+                        *sell_qty += trade.qty;
+                    } else {
+                        *buy_qty += trade.qty;
+                    }
+                } else if trade.is_sell {
+                    entry.0.insert(price_level, (0.0, trade.qty));
+                } else {
+                    entry.0.insert(price_level, (trade.qty, 0.0));
+                }
+            }
+        }
+    }
+
+    pub fn get_tick_size(&self) -> f32 {
+        self.chart.tick_size
+    }
+
+    pub fn change_tick_size(&mut self, new_tick_size: f32) {
+        let chart = self.get_common_data_mut();
+        let old_tick_size = chart.tick_size;
+
+        chart.base_range *= new_tick_size / old_tick_size;
+        chart.cell_height *= new_tick_size / old_tick_size;
+
+        chart.tick_size = new_tick_size;
+
+        self.clear_trades(false);
     }
 
     fn get_kline_timerange(&self) -> (i64, i64) {
@@ -334,16 +398,94 @@ impl FootprintChart {
         let mut from_time = latest_kline;
         let mut to_time = i64::MIN;
 
-        self.indicators.iter().for_each(|indicator| {
-            if let Indicators::OpenInterest(_, data) = indicator {
+        if let Some(IndicatorData::OpenInterest(_, data)) = 
+            self.indicators.get(&FootprintIndicator::OpenInterest) {
                 data.iter().for_each(|(time, _)| {
                     from_time = from_time.min(*time);
                     to_time = to_time.max(*time);
                 });
-            }
-        });
+            };
 
         (from_time, to_time)
+    }
+
+    fn get_trades_timerange(&self, latest_kline: i64) -> (i64, i64) {
+        let mut from_time = latest_kline;
+        let mut to_time = 0;
+
+        self.data_points
+            .iter()
+            .filter(|(_, (trades, _))| !trades.is_empty())
+            .for_each(|(time, _)| {
+                from_time = from_time.min(*time);
+                to_time = to_time.max(*time);
+            });
+
+        (from_time, to_time)
+    }
+
+    pub fn insert_datapoint(&mut self, trades_buffer: &[Trade], depth_update: i64) {
+        let (tick_size, aggregate_time) = {
+            let chart = self.get_common_data();
+            (chart.tick_size, chart.timeframe as i64)
+        };
+
+        let rounded_depth_update = (depth_update / aggregate_time) * aggregate_time;
+
+        self.data_points
+            .entry(rounded_depth_update)
+            .or_insert((HashMap::new(), Kline::default()));
+
+        for trade in trades_buffer {
+            let price_level = OrderedFloat(round_to_tick(trade.price, tick_size));
+            if let Some((trades, _)) = self.data_points.get_mut(&rounded_depth_update) {
+                if let Some((buy_qty, sell_qty)) = trades.get_mut(&price_level) {
+                    if trade.is_sell {
+                        *sell_qty += trade.qty;
+                    } else {
+                        *buy_qty += trade.qty;
+                    }
+                } else if trade.is_sell {
+                    trades.insert(price_level, (0.0, trade.qty));
+                } else {
+                    trades.insert(price_level, (trade.qty, 0.0));
+                }
+            }
+        }
+
+        self.raw_trades.extend_from_slice(trades_buffer);
+    }
+
+    pub fn insert_trades(&mut self, raw_trades: Vec<Trade>, is_batches_done: bool) {
+        let aggregate_time = self.chart.timeframe as i64;
+        let tick_size = self.chart.tick_size;
+
+        for trade in &raw_trades {
+            let rounded_time = (trade.time / aggregate_time) * aggregate_time;
+            let price_level = OrderedFloat(round_to_tick(trade.price, tick_size));
+
+            let entry = self.data_points
+                .entry(rounded_time)
+                .or_insert((HashMap::new(), Kline::default()));
+
+            if let Some((buy_qty, sell_qty)) = entry.0.get_mut(&price_level) {
+                if trade.is_sell {
+                    *sell_qty += trade.qty;
+                } else {
+                    *buy_qty += trade.qty;
+                }
+            } else if trade.is_sell {
+                entry.0.insert(price_level, (0.0, trade.qty));
+            } else {
+                entry.0.insert(price_level, (trade.qty, 0.0));
+            }
+        }
+
+        self.raw_trades.extend(raw_trades);
+
+        if is_batches_done {
+            self.fetching_trades = false;
+        }
     }
 
     pub fn insert_new_klines(&mut self, req_id: uuid::Uuid, klines_raw: &Vec<Kline>) {
@@ -356,11 +498,10 @@ impl FootprintChart {
                 .or_insert((HashMap::new(), *kline));
         }
 
-        self.indicators.iter_mut().for_each(|indicator| {
-            if let Indicators::Volume(_, data) = indicator {
+        if let Some(IndicatorData::Volume(_, data)) = 
+            self.indicators.get_mut(&FootprintIndicator::Volume) {
                 data.extend(volume_data.clone());
-            }
-        });
+            };
 
         if klines_raw.len() > 1 {
             self.request_handler.mark_completed(req_id);
@@ -375,40 +516,14 @@ impl FootprintChart {
     }
 
     pub fn insert_open_interest(&mut self, _req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
-        self.indicators.iter_mut().for_each(|indicator| {
-            if let Indicators::OpenInterest(_, data) = indicator {
+        if let Some(IndicatorData::OpenInterest(_, data)) = 
+            self.indicators.get_mut(&FootprintIndicator::OpenInterest) {
                 data.extend(oi_data
                     .iter().map(|oi| (oi.time, oi.value))
                 );
-            }
-        });
+            };
     
         self.fetching_oi = false;
-    }
-
-    pub fn get_tick_size(&self) -> f32 {
-        self.chart.tick_size
-    }
-
-    pub fn clear_trades(&mut self, clear_raw: bool) {
-        if clear_raw {
-            self.raw_trades.clear();
-        }
-        self.data_points.iter_mut().for_each(|(_, (trades, _))| {
-            trades.clear();
-        });
-    }
-
-    pub fn change_tick_size(&mut self, new_tick_size: f32) {
-        self.clear_trades(true);
-
-        let chart = self.get_common_data_mut();
-        let old_tick_size = chart.tick_size;
-
-        chart.base_range *= new_tick_size / old_tick_size;
-        chart.cell_height *= new_tick_size / old_tick_size;
-
-        chart.tick_size = new_tick_size;
     }
 
     fn calc_qty_scales(
@@ -460,32 +575,41 @@ impl FootprintChart {
 
         chart_state.cache.clear_all();
 
-        self.indicators.iter_mut().for_each(|indicator| {
-            indicator.clear_cache();
+        self.indicators.iter_mut().for_each(|(_, data)| {
+            data.clear_cache();
         });
     }
 
-    fn get_volume_indicator(&self) -> Option<(&Caches, &BTreeMap<i64, (f32, f32)>)> {
-        for indicator in &self.indicators {
-            if let Indicators::Volume(cache, data) = indicator {
-                return Some((cache, data));
+    pub fn toggle_indicator(&mut self, indicator: FootprintIndicator) {
+        if self.indicators.contains_key(&indicator) {
+            self.indicators.remove(&indicator);
+        } else {
+            match indicator {
+                FootprintIndicator::Volume => {
+                    let data = self.data_points.iter()
+                        .map(|(time, (_, kline))| (*time, (kline.volume.0, kline.volume.1)))
+                        .collect();
+
+                    self.indicators.insert(
+                        indicator,
+                        IndicatorData::Volume(Caches::default(), data)
+                    );
+                },
+                FootprintIndicator::OpenInterest => {
+                    self.indicators.insert(
+                        indicator,
+                        IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
+                    );
+                }
             }
         }
-
-        None
     }
 
-    fn get_oi_indicator(&self) -> Option<(&Caches, &BTreeMap<i64, f32>)> {
-        for indicator in &self.indicators {
-            if let Indicators::OpenInterest(cache, data) = indicator {
-                return Some((cache, data));
-            }
-        }
-
-        None
-    }
-
-    pub fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Element<Message> {
+    pub fn view_indicators<I: Indicator>(
+        &self, 
+        enabled: &[I], 
+        ticker_info: Option<TickerInfo>
+    ) -> Option<Element<Message>> {
         let chart_state: &CommonChartData = self.get_common_data();
 
         let mut indicators: iced::widget::Column<'_, Message> = column![];
@@ -495,39 +619,53 @@ impl FootprintChart {
         let earliest = chart_state.x_to_time(visible_region.x);
         let latest = chart_state.x_to_time(visible_region.x + visible_region.width);
 
-        for indicator in I::get_enabled(enabled) {
+        for indicator in I::get_enabled(
+            enabled, 
+            ticker_info.map(|info| info.market_type)
+        ) {
             if let Some(candlestick_indicator) = indicator
                 .as_any()
                 .downcast_ref::<FootprintIndicator>() 
             {
                 match candlestick_indicator {
                     FootprintIndicator::Volume => {
-                        if let Some((cache, data)) = self.get_volume_indicator() {
-                            indicators = indicators.push(
-                                indicators::volume::create_indicator_elem(chart_state, cache, data, earliest, latest)
-                            );
-                        }
+                        if let Some(IndicatorData::Volume(cache, data)) = 
+                            self.indicators.get(&FootprintIndicator::Volume) {
+                                indicators = indicators.push(
+                                    indicators::volume::create_indicator_elem(chart_state, cache, data, earliest, latest)
+                                );
+                            }
                     },
                     FootprintIndicator::OpenInterest => {
-                        if let Some((cache, data)) = self.get_oi_indicator() {
-                            indicators = indicators.push(
-                                indicators::open_interest::create_indicator_elem(chart_state, cache, data, earliest, latest)
-                            );
-                        }
+                        if let Some(IndicatorData::OpenInterest(cache, data)) = 
+                            self.indicators.get(&FootprintIndicator::OpenInterest) {
+                                indicators = indicators.push(
+                                    indicators::open_interest::create_indicator_elem(chart_state, cache, data, earliest, latest)
+                                );
+                            }
                     }
                 }
             }
         }
 
-        indicators.into()
+        Some(
+            container(indicators)
+                .width(Length::FillPortion(10))
+                .height(Length::FillPortion(chart_state.indicators_height))
+                .into()
+        )
     }
 
     pub fn update(&mut self, message: &Message) -> Task<Message> {
         self.update_chart(message)
     }
 
-    pub fn view<'a, I: Indicator>(&'a self, indicators: &'a [I]) -> Element<Message> {
-        view_chart(self, indicators)
+    pub fn view<'a, I: Indicator>(
+        &'a self, 
+        indicators: &'a [I], 
+        ticker_info: Option<TickerInfo>
+    ) -> Element<Message> {
+        view_chart(self, indicators, ticker_info)
     }
 }
 
@@ -709,10 +847,10 @@ impl canvas::Program<Message> for FootprintChart {
                     );
 
                 // last price line
-                chart.last_price.map(|price| {
+                if let Some(price) = &chart.last_price {
                     let (line_color, y_pos) = match price {
-                        PriceInfoLabel::Up(p) => (palette.success.weak.color, chart.price_to_y(p)),
-                        PriceInfoLabel::Down(p) => (palette.danger.weak.color, chart.price_to_y(p)),
+                        PriceInfoLabel::Up(p) => (palette.success.weak.color, chart.price_to_y(*p)),
+                        PriceInfoLabel::Down(p) => (palette.danger.weak.color, chart.price_to_y(*p)),
                     };
 
                     let marker_line = Stroke::with_color(
@@ -734,7 +872,7 @@ impl canvas::Program<Message> for FootprintChart {
                         ),
                         marker_line,
                     );
-                });
+                };
             });
         });
 

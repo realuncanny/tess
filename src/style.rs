@@ -87,7 +87,6 @@ pub fn branding_text(theme: &Theme) -> iced::widget::text::Style {
                 .color
                 .scale_alpha(if palette.is_dark { 0.1 } else { 0.8 })
         ),
-        ..Default::default()
     }
 }
 
@@ -352,84 +351,6 @@ pub fn pane_primary(theme: &Theme, is_focused: bool) -> Style {
 }
 
 // Modals
-pub fn pane_info_notification(theme: &Theme, alpha_factor: f32) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        text_color: Some(
-            palette
-                .background
-                .weak
-                .text
-                .scale_alpha(alpha_factor.max(0.3)),
-        ),
-        background: Some(
-            palette
-                .secondary
-                .base
-                .color
-                .scale_alpha(alpha_factor.max(0.3))
-                .into(),
-        ),
-        border: Border {
-            width: 1.0,
-            color: palette.secondary.strong.color.scale_alpha(alpha_factor),
-            radius: 4.0.into(),
-        },
-        shadow: Shadow {
-            offset: iced::Vector { x: 0.0, y: 0.0 },
-            blur_radius: 4.0,
-            color: Color::BLACK.scale_alpha(
-                if palette.is_dark {
-                    1.0
-                } else {
-                    0.4
-                }
-            ),
-        },
-        ..Default::default()
-    }
-}
-
-pub fn pane_err_notification(theme: &Theme, alpha_factor: f32) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        text_color: Some(
-            palette
-                .background
-                .weak
-                .text
-                .scale_alpha(alpha_factor.max(0.3)),
-        ),
-        background: Some(
-            palette
-                .secondary
-                .base
-                .color
-                .scale_alpha(alpha_factor.max(0.3))
-                .into(),
-        ),
-        border: Border {
-            width: 1.0,
-            color: palette.danger.base.color.scale_alpha(alpha_factor),
-            radius: 4.0.into(),
-        },
-        shadow: Shadow {
-            offset: iced::Vector { x: 0.0, y: 0.0 },
-            blur_radius: 4.0,
-            color: Color::BLACK.scale_alpha(
-                if palette.is_dark {
-                    1.0
-                } else {
-                    0.4
-                }
-            ),
-        },
-        ..Default::default()
-    }
-}
-
 pub fn chart_modal(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
@@ -521,7 +442,6 @@ pub fn modal_container(theme: &Theme) -> Style {
                 }
             ),
         },
-        ..Default::default()
     }
 }
 
@@ -553,7 +473,6 @@ pub fn sorter_container(theme: &Theme) -> Style {
                 }
             ),
         },
-        ..Default::default()
     }
 }
 
@@ -721,18 +640,18 @@ pub fn scroll_bar(theme: &Theme, status: widget::scrollable::Status) -> widget::
         widget::scrollable::Status::Dragged { .. } 
         | widget::scrollable::Status::Hovered { .. } => {
             (
-                palette.background.weak.color.scale_alpha(0.2 * light_factor).into(),
-                palette.secondary.weak.color.scale_alpha(0.8 * light_factor).into(),
+                palette.background.weak.color.scale_alpha(0.2 * light_factor),
+                palette.secondary.weak.color.scale_alpha(0.8 * light_factor),
             )
         },
         _ => (
-            palette.background.weak.color.scale_alpha(0.1 * light_factor).into(),
-            palette.secondary.weak.color.scale_alpha(0.4 * light_factor).into(),
+            palette.background.weak.color.scale_alpha(0.1 * light_factor),
+            palette.secondary.weak.color.scale_alpha(0.4 * light_factor),
         ),
     };
 
     let rail = Rail {
-        background: Some(rail_bg),
+        background: Some(iced::Background::Color(rail_bg)),
         border: Border {
             radius: 4.0.into(),
             width: 1.0,
