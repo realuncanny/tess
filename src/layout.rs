@@ -379,13 +379,8 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                         settings,
                         indicators,
                     } => {
-                        let tick_size = settings.tick_multiply
-                            .unwrap_or(TickMultiplier(1))
-                            .multiply_with_min_tick_size(
-                                settings.ticker_info
-                                    .expect("No min tick size found, deleting dashboard_state.json probably fixes this")
-                            );
-
+                        let ticker_info = settings.ticker_info
+                            .expect("No min tick size found while trying to init a chart from saved state,\ndeleting dashboard_state.json probably fixes this");
                         let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M15);
 
                         Configuration::Pane(PaneState::from_config(
@@ -393,7 +388,7 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                                 CandlestickChart::new(
                                     vec![],
                                     timeframe,
-                                    tick_size,
+                                    ticker_info.tick_size,
                                     UserTimezone::default(),
                                     &indicators,
                                 ),

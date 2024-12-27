@@ -80,12 +80,16 @@ impl PaneState {
         }
     }
 
-    /// sets the tick size. returns the tick size with the multiplier applied
-    pub fn set_tick_size(&mut self, multiplier: TickMultiplier, ticker_info: TickerInfo) -> f32 {
-        self.settings.tick_multiply = Some(multiplier);
+    /// sets the ticker info, tries to return multiplied tick size, otherwise returns the min tick size
+    pub fn set_tickers_info(&mut self, multiplier: Option<TickMultiplier>, ticker_info: TickerInfo) -> f32 {
         self.settings.ticker_info = Some(ticker_info);
-
-        multiplier.multiply_with_min_tick_size(ticker_info)
+        
+        if let Some(multiplier) = multiplier {
+            self.settings.tick_multiply = Some(multiplier);
+            multiplier.multiply_with_min_tick_size(ticker_info)
+        } else {
+            ticker_info.tick_size
+        }
     }
 
     /// gets the timeframe if exists, otherwise sets timeframe w given
@@ -176,8 +180,8 @@ impl PaneState {
 
         self.content = match content_str {
             "heatmap" => {
-                let tick_size = self.set_tick_size(
-                    TickMultiplier(10),
+                let tick_size = self.set_tickers_info(
+                    Some(TickMultiplier(10)),
                     ticker_info,
                 );
                 let enabled_indicators = vec![HeatmapIndicator::Volume];
@@ -193,8 +197,8 @@ impl PaneState {
                 )
             }
             "footprint" => {
-                let tick_size = self.set_tick_size(
-                    TickMultiplier(50),
+                let tick_size = self.set_tickers_info(
+                    Some(TickMultiplier(50)),
                     ticker_info,
                 );
                 let timeframe = self.set_timeframe(Timeframe::M5);
@@ -222,8 +226,8 @@ impl PaneState {
                 )
             }
             "candlestick" => {
-                let tick_size = self.set_tick_size(
-                    TickMultiplier(1),
+                let tick_size = self.set_tickers_info(
+                    None,
                     ticker_info,
                 );
                 let timeframe = self.set_timeframe(Timeframe::M15);
