@@ -379,80 +379,84 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                         settings,
                         indicators,
                     } => {
-                        let ticker_info = settings.ticker_info
-                            .expect("No min tick size found while trying to init a chart from saved state,\ndeleting dashboard_state.json probably fixes this");
-                        let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M15);
-
-                        Configuration::Pane(PaneState::from_config(
-                            PaneContent::Candlestick(
-                                CandlestickChart::new(
-                                    vec![],
-                                    timeframe,
-                                    ticker_info.tick_size,
-                                    UserTimezone::default(),
-                                    &indicators,
+                        if let Some(ticker_info) = settings.ticker_info {
+                            let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M15);
+                            Configuration::Pane(PaneState::from_config(
+                                PaneContent::Candlestick(
+                                    CandlestickChart::new(
+                                        vec![],
+                                        timeframe,
+                                        ticker_info.tick_size,
+                                        UserTimezone::default(),
+                                        &indicators,
+                                    ),
+                                    indicators,
                                 ),
-                                indicators,
-                            ),
-                            stream_type,
-                            settings,
-                        ))
+                                stream_type,
+                                settings,
+                            ))
+                        } else {
+                            log::info!("Skipping a CandlestickChart initialization due to missing ticker info");
+                            Configuration::Pane(PaneState::new(vec![], PaneSettings::default()))
+                        }
                     }
                     SerializablePane::FootprintChart {
                         stream_type,
                         settings,
                         indicators,
                     } => {
-                        let tick_size = settings.tick_multiply
-                            .unwrap_or(TickMultiplier(50))
-                            .multiply_with_min_tick_size(
-                                settings.ticker_info
-                                    .expect("No min tick size found, deleting dashboard_state.json probably fixes this")
-                            );
-
-                        let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M5);
-
-                        Configuration::Pane(PaneState::from_config(
-                            PaneContent::Footprint(
-                                FootprintChart::new(
-                                    timeframe,
-                                    tick_size,
-                                    vec![],
-                                    vec![],
-                                    UserTimezone::default(),
-                                    &indicators,
+                        if let Some(ticker_info) = settings.ticker_info {
+                            let tick_size = settings.tick_multiply
+                                .unwrap_or(TickMultiplier(50))
+                                .multiply_with_min_tick_size(ticker_info);
+                            let timeframe = settings.selected_timeframe.unwrap_or(Timeframe::M5);
+                            Configuration::Pane(PaneState::from_config(
+                                PaneContent::Footprint(
+                                    FootprintChart::new(
+                                        timeframe,
+                                        tick_size,
+                                        vec![],
+                                        vec![],
+                                        UserTimezone::default(),
+                                        &indicators,
+                                    ),
+                                    indicators,
                                 ),
-                                indicators,
-                            ),
-                            stream_type,
-                            settings,
-                        ))
+                                stream_type,
+                                settings,
+                            ))
+                        } else {
+                            log::info!("Skipping a FootprintChart initialization due to missing ticker info");
+                            Configuration::Pane(PaneState::new(vec![], PaneSettings::default()))
+                        }
                     }
                     SerializablePane::HeatmapChart {
                         stream_type,
                         settings,
                         indicators,
                     } => {
-                        let tick_size = settings.tick_multiply
-                            .unwrap_or(TickMultiplier(10))
-                            .multiply_with_min_tick_size(
-                                settings.ticker_info
-                                    .expect("No min tick size found, deleting dashboard_state.json probably fixes this")
-                            );
+                        if let Some(ticker_info) = settings.ticker_info {
+                            let tick_size = settings.tick_multiply
+                                .unwrap_or(TickMultiplier(10))
+                                .multiply_with_min_tick_size(ticker_info);
 
-                        Configuration::Pane(PaneState::from_config(
-                            PaneContent::Heatmap(
-                                HeatmapChart::new(
-                                    tick_size,
-                                    100,
-                                    UserTimezone::default(),
-                                    &indicators,
+                            Configuration::Pane(PaneState::from_config(
+                                PaneContent::Heatmap(
+                                    HeatmapChart::new(
+                                        tick_size,
+                                        100,
+                                        UserTimezone::default(),
+                                        &indicators,
+                                    ),
+                                    indicators,
                                 ),
-                                indicators,
-                            ),
-                            stream_type,
-                            settings,
-                        ))
+                                stream_type,
+                                settings,
+                            ))
+                        } else {
+                            log::info!("Skipping a HeatmapChart initialization due to missing ticker info");
+                            Configuration::Pane(PaneState::new(vec![], PaneSettings::default()))
+                        }
                     }
                     SerializablePane::TimeAndSales {
                         stream_type,
