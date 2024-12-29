@@ -418,7 +418,7 @@ impl HeatmapChart {
 
         if chart_state.autoscale {
             chart_state.translation = Vector::new(
-                0.4 * chart_state.bounds.width / chart_state.scaling,
+                0.5 * (chart_state.bounds.width / chart_state.scaling) - (90.0 / chart_state.scaling),
                 0.0,
             );
         }

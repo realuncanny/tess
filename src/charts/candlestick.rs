@@ -325,7 +325,9 @@ impl CandlestickChart {
 
         if chart_state.autoscale {
             chart_state.translation =
-                Vector::new(0.4 * chart_state.bounds.width / chart_state.scaling, {
+                Vector::new(
+                    0.5 * (chart_state.bounds.width / chart_state.scaling) - (8.0 * chart_state.cell_width / chart_state.scaling),
+                    {
                     if let Some((_, kline)) = self.data_points.last_key_value() {
                         let y_low = chart_state.price_to_y(kline.low);
                         let y_high = chart_state.price_to_y(kline.high);
