@@ -454,6 +454,7 @@ trait ChartView {
         pane: pane_grid::Pane, 
         state: &'a PaneState, 
         indicators: &'a [I],
+        notifications: Option<&'a Vec<screen::Notification>>,
     ) -> Element<Message>;
 }
 
@@ -463,13 +464,26 @@ fn handle_chart_view<'a, F>(
     pane: pane_grid::Pane,
     indicators: &'a [impl Indicator],
     settings_view: F,
+    notifications: Option<&'a Vec<screen::Notification>>,
 ) -> Element<'a, Message>
 where
     F: FnOnce() -> Element<'a, Message>,
 {
+    let base = if let Some(notifications) = notifications {
+        pane_notification(
+            underlay, 
+            notification_modals(
+                pane,
+                notifications, 
+            )
+        )
+    } else {
+        underlay.into()
+    };
+
     match state.modal {
         PaneModal::StreamModifier => pane_menu(
-            underlay,
+            base,
             stream_modifier_view(
                 pane,
                 state.settings.tick_multiply,
@@ -480,7 +494,7 @@ where
             Alignment::Start,
         ),
         PaneModal::Indicators => pane_menu(
-            underlay,
+            base,
             indicators_view(
                 pane,
                 state.settings.ticker_info.map(|info| info.market_type),
@@ -492,14 +506,14 @@ where
         ),
         PaneModal::Settings => {
             pane_menu(
-                underlay,
+                base,
                 settings_view(),
                 Message::ToggleModal(pane, PaneModal::None),
                 padding::right(12).left(12),
                 Alignment::End,
             )
         },
-        _ => underlay,
+        _ => base,
     }
 }
 
@@ -509,6 +523,7 @@ impl ChartView for HeatmapChart {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
+        notifications: Option<&'a Vec<screen::Notification>>,
     ) -> Element<Message> {
         let underlay = self
             .view(indicators, state.settings.ticker_info)
@@ -525,6 +540,7 @@ impl ChartView for HeatmapChart {
             pane, 
             indicators, 
             settings_view,
+            notifications,
         )
     }
 }
@@ -535,6 +551,7 @@ impl ChartView for FootprintChart {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
+        notifications: Option<&'a Vec<screen::Notification>>,
     ) -> Element<Message> {
         let underlay = self
             .view(indicators, state.settings.ticker_info)
@@ -550,6 +567,7 @@ impl ChartView for FootprintChart {
             pane, 
             indicators, 
             settings_view,
+            notifications,
         )
     }
 }
@@ -560,6 +578,7 @@ impl ChartView for CandlestickChart {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
+        notifications: Option<&'a Vec<screen::Notification>>,
     ) -> Element<Message> {
         let underlay = self
             .view(indicators, state.settings.ticker_info)
@@ -575,6 +594,7 @@ impl ChartView for CandlestickChart {
             pane, 
             indicators, 
             settings_view,
+            notifications,
         )
     }
 }
@@ -866,19 +886,9 @@ fn view_chart<'a, C: ChartView, I: Indicator>(
     notifications: Option<&'a Vec<screen::Notification>>,
     indicators: &'a [I],
 ) -> Element<'a, Message> {
-    let base = center(content.view(pane, state, indicators));
-
-    if let Some(notifications) = notifications {
-        pane_notification(
-            base, 
-            notification_modals(
-                pane,
-                notifications, 
-            )
-        )
-    } else {
-        base.into()
-    }
+    center(
+        content.view(pane, state, indicators, notifications)
+    ).into()
 }
 
 // Pane controls, title bar
