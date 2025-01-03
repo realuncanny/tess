@@ -698,9 +698,19 @@ pub async fn fetch_klines(
         let interval_ms = timeframe.to_milliseconds() as i64;
         let num_intervals = ((end - start) / interval_ms).min(1000);
 
-        url.push_str(&format!(
-            "&startTime={start}&endTime={end}&limit={num_intervals}"
-        ));
+        if num_intervals < 3 {
+            let new_start = start - (interval_ms * 5);
+            let new_end = end + (interval_ms * 5);
+            let num_intervals = ((new_end - new_start) / interval_ms).min(1000);
+
+            url.push_str(&format!(
+                "&startTime={new_start}&endTime={new_end}&limit={num_intervals}"
+            ));
+        } else {
+            url.push_str(&format!(
+                "&startTime={start}&endTime={end}&limit={num_intervals}"
+            ));
+        }     
     } else {
         url.push_str(&format!("&limit={}", 200));
     }
@@ -1087,9 +1097,19 @@ pub async fn fetch_historical_oi(
         let interval_ms = period.to_milliseconds() as i64;
         let num_intervals = ((end - start) / interval_ms).min(500);
 
-        url.push_str(&format!(
-            "&startTime={start}&endTime={end}&limit={num_intervals}"
-        ));
+        if num_intervals < 3 {
+            let new_start = start - (interval_ms * 5);
+            let new_end = end + (interval_ms * 5);
+            let num_intervals = ((new_end - new_start) / interval_ms).min(1000);
+            
+            url.push_str(&format!(
+                "&startTime={new_start}&endTime={new_end}&limit={num_intervals}"
+            ));
+        } else {
+            url.push_str(&format!(
+                "&startTime={start}&endTime={end}&limit={num_intervals}"
+            ));
+        }     
     } else {
         url.push_str(&format!("&limit={}", 200));
     }
