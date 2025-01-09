@@ -6,16 +6,17 @@ use iced::{mouse, Element, Length, Point, Rectangle, Renderer, Size, Task, Theme
 use iced::widget::{canvas::{self, Event, Geometry}, column};
 
 use crate::data_providers::TickerInfo;
+use crate::layout::SerializableChartData;
 use crate::screen::UserTimezone;
 use crate::data_providers::{
     fetcher::{FetchRange, RequestHandler},
     Kline, OpenInterest as OIData, Timeframe
 };
 
+use super::scales::PriceInfoLabel;
 use super::indicators::{self, CandlestickIndicator, Indicator};
-
-use super::{request_fetch, Caches, Chart, ChartConstants, CommonChartData, Interaction, Message, PriceInfoLabel};
-use super::{canvas_interaction, view_chart, update_chart, count_decimals};
+use super::{Caches, Chart, ChartConstants, CommonChartData, Interaction, Message};
+use super::{canvas_interaction, view_chart, update_chart, count_decimals, request_fetch};
 
 impl Chart for CandlestickChart {
     fn get_common_data(&self) -> &CommonChartData {
@@ -99,17 +100,18 @@ pub struct CandlestickChart {
     indicators: HashMap<CandlestickIndicator, IndicatorData>,
     request_handler: RequestHandler,
     fetching_oi: bool,
-    integrity: bool,
 }
 
 impl CandlestickChart {
     pub fn new(
+        layout: SerializableChartData,
         klines_raw: Vec<Kline>,
         timeframe: Timeframe,
         tick_size: f32,
         timezone: UserTimezone,
         enabled_indicators: &[CandlestickIndicator],
     ) -> CandlestickChart {
+        let mut loading_chart = true;
         let mut data_points = BTreeMap::new();
         let mut volume_data = BTreeMap::new();
 
@@ -129,6 +131,10 @@ impl CandlestickChart {
             latest_x = latest_x.max(*time);
         });
 
+        if !data_points.is_empty() {
+            loading_chart = false;
+        }
+
         let y_ticks = (scale_high - scale_low) / tick_size;
 
         CandlestickChart {
@@ -141,8 +147,10 @@ impl CandlestickChart {
                 timeframe: timeframe.to_milliseconds(),
                 tick_size,
                 timezone,
-                indicators_height: 30,
+                crosshair: layout.crosshair,
+                indicators_split: layout.indicators_split,
                 decimals: count_decimals(tick_size),
+                loading_chart,
                 ..Default::default()
             },
             data_points,
@@ -167,8 +175,11 @@ impl CandlestickChart {
             },
             request_handler: RequestHandler::new(),
             fetching_oi: false,
-            integrity: false,
         }
+    }
+
+    pub fn set_loading_state(&mut self, loading: bool) {
+        self.chart.loading_chart = loading;
     }
 
     pub fn change_timezone(&mut self, timezone: UserTimezone) {
@@ -182,7 +193,7 @@ impl CandlestickChart {
 
     pub fn update_latest_kline(&mut self, kline: &Kline) -> Task<Message> {
         let mut task = None;
-        
+
         self.data_points.insert(kline.time as i64, *kline);
 
         if let Some(IndicatorData::Volume(_, data)) = 
@@ -235,19 +246,15 @@ impl CandlestickChart {
                     let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
 
                     if visible_earliest < oi_earliest {
-                        let latest = oi_earliest;
-
                         if let Some(fetch_task) = request_fetch(
-                            &mut self.request_handler, FetchRange::OpenInterest(earliest, latest)
+                            &mut self.request_handler, FetchRange::OpenInterest(earliest, oi_earliest)
                         ) {
                             self.fetching_oi = true;
                             task = Some(fetch_task);
                         }
                     } else if oi_latest < kline_latest {
-                        let latest = visible_latest;
-
                         if let Some(fetch_task) = request_fetch(
-                            &mut self.request_handler, FetchRange::OpenInterest(oi_latest, latest)
+                            &mut self.request_handler, FetchRange::OpenInterest(oi_latest, kline_latest)
                         ) {
                             self.fetching_oi = true;
                             task = Some(fetch_task);
@@ -258,62 +265,25 @@ impl CandlestickChart {
         };
 
         if task.is_none() {
-            if let Some(missing_keys) = self.check_data_integrity(kline_earliest, kline_latest) {
-                let (latest, earliest) = (
-                    missing_keys.iter().max().unwrap_or(&visible_latest) + self.chart.timeframe as i64,
-                    missing_keys.iter().min().unwrap_or(&visible_earliest) - self.chart.timeframe as i64,
-                );
-
-                self.request_handler = RequestHandler::new();
-
-                if let Some(fetch_task) = request_fetch(
-                    &mut self.request_handler, FetchRange::Kline(earliest, latest)
-                ) {
-                    self.get_common_data_mut().already_fetching = true;
-                    task = Some(fetch_task);
+            if let Some(missing_keys) = self.get_common_data()
+                .check_kline_integrity(kline_earliest, kline_latest, &self.data_points) {
+                    let (latest, earliest) = (
+                        missing_keys.iter()
+                            .max().unwrap_or(&visible_latest) + self.chart.timeframe as i64,
+                        missing_keys.iter()
+                            .min().unwrap_or(&visible_earliest) - self.chart.timeframe as i64,
+                    );
+    
+                    if let Some(fetch_task) = request_fetch(
+                        &mut self.request_handler, FetchRange::Kline(earliest, latest)
+                    ) {
+                        self.get_common_data_mut().already_fetching = true;
+                        task = Some(fetch_task);
+                    }
                 }
-            }
         }
 
         task
-    }
-
-    fn check_data_integrity(&mut self, earliest: i64, latest: i64) -> Option<Vec<i64>> {
-        if self.integrity || self.fetching_oi {
-            return None;
-        }
-        if self.get_common_data().already_fetching {
-            return None;
-        }
-    
-        let interval = self.get_common_data().timeframe as i64;
-        
-        let mut time = earliest;
-        let mut missing_count = 0;
-        while time < latest {
-            if !self.data_points.contains_key(&time) {
-                missing_count += 1;
-                break; 
-            }
-            time += interval;
-        }
-    
-        if missing_count > 0 {
-            let mut missing_keys = Vec::with_capacity(((latest - earliest) / interval) as usize);
-            let mut time = earliest;
-            while time < latest {
-                if !self.data_points.contains_key(&time) {
-                    missing_keys.push(time);
-                }
-                time += interval;
-            }
-            
-            log::warn!("Integrity check failed: missing {} klines", missing_keys.len());
-            Some(missing_keys)
-        } else {
-            self.integrity = true;
-            None
-        }
     }
 
     pub fn insert_new_klines(&mut self, req_id: uuid::Uuid, klines_raw: &Vec<Kline>) {
@@ -329,7 +299,7 @@ impl CandlestickChart {
                 data.extend(volume_data.clone());
             };
 
-        if klines_raw.len() > 1 {
+        if klines_raw.len() >= 1 {
             self.request_handler.mark_completed(req_id);
         } else {
             self.request_handler
@@ -338,18 +308,28 @@ impl CandlestickChart {
 
         self.get_common_data_mut().already_fetching = false;
 
+        self.chart.loading_chart = false;        
+
         self.render_start();
     }
 
-    pub fn insert_open_interest(&mut self, _req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
+    pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
+        if let Some(req_id) = req_id {
+            if oi_data.len() >= 1 {
+                self.request_handler.mark_completed(req_id);
+                self.fetching_oi = false; 
+            } else {
+                self.request_handler
+                    .mark_failed(req_id, "No data received".to_string());
+            }
+        }
+
         if let Some(IndicatorData::OpenInterest(_, data)) = 
             self.indicators.get_mut(&CandlestickIndicator::OpenInterest) {
                 data.extend(oi_data
                     .iter().map(|oi| (oi.time, oi.value))
                 );
             };
-    
-        self.fetching_oi = false;
     }
 
     fn get_kline_timerange(&self) -> (i64, i64) {
@@ -382,20 +362,22 @@ impl CandlestickChart {
     fn render_start(&mut self) {
         let chart_state = &mut self.chart;
 
-        if chart_state.autoscale {
-            chart_state.translation =
-                Vector::new(
-                    0.5 * (chart_state.bounds.width / chart_state.scaling) - (8.0 * chart_state.cell_width / chart_state.scaling),
-                    {
-                    if let Some((_, kline)) = self.data_points.last_key_value() {
-                        let y_low = chart_state.price_to_y(kline.low);
-                        let y_high = chart_state.price_to_y(kline.high);
+        if chart_state.loading_chart {
+            return;
+        }
 
-                        -(y_low + y_high) / 2.0
-                    } else {
-                        0.0
-                    }
-                });
+        if chart_state.autoscale {
+            chart_state.translation = Vector::new(
+                0.5 * (chart_state.bounds.width / chart_state.scaling) - (8.0 * chart_state.cell_width / chart_state.scaling),
+                if let Some((_, kline)) = self.data_points.last_key_value() {
+                    let y_low = chart_state.price_to_y(kline.low);
+                    let y_high = chart_state.price_to_y(kline.high);
+
+                    -(y_low + y_high) / 2.0
+                } else {
+                    0.0
+                },
+            );
         }
 
         chart_state.cache.clear_all();
@@ -403,6 +385,10 @@ impl CandlestickChart {
         self.indicators.iter_mut().for_each(|(_, data)| {
             data.clear_cache();
         });
+    }
+
+    pub fn get_chart_layout(&self) -> SerializableChartData {
+        self.chart.get_chart_layout()
     }
 
     pub fn toggle_indicator(&mut self, indicator: CandlestickIndicator) {
@@ -425,8 +411,17 @@ impl CandlestickChart {
                         indicator,
                         IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
                     );
+                    self.fetching_oi = false;
                 }
             }
+
+            if self.chart.indicators_split.is_none() {
+                self.chart.indicators_split = Some(0.8);
+            }
+        }
+
+        if self.indicators.is_empty() {
+            self.chart.indicators_split = None;
         }
     }
 
@@ -435,7 +430,11 @@ impl CandlestickChart {
         enabled: &[I], 
         ticker_info: Option<TickerInfo>
     ) -> Option<Element<Message>> {
-        let chart_state: &CommonChartData = self.get_common_data();
+        let chart_state = self.get_common_data();
+
+        if chart_state.loading_chart {
+            return None;
+        }
 
         let visible_region = chart_state.visible_region(chart_state.bounds.size());
 
@@ -446,7 +445,7 @@ impl CandlestickChart {
 
         for indicator in I::get_enabled(
             enabled, 
-            ticker_info.map(|info| info.market_type)
+            ticker_info.map(|info| info.get_market_type())
         ) {
             if let Some(candlestick_indicator) = indicator
                 .as_any()
@@ -462,12 +461,14 @@ impl CandlestickChart {
                             }
                     },
                     CandlestickIndicator::OpenInterest => {
-                        if let Some(IndicatorData::OpenInterest(cache, data)) = 
-                            self.indicators.get(&CandlestickIndicator::OpenInterest) {
-                                indicators = indicators.push(
-                                    indicators::open_interest::create_indicator_elem(chart_state, cache, data, earliest, latest)
-                                );
-                            }
+                        if chart_state.timeframe >= Timeframe::M5.to_milliseconds() {
+                            if let Some(IndicatorData::OpenInterest(cache, data)) = self.indicators
+                                .get(&CandlestickIndicator::OpenInterest) {
+                                    indicators = indicators.push(
+                                        indicators::open_interest::create_indicator_elem(chart_state, cache, data, earliest, latest)
+                                    );
+                                }
+                        }
                     }
                 }
             }
@@ -476,7 +477,7 @@ impl CandlestickChart {
         Some(
             container(indicators)
                 .width(Length::FillPortion(10))
-                .height(Length::FillPortion(chart_state.indicators_height))
+                .height(Length::Fill)
                 .into()
         )
     }
@@ -648,27 +649,11 @@ impl canvas::Program<Message> for CandlestickChart {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
             Interaction::None => {
-                if cursor.is_over(Rectangle {
-                    x: bounds.x,
-                    y: bounds.y,
-                    width: bounds.width,
-                    height: bounds.height - 8.0,
-                }) {
-                    if self.chart.crosshair {
-                        return mouse::Interaction::Crosshair;
-                    }
-                } else if cursor.is_over(Rectangle {
-                    x: bounds.x,
-                    y: bounds.y + bounds.height - 8.0,
-                    width: bounds.width,
-                    height: 8.0,
-                }) {
-                    return mouse::Interaction::ResizingVertically;
+                if cursor.is_over(bounds) && self.chart.crosshair {
+                    return mouse::Interaction::Crosshair;
                 }
-
                 mouse::Interaction::default()
             }
-            _ => mouse::Interaction::default(),
         }
     }
 }

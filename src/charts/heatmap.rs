@@ -6,7 +6,7 @@ use iced::{
 };
 use iced::widget::canvas::{self, Event, Geometry, Path};
 
-use crate::data_providers::TickerInfo;
+use crate::{data_providers::TickerInfo, layout::SerializableChartData};
 use crate::{
     data_providers::{Depth, Trade},
     screen::UserTimezone,
@@ -14,7 +14,7 @@ use crate::{
 
 use super::indicators::{HeatmapIndicator, Indicator};
 use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
-use super::{canvas_interaction, view_chart, update_chart, count_decimals, convert_to_qty_abbr};
+use super::{canvas_interaction, view_chart, update_chart, abbr_large_numbers, count_decimals};
 
 use ordered_float::OrderedFloat;
 
@@ -240,7 +240,13 @@ pub struct HeatmapChart {
 }
 
 impl HeatmapChart {
-    pub fn new(tick_size: f32, aggr_time: i64, timezone: UserTimezone, enabled_indicators: &[HeatmapIndicator]) -> Self {
+    pub fn new(
+        layout: SerializableChartData, 
+        tick_size: f32, 
+        aggr_time: i64, 
+        timezone: UserTimezone, 
+        enabled_indicators: &[HeatmapIndicator]
+    ) -> Self {
         HeatmapChart {
             chart: CommonChartData {
                 cell_width: Self::DEFAULT_CELL_WIDTH,
@@ -249,6 +255,8 @@ impl HeatmapChart {
                 tick_size,
                 decimals: count_decimals(tick_size),
                 timezone,
+                crosshair: layout.crosshair,
+                indicators_split: layout.indicators_split,
                 ..Default::default()
             },
             indicators: {
@@ -276,6 +284,7 @@ impl HeatmapChart {
 
     pub fn insert_datapoint(&mut self, trades_buffer: &[Trade], depth_update: i64, depth: &Depth) {
         let chart = &mut self.chart;
+        chart.loading_chart = false;
 
         if self.data_points.len() > 2400 {
             self.data_points.drain(0..400);
@@ -378,6 +387,10 @@ impl HeatmapChart {
 
     pub fn get_size_filters(&self) -> (f32, f32) {
         (self.trade_size_filter, self.order_size_filter)
+    }
+
+    pub fn get_chart_layout(&self) -> SerializableChartData {
+        self.chart.get_chart_layout()
     }
 
     pub fn change_timezone(&mut self, timezone: UserTimezone) {
@@ -580,7 +593,7 @@ impl canvas::Program<Message> for HeatmapChart {
                                         && color_alpha > 0.4
                                     {
                                         frame.fill_text(canvas::Text {
-                                            content: convert_to_qty_abbr(run.qty.0),
+                                            content: abbr_large_numbers(run.qty.0),
                                             position: Point::new(
                                                 start_x + (cell_height / 2.0),
                                                 y_position,
@@ -641,7 +654,7 @@ impl canvas::Program<Message> for HeatmapChart {
 
                     // max bid/ask quantity text
                     let text_size = 9.0 / chart.scaling;
-                    let text_content = convert_to_qty_abbr(max_qty);
+                    let text_content = abbr_large_numbers(max_qty);
                     let text_position = Point::new(50.0, region.y);
 
                     frame.fill_text(canvas::Text {
@@ -704,7 +717,7 @@ impl canvas::Program<Message> for HeatmapChart {
 
                 if volume_indicator && max_aggr_volume > 0.0 {
                     let text_size = 9.0 / chart.scaling;
-                    let text_content = convert_to_qty_abbr(max_aggr_volume);
+                    let text_content = abbr_large_numbers(max_aggr_volume);
                     let text_width = (text_content.len() as f32 * text_size) / 1.5;
 
                     let text_position = Point::new(
@@ -748,27 +761,11 @@ impl canvas::Program<Message> for HeatmapChart {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
             Interaction::None => {
-                if cursor.is_over(Rectangle {
-                    x: bounds.x,
-                    y: bounds.y,
-                    width: bounds.width,
-                    height: bounds.height - 8.0,
-                }) {
-                    if self.chart.crosshair {
-                        return mouse::Interaction::Crosshair;
-                    }
-                } else if cursor.is_over(Rectangle {
-                    x: bounds.x,
-                    y: bounds.y + bounds.height - 8.0,
-                    width: bounds.width,
-                    height: 8.0,
-                }) {
-                    return mouse::Interaction::ResizingVertically;
+                if cursor.is_over(bounds) && self.chart.crosshair {
+                    return mouse::Interaction::Crosshair;
                 }
-
                 mouse::Interaction::default()
             }
-            _ => mouse::Interaction::default(),
         }
     }
 }
