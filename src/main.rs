@@ -144,6 +144,8 @@ struct State {
     show_tickers_dashboard: bool,
     tickers_table: TickersTable,
     confirmation_dialog: Option<String>,
+    layout_locked: bool,
+    timezone: UserTimezone,
 }
 
 #[allow(dead_code)]
@@ -199,6 +201,8 @@ impl State {
                 sidebar_location: saved_state.sidebar,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
                 confirmation_dialog: None,
+                layout_locked: false,
+                timezone: saved_state.timezone,
             },
             open_main_window
                 .then(|_| Task::none())
@@ -264,10 +268,8 @@ impl State {
                 }
             }
             Message::ToggleLayoutLock => {
-                let dashboard = self.get_mut_dashboard(self.last_active_layout);
-
-                dashboard.layout_lock = !dashboard.layout_lock;
-                dashboard.focus = None;
+                self.layout_locked = !self.layout_locked;
+                self.get_mut_dashboard(self.last_active_layout).focus = None;
             }
             Message::WindowEvent(event) => match event {
                 WindowEvent::CloseRequested(window) => {
@@ -324,11 +326,6 @@ impl State {
                     .find(|(id, _)| **id == self.main_window.id)
                     .map(|(_, (position, _))| *position);
 
-                let user_tz = {
-                    let dashboard = self.get_dashboard(self.last_active_layout);
-                    dashboard.get_timezone()
-                };
-
                 let layout = layout::SerializableState::from_parts(
                     layouts,
                     self.theme.clone(),
@@ -336,7 +333,7 @@ impl State {
                     self.last_active_layout,
                     size,
                     position,
-                    user_tz,
+                    self.timezone,
                     self.sidebar_location,
                 );
 
@@ -390,7 +387,11 @@ impl State {
                 )
                 .then(|_: Task<window::Id>| Task::none());
 
-                return window_tasks.chain(dashboard.reset_layout().map(Message::Dashboard));
+                return window_tasks.chain(
+                    dashboard
+                        .reset_layout()
+                        .map(Message::Dashboard)
+                    );
             }
             Message::LayoutSelected(new_layout_id) => {
                 let active_popout_keys = self
@@ -478,9 +479,7 @@ impl State {
                 }
             }
             Message::SetTimezone(tz) => {
-                self.layouts.values_mut().for_each(|dashboard| {
-                    dashboard.set_timezone(self.main_window.id, tz);
-                });
+                self.timezone = tz;
             }
             Message::SidebarPosition(pos) => {
                 self.sidebar_location = pos;
@@ -507,7 +506,12 @@ impl State {
         if id != self.main_window.id {
             return container(
                 dashboard
-                .view_window(id, &self.main_window)
+                .view_window(
+                    id, 
+                    &self.main_window, 
+                    self.layout_locked,
+                    &self.timezone,
+                )
                 .map(Message::Dashboard)
             )
             .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
@@ -524,7 +528,7 @@ impl State {
                     let layout_lock_button = {
                         create_button(
                             get_icon_text(
-                                if dashboard.layout_lock {
+                                if self.layout_locked {
                                     Icon::Locked
                                 } else {
                                     Icon::Unlocked
@@ -634,7 +638,11 @@ impl State {
             };
 
             let dashboard_view = dashboard
-                .view(&self.main_window)
+                .view(
+                    &self.main_window, 
+                    self.layout_locked,
+                    &self.timezone,
+                )
                 .map(Message::Dashboard);
 
             let base = column![
@@ -710,7 +718,7 @@ impl State {
         
                         let timezone_picklist = pick_list(
                             [UserTimezone::Utc, UserTimezone::Local],
-                            Some(dashboard.get_timezone()),
+                            Some(self.timezone),
                             Message::SetTimezone,
                         );
 

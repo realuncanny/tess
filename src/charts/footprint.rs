@@ -1,3 +1,4 @@
+use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
 use iced::widget::canvas::{LineDash, Path, Stroke};
@@ -8,11 +9,11 @@ use ordered_float::OrderedFloat;
 
 use crate::data_providers::TickerInfo;
 use crate::layout::SerializableChartData;
-use crate::screen::UserTimezone;
 use crate::data_providers::{
     fetcher::{FetchRange, RequestHandler},
     Kline, Timeframe, Trade, OpenInterest as OIData,
 };
+use crate::screen::UserTimezone;
 
 use super::scales::PriceInfoLabel;
 use super::indicators::{self, FootprintIndicator, Indicator};
@@ -113,7 +114,6 @@ impl FootprintChart {
         tick_size: f32,
         klines_raw: Vec<Kline>,
         raw_trades: Vec<Trade>,
-        timezone: UserTimezone,
         enabled_indicators: &[FootprintIndicator],
     ) -> Self {
         let mut loading_chart = true;
@@ -180,7 +180,6 @@ impl FootprintChart {
                 latest_x,
                 timeframe: timeframe.to_milliseconds(),
                 tick_size,
-                timezone,
                 decimals: count_decimals(tick_size),
                 crosshair: layout.crosshair,
                 indicators_split: layout.indicators_split,
@@ -349,11 +348,6 @@ impl FootprintChart {
         self.fetching_trades = false;
         self.fetching_oi = false;
         self.chart.already_fetching = false;
-    }
-
-    pub fn change_timezone(&mut self, timezone: UserTimezone) {
-        let chart = self.get_common_data_mut();
-        chart.timezone = timezone;
     }
 
     pub fn get_raw_trades(&self) -> Vec<Trade> {
@@ -535,7 +529,7 @@ impl FootprintChart {
                 data.extend(volume_data.clone());
             };
 
-        if klines_raw.len() >= 1 {
+        if !klines_raw.is_empty() {
             self.request_handler.mark_completed(req_id);
         } else {
             self.request_handler
@@ -551,7 +545,7 @@ impl FootprintChart {
 
     pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
         if let Some(req_id) = req_id {
-            if oi_data.len() >= 1 {
+            if !oi_data.is_empty() {
                 self.request_handler.mark_completed(req_id);
                 self.fetching_oi = false;
             } else {
@@ -626,35 +620,32 @@ impl FootprintChart {
         });
     }
 
-    pub fn toggle_indicator(&mut self, indicator: FootprintIndicator) {
-        if self.indicators.contains_key(&indicator) {
-            self.indicators.remove(&indicator);
-        } else {
-            match indicator {
-                FootprintIndicator::Volume => {
-                    let data = self.data_points.iter()
-                        .map(|(time, (_, kline))| (*time, (kline.volume.0, kline.volume.1)))
-                        .collect();
-
-                    self.indicators.insert(
-                        indicator,
-                        IndicatorData::Volume(Caches::default(), data)
-                    );
-                },
-                FootprintIndicator::OpenInterest => {
-                    self.indicators.insert(
-                        indicator,
+    pub fn toggle_indicator(&mut self, indicator: FootprintIndicator) {    
+        match self.indicators.entry(indicator) {
+            Entry::Occupied(entry) => {
+                entry.remove();
+            }
+            Entry::Vacant(entry) => {
+                let data = match indicator {
+                    FootprintIndicator::Volume => {
+                        let volume_data = self.data_points.iter()
+                            .map(|(time, (_, kline))| (*time, (kline.volume.0, kline.volume.1)))
+                            .collect();
+                        IndicatorData::Volume(Caches::default(), volume_data)
+                    },
+                    FootprintIndicator::OpenInterest => {
+                        self.fetching_oi = false;
                         IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
-                    );
-                    self.fetching_oi = false;
+                    }
+                };
+                entry.insert(data);
+    
+                if self.chart.indicators_split.is_none() {
+                    self.chart.indicators_split = Some(0.8);
                 }
             }
-
-            if self.chart.indicators_split.is_none() {
-                self.chart.indicators_split = Some(0.8);
-            }
         }
-
+    
         if self.indicators.is_empty() {
             self.chart.indicators_split = None;
         }
@@ -722,9 +713,10 @@ impl FootprintChart {
     pub fn view<'a, I: Indicator>(
         &'a self, 
         indicators: &'a [I], 
-        ticker_info: Option<TickerInfo>
+        ticker_info: Option<TickerInfo>,
+        timezone: &'a UserTimezone,
     ) -> Element<Message> {
-        view_chart(self, indicators, ticker_info)
+        view_chart(self, indicators, ticker_info, timezone)
     }
 }
 

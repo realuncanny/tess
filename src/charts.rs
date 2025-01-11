@@ -310,6 +310,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
     chart: &'a T, 
     indicators: &'a [I], 
     ticker_info: Option<TickerInfo>,
+    timezone: &'a UserTimezone,
 ) -> Element<'a, Message> {
     let chart_state = chart.get_common_data();
 
@@ -329,7 +330,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
         crosshair: chart_state.crosshair,
         timeframe: chart_state.timeframe as u32,
         cell_width: chart_state.cell_width,
-        timezone: &chart_state.timezone,
+        timezone,
         chart_bounds: chart_state.bounds,
     })
     .width(Length::Fill)
@@ -451,8 +452,6 @@ pub struct CommonChartData {
     cell_height: f32,
 
     base_range: f32,
-
-    timezone: UserTimezone,
     last_price: Option<PriceInfoLabel>,
 
     base_price_y: f32,
@@ -473,7 +472,6 @@ impl Default for CommonChartData {
             cache: Caches::default(),
             crosshair: true,
             translation: Vector::default(),
-            timezone: UserTimezone::default(),
             bounds: Rectangle::default(),
             last_price: None,
             base_range: 1.0,

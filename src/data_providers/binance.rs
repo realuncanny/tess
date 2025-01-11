@@ -769,7 +769,7 @@ pub async fn fetch_ticksize(market_type: MarketType) -> Result<HashMap<Ticker, O
             .as_str()
             .ok_or_else(|| StreamError::ParseError("Missing symbol".to_string()))?;
 
-        if !re.is_match(&symbol_str) {
+        if !re.is_match(symbol_str) {
             continue;
         }
         

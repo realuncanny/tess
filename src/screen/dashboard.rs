@@ -17,7 +17,8 @@ use crate::{
 };
 
 use super::{
-    create_notis_column, modal::dashboard_notification, DashboardError, Notification,
+    create_notis_column, modal::dashboard_notification, 
+    DashboardError, Notification,
     NotificationManager, UserTimezone,
 };
 
@@ -85,11 +86,9 @@ pub struct Dashboard {
     pub panes: pane_grid::State<PaneState>,
     pub focus: Option<(window::Id, pane_grid::Pane)>,
     pub popout: HashMap<window::Id, (pane_grid::State<PaneState>, (Point, Size))>,
-    pub layout_lock: bool,
     pub pane_streams: HashMap<Exchange, HashMap<Ticker, HashSet<StreamType>>>,
     notification_manager: NotificationManager,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
-    timezone: UserTimezone,
     pub trade_fetch_enabled: bool,
 }
 
@@ -104,12 +103,10 @@ impl Dashboard {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
             focus: None,
-            layout_lock: false,
             pane_streams: HashMap::new(),
             notification_manager: NotificationManager::new(),
             tickers_info: HashMap::new(),
             popout: HashMap::new(),
-            timezone: UserTimezone::default(),
             trade_fetch_enabled: false,
         }
     }
@@ -182,12 +179,10 @@ impl Dashboard {
         Self {
             panes,
             focus: None,
-            layout_lock: false,
             pane_streams: HashMap::new(),
             notification_manager: NotificationManager::new(),
             tickers_info: HashMap::new(),
             popout,
-            timezone: UserTimezone::default(),
             trade_fetch_enabled,
         }
     }
@@ -240,7 +235,6 @@ impl Dashboard {
             Message::ResetLayout => {
                 self.panes = pane_grid::State::with_configuration(Self::default_pane_config());
                 self.focus = None;
-                self.layout_lock = false;
                 (self.popout, self.pane_streams) = (HashMap::new(), HashMap::new());
             }
             Message::SavePopoutSpecs(specs) => {
@@ -349,8 +343,6 @@ impl Dashboard {
                             Task::done(Message::ErrorOccurred(window, Some(pane), err))
                         };
 
-                        let timezone = self.timezone;
-
                         let ticker_info = match self.get_ticker_info(&pane_stream) {
                             Some(info) => info,
                             None => {
@@ -365,7 +357,6 @@ impl Dashboard {
                             if let Err(err) = pane_state.set_content(
                                 ticker_info,
                                 &content_str, 
-                                timezone
                             ) {
                                 return err_occurred(err);
                             }
@@ -470,12 +461,10 @@ impl Dashboard {
                 match klines {
                     Ok(klines) => {
                         if let StreamType::Kline { timeframe, .. } = pane_stream {
-                            let timezone = self.timezone;
-
                             if let Some(pane_state) =
                                 self.get_mut_pane(main_window.id, window, pane_id)
                             {
-                                pane_state.insert_klines_vec(req_id, timeframe, &klines, timezone);
+                                pane_state.insert_klines_vec(req_id, timeframe, &klines);
                             }
                         }
                     }
@@ -539,8 +528,6 @@ impl Dashboard {
                 Ok(klines) => {
                     let mut inserted_panes = vec![];
 
-                    let timezone = self.timezone;
-
                     self.iter_all_panes_mut(main_window.id)
                         .for_each(|(window, pane, state)| {
                             if state.matches_stream(&stream_type) {
@@ -553,7 +540,6 @@ impl Dashboard {
                                                 klines.clone(),
                                                 timeframe,
                                                 tick_size,
-                                                timezone,
                                                 indicators,
                                             );
                                         }
@@ -566,7 +552,6 @@ impl Dashboard {
                                                 tick_size,
                                                 klines.clone(),
                                                 raw_trades,
-                                                timezone,
                                                 indicators,
                                             );
                                         }
@@ -964,12 +949,16 @@ impl Dashboard {
             }))
     }
 
-    pub fn view<'a>(&'a self, main_window: &'a Window) -> Element<'_, Message> {
+    pub fn view<'a>(
+        &'a self, 
+        main_window: &'a Window, 
+        layout_locked: bool,
+        timezone: &'a UserTimezone,
+    ) -> Element<'_, Message> {
         let focus = self.focus;
-        let pane_locked = self.layout_lock;
 
         let mut pane_grid = PaneGrid::new(&self.panes, |id, pane, maximized| {
-            let is_focused = !pane_locked && focus == Some((main_window.id, id));
+            let is_focused = !layout_locked && focus == Some((main_window.id, id));
             pane.view(
                 id,
                 self.panes.len(),
@@ -977,13 +966,14 @@ impl Dashboard {
                 maximized,
                 main_window.id,
                 main_window,
+                timezone,
                 self.notification_manager.get(&main_window.id, &id),
             )
         })
         .spacing(6)
         .style(style::pane_grid);
 
-        if !pane_locked {
+        if !layout_locked {
             pane_grid = pane_grid
                 .on_click(pane::Message::PaneClicked)
                 .on_resize(8, pane::Message::PaneResized)
@@ -1010,6 +1000,8 @@ impl Dashboard {
         &'a self,
         window: window::Id,
         main_window: &'a Window,
+        layout_locked: bool,
+        timezone: &'a UserTimezone,
     ) -> Element<'a, Message> {
         if let Some((state, _)) = self.popout.get(&window) {
             let content = container({
@@ -1022,11 +1014,12 @@ impl Dashboard {
                         false,
                         window,
                         main_window,
+                        timezone,
                         self.notification_manager.get(&window, &id),
                     )
                 });
 
-                if !self.layout_lock {
+                if !layout_locked {
                     pane_grid = pane_grid.on_click(pane::Message::PaneClicked);
                 }
                 pane_grid
@@ -1411,19 +1404,6 @@ impl Dashboard {
         self.pane_streams.clone_from(&pane_streams);
 
         pane_streams
-    }
-
-    pub fn get_timezone(&self) -> UserTimezone {
-        self.timezone
-    }
-
-    pub fn set_timezone(&mut self, main_window: window::Id, timezone: UserTimezone) {
-        self.timezone = timezone;
-
-        self.iter_all_panes_mut(main_window)
-            .for_each(|(_, _, pane)| {
-                pane.content.change_timezone(timezone);
-            });
     }
 }
 

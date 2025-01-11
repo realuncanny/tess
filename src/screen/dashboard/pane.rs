@@ -11,7 +11,7 @@ use crate::{
         indicators::{CandlestickIndicator, FootprintIndicator, HeatmapIndicator, Indicator}, 
         timeandsales::TimeAndSales
     }, data_providers::{format_with_commas, Exchange, Kline, MarketType, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe}, layout::SerializableChartData, screen::{
-        self, create_button, modal::{pane_menu, pane_notification}, DashboardError, InfoType, Notification, UserTimezone
+        self, create_button, modal::{pane_menu, pane_notification}, DashboardError, InfoType, Notification, UserTimezone,
     }, style::{self, get_icon_text, Icon}, window::{self, Window}, StreamType
 };
 
@@ -169,7 +169,6 @@ impl PaneState {
         &mut self, 
         ticker_info: TickerInfo,
         content_str: &str, 
-        timezone: UserTimezone,
     ) -> Result<(), DashboardError> {
         self.content = match content_str {
             "heatmap" => {
@@ -188,7 +187,6 @@ impl PaneState {
                         },
                         tick_size,
                         100,
-                        timezone,
                         &enabled_indicators,
                     ),
                     enabled_indicators,
@@ -221,7 +219,6 @@ impl PaneState {
                         tick_size,
                         vec![],
                         vec![],
-                        timezone,
                         &enabled_indicators,
                     ),
                     enabled_indicators,
@@ -254,7 +251,6 @@ impl PaneState {
                         vec![],
                         timeframe,
                         tick_size,
-                        timezone,
                         &enabled_indicators,
                     ),
                     enabled_indicators,
@@ -293,7 +289,6 @@ impl PaneState {
         req_id: Option<uuid::Uuid>,
         timeframe: Timeframe,
         klines: &Vec<Kline>,
-        timezone: UserTimezone,
     ) {
         match &mut self.content {
             PaneContent::Candlestick(chart, indicators) => {
@@ -308,7 +303,6 @@ impl PaneState {
                         klines.clone(), 
                         timeframe, 
                         tick_size, 
-                        timezone,
                         indicators,
                     );
                 }
@@ -326,7 +320,6 @@ impl PaneState {
                         tick_size,
                         klines.clone(),
                         raw_trades,
-                        timezone,
                         indicators,
                     );
                 }
@@ -345,6 +338,7 @@ impl PaneState {
         maximized: bool,
         window: window::Id,
         main_window: &'a Window,
+        timezone: &'a UserTimezone,
         notifications: Option<&'a Vec<screen::Notification>>,
     ) -> pane_grid::Content<'a, Message, Theme, Renderer> {
         let mut stream_info_element = row![]
@@ -432,13 +426,13 @@ impl PaneState {
             PaneContent::Starter => 
                 center(text("select a ticker to start").size(16)).into(),
             PaneContent::Heatmap(content, indicators) => 
-                view_chart(id, self, content, notifications, indicators),
+                view_chart(id, self, content, notifications, indicators, timezone),
             PaneContent::Footprint(content, indicators) => 
-                view_chart(id, self, content, notifications, indicators),
+                view_chart(id, self, content, notifications, indicators, timezone),
             PaneContent::Candlestick(content, indicators) => 
-                view_chart(id, self, content, notifications, indicators),
+                view_chart(id, self, content, notifications, indicators, timezone),
             PaneContent::TimeAndSales(content) => 
-                view_panel(id, self, content, notifications),
+                view_panel(id, self, content, notifications, timezone),
         })
         .style(move |theme| style::pane_primary(theme, is_focused));
 
@@ -470,6 +464,7 @@ trait ChartView {
         state: &'a PaneState, 
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
+        timezone: &'a UserTimezone,
     ) -> Element<Message>;
 }
 
@@ -545,9 +540,10 @@ impl ChartView for HeatmapChart {
         state: &'a PaneState,
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
+        timezone: &'a UserTimezone,
     ) -> Element<Message> {
         let underlay = self
-            .view(indicators, state.settings.ticker_info)
+            .view(indicators, state.settings.ticker_info, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
         let settings_view = || {
@@ -576,9 +572,10 @@ impl ChartView for FootprintChart {
         state: &'a PaneState,
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
+        timezone: &'a UserTimezone,
     ) -> Element<Message> {
         let underlay = self
-            .view(indicators, state.settings.ticker_info)
+            .view(indicators, state.settings.ticker_info, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
         let settings_view = || {
@@ -607,9 +604,10 @@ impl ChartView for CandlestickChart {
         state: &'a PaneState,
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
+        timezone: &'a UserTimezone,
     ) -> Element<Message> {
         let underlay = self
-            .view(indicators, state.settings.ticker_info)
+            .view(indicators, state.settings.ticker_info, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
             
         let settings_view = || {
@@ -634,16 +632,17 @@ impl ChartView for CandlestickChart {
 /// 
 /// e.g. Time&Sales pane
 trait PanelView {
-    fn view(&self, pane: pane_grid::Pane, state: &PaneState) -> Element<Message>;
+    fn view(&self, pane: pane_grid::Pane, state: &PaneState, timezone: &UserTimezone) -> Element<Message>;
 }
 
 impl PanelView for TimeAndSales {
     fn view(
         &self, 
         pane: pane_grid::Pane, 
-        state: &PaneState, 
+        state: &PaneState,
+        timezone: &UserTimezone,
     ) -> Element<Message> {
-        let underlay = self.view();
+        let underlay = self.view(timezone);
 
         match state.modal {
             PaneModal::Settings => {
@@ -899,8 +898,9 @@ fn view_panel<'a, C: PanelView>(
     state: &'a PaneState,
     content: &'a C,
     notifications: Option<&'a Vec<screen::Notification>>,
+    timezone: &'a UserTimezone,
 ) -> Element<'a, Message> {
-    let base = center(content.view(pane, state));
+    let base = center(content.view(pane, state, timezone));
 
     if let Some(notifications) = notifications {
         pane_notification(
@@ -921,8 +921,9 @@ fn view_chart<'a, C: ChartView, I: Indicator>(
     content: &'a C,
     notifications: Option<&'a Vec<screen::Notification>>,
     indicators: &'a [I],
+    timezone: &'a UserTimezone,
 ) -> Element<'a, Message> {
-    content.view(pane, state, indicators, notifications)
+    content.view(pane, state, indicators, notifications, timezone)
 }
 
 // Pane controls, title bar
@@ -1015,15 +1016,6 @@ pub enum PaneContent {
 }
 
 impl PaneContent {
-    pub fn change_timezone(&mut self, timezone: UserTimezone) {
-        match self {
-            PaneContent::Heatmap(chart, _) => chart.change_timezone(timezone),
-            PaneContent::Footprint(chart, _) => chart.change_timezone(timezone),
-            PaneContent::Candlestick(chart, _) => chart.change_timezone(timezone),
-            _ => {}
-        }
-    }
-
     pub fn toggle_indicator(&mut self, indicator_str: String) {
         match self {
             PaneContent::Heatmap(chart, indicators) => {

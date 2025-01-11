@@ -1,4 +1,4 @@
-use std::{cmp::Ordering, collections::{BTreeMap, HashMap}};
+use std::{cmp::Ordering, collections::{hash_map::Entry, BTreeMap, HashMap}};
 
 use iced::{
     mouse, theme::palette::Extended, Alignment, Color, Element, 
@@ -6,11 +6,8 @@ use iced::{
 };
 use iced::widget::canvas::{self, Event, Geometry, Path};
 
-use crate::{data_providers::TickerInfo, layout::SerializableChartData};
-use crate::{
-    data_providers::{Depth, Trade},
-    screen::UserTimezone,
-};
+use crate::{data_providers::TickerInfo, layout::SerializableChartData, screen::UserTimezone};
+use crate::data_providers::{Depth, Trade};
 
 use super::indicators::{HeatmapIndicator, Indicator};
 use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
@@ -244,7 +241,6 @@ impl HeatmapChart {
         layout: SerializableChartData, 
         tick_size: f32, 
         aggr_time: i64, 
-        timezone: UserTimezone, 
         enabled_indicators: &[HeatmapIndicator]
     ) -> Self {
         HeatmapChart {
@@ -254,7 +250,6 @@ impl HeatmapChart {
                 timeframe: aggr_time as u64,
                 tick_size,
                 decimals: count_decimals(tick_size),
-                timezone,
                 crosshair: layout.crosshair,
                 indicators_split: layout.indicators_split,
                 ..Default::default()
@@ -393,11 +388,6 @@ impl HeatmapChart {
         self.chart.get_chart_layout()
     }
 
-    pub fn change_timezone(&mut self, timezone: UserTimezone) {
-        let chart = self.get_common_data_mut();
-        chart.timezone = timezone;
-    }
-
     pub fn change_tick_size(&mut self, new_tick_size: f32) {
         let chart_state = self.get_common_data_mut();
 
@@ -412,16 +402,12 @@ impl HeatmapChart {
     }
 
     pub fn toggle_indicator(&mut self, indicator: HeatmapIndicator) {
-        if self.indicators.contains_key(&indicator) {
-            self.indicators.remove(&indicator);
-        } else {
-            match indicator {
-                HeatmapIndicator::Volume => {
-                    self.indicators.insert(
-                        indicator,
-                        IndicatorData::Volume,
-                    );
-                },
+        match self.indicators.entry(indicator) {
+            Entry::Occupied(entry) => {
+                entry.remove();
+            }
+            Entry::Vacant(entry) => {
+                entry.insert(IndicatorData::Volume);
             }
         }
     }
@@ -505,9 +491,10 @@ impl HeatmapChart {
     pub fn view<'a, I: Indicator>(
         &'a self, 
         indicators: &'a [I], 
-        ticker_info: Option<TickerInfo>
+        ticker_info: Option<TickerInfo>,
+        timezone: &'a UserTimezone,
     ) -> Element<Message> {
-        view_chart(self, indicators, ticker_info)
+        view_chart(self, indicators, ticker_info, timezone)
     }
 }
 

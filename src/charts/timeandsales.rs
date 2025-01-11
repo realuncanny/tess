@@ -2,6 +2,7 @@ use chrono::DateTime;
 use iced::{alignment, padding, Element, Length};
 use iced::widget::{column, container, responsive, row, text, Space};
 use crate::screen::dashboard::pane::Message;
+use crate::screen::UserTimezone;
 use crate::style::ts_table_container;
 use crate::data_providers::Trade;
 
@@ -71,7 +72,7 @@ impl TimeAndSales {
         }
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view(&self, _timezone: &UserTimezone) -> Element<'_, Message> {
         responsive(move |size| {
             let mut column = column![]
                 .padding(padding::top(4).left(4).right(4))
