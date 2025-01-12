@@ -88,7 +88,6 @@ pub struct Dashboard {
     pub popout: HashMap<window::Id, (pane_grid::State<PaneState>, (Point, Size))>,
     pub pane_streams: HashMap<Exchange, HashMap<Ticker, HashSet<StreamType>>>,
     notification_manager: NotificationManager,
-    tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     pub trade_fetch_enabled: bool,
 }
 
@@ -105,7 +104,6 @@ impl Dashboard {
             focus: None,
             pane_streams: HashMap::new(),
             notification_manager: NotificationManager::new(),
-            tickers_info: HashMap::new(),
             popout: HashMap::new(),
             trade_fetch_enabled: false,
         }
@@ -181,7 +179,6 @@ impl Dashboard {
             focus: None,
             pane_streams: HashMap::new(),
             notification_manager: NotificationManager::new(),
-            tickers_info: HashMap::new(),
             popout,
             trade_fetch_enabled,
         }
@@ -331,7 +328,13 @@ impl Dashboard {
                             main_window.id,
                         );
                     }
-                    pane::Message::InitPaneContent(window, content_str, is_pane, pane_stream) => {
+                    pane::Message::InitPaneContent(
+                        window, 
+                        content_str, 
+                        is_pane, 
+                        pane_stream, 
+                        ticker_info,
+                    ) => {
                         let pane;
                         if let Some(parent_pane) = is_pane {
                             pane = parent_pane;
@@ -341,15 +344,6 @@ impl Dashboard {
 
                         let err_occurred = |err| {
                             Task::done(Message::ErrorOccurred(window, Some(pane), err))
-                        };
-
-                        let ticker_info = match self.get_ticker_info(&pane_stream) {
-                            Some(info) => info,
-                            None => {
-                                return err_occurred(DashboardError::PaneSet(
-                                    "No ticker info found".to_string(),
-                                ));
-                            }
                         };
 
                         // set pane's stream and content identifiers
@@ -1035,30 +1029,6 @@ impl Dashboard {
         }
     }
 
-    pub fn set_tickers_info(
-        &mut self,
-        tickers_info_map: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
-    ) {
-        self.tickers_info = tickers_info_map;
-    }
-
-    fn get_ticker_info(&self, pane_stream: &[StreamType]) -> Option<TickerInfo> {
-        pane_stream
-            .iter()
-            .filter_map(|stream| match stream {
-                StreamType::Kline {exchange, ticker, ..}
-                | StreamType::DepthAndTrades { exchange, ticker } => {
-                    self.tickers_info.get(exchange).and_then(|exchange_map| {
-                        exchange_map
-                            .get(ticker)
-                            .and_then(|ticker_info| *ticker_info)
-                    })
-                }
-                _ => None,
-            })
-            .next()
-    }
-
     fn set_pane_ticksize(
         &mut self,
         main_window: window::Id,
@@ -1187,7 +1157,7 @@ impl Dashboard {
     pub fn init_pane_task(
         &mut self,
         main_window: window::Id,
-        ticker: Ticker,
+        ticker: (Ticker, TickerInfo),
         exchange: Exchange,
         content: &str,
     ) -> Task<Message> {

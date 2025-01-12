@@ -501,6 +501,7 @@ pub async fn fetch_historical_oi(
         Timeframe::M15 => "15min",
         Timeframe::M30 => "30min",
         Timeframe::H1 => "1h",
+        Timeframe::H2 => "2h",
         Timeframe::H4 => "4h",
         _ => {
             let err_msg = format!("Unsupported timeframe for open interest: {}", period);

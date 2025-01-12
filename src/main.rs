@@ -134,18 +134,18 @@ enum Message {
 
 struct State {
     theme: Theme,
+    main_window: Window,
+    timezone: UserTimezone,
+    layout_locked: bool,
+    confirmation_dialog: Option<String>,
     layouts: HashMap<layout::LayoutId, Dashboard>,
     last_active_layout: layout::LayoutId,
-    main_window: Window,
     active_modal: DashboardModal,
     sidebar_location: Sidebar,
     notification: Option<Notification>,
-    ticker_info_map: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     show_tickers_dashboard: bool,
     tickers_table: TickersTable,
-    confirmation_dialog: Option<String>,
-    layout_locked: bool,
-    timezone: UserTimezone,
+    tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
 }
 
 #[allow(dead_code)]
@@ -158,12 +158,12 @@ impl State {
 
         let last_active_layout = saved_state.last_active_layout;
 
-        let mut ticker_info_map = HashMap::new();
+        let mut tickers_info = HashMap::new();
 
         let exchange_fetch_tasks = {
             Exchange::MARKET_TYPES.iter()
                 .flat_map(|(exchange, market_type)| {
-                    ticker_info_map.insert(*exchange, HashMap::new());
+                    tickers_info.insert(*exchange, HashMap::new());
                     
                     let ticksizes_task = match exchange {
                         Exchange::BinanceFutures | Exchange::BinanceSpot => {
@@ -196,7 +196,7 @@ impl State {
                 main_window: Window::new(main_window),
                 active_modal: DashboardModal::None,
                 notification: None,
-                ticker_info_map,
+                tickers_info,
                 show_tickers_dashboard: false,
                 sidebar_location: saved_state.sidebar,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
@@ -218,12 +218,7 @@ impl State {
         match message {
             Message::SetTickersInfo(exchange, tickers_info) => {
                 log::info!("Received tickers info for {exchange}, len: {}", tickers_info.len());
-
-                self.ticker_info_map.insert(exchange, tickers_info);
-
-                self.layouts.values_mut().for_each(|dashboard| {
-                    dashboard.set_tickers_info(self.ticker_info_map.clone());
-                });
+                self.tickers_info.insert(exchange, tickers_info);
             }
             Message::MarketWsEvent(exchange, event) => {
                 let main_window_id = self.main_window.id;
@@ -467,15 +462,27 @@ impl State {
                 if let tickers_table::Message::TickerSelected(ticker, exchange, content) = message {
                     let main_window_id = self.main_window.id;
 
-                    let command = self
-                        .get_mut_dashboard(self.last_active_layout)
-                        .init_pane_task(main_window_id, ticker, exchange, &content);
+                    let ticker_info = self.tickers_info.get(&exchange).and_then(|info| {
+                        info.get(&ticker).cloned().flatten()
+                    });
 
-                    return Task::batch(vec![command.map(Message::Dashboard)]);
+                    if let Some(ticker_info) = ticker_info {
+                        let task = self
+                            .get_mut_dashboard(self.last_active_layout)
+                            .init_pane_task(main_window_id, (ticker, ticker_info), exchange, &content);
+
+                        return task.map(Message::Dashboard);
+                    } else {
+                        return Task::done(Message::ErrorOccurred(InternalError::Fetch(
+                            format!(
+                                "Couldn't find ticker info for {ticker} on {exchange}, try restarting the app"
+                            ),
+                        )));
+                    }
                 } else {
-                    let command = self.tickers_table.update(message);
-
-                    return Task::batch(vec![command.map(Message::TickersTable)]);
+                    return self.tickers_table
+                        .update(message)
+                        .map(Message::TickersTable);
                 }
             }
             Message::SetTimezone(tz) => {

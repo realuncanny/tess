@@ -35,7 +35,7 @@ pub enum Message {
     TicksizeSelected(TickMultiplier, pane_grid::Pane),
     TimeframeSelected(Timeframe, pane_grid::Pane),
     ToggleModal(pane_grid::Pane, PaneModal),
-    InitPaneContent(window::Id, String, Option<pane_grid::Pane>, Vec<StreamType>),
+    InitPaneContent(window::Id, String, Option<pane_grid::Pane>, Vec<StreamType>, TickerInfo),
     ReplacePane(pane_grid::Pane),
     ChartUserUpdate(pane_grid::Pane, charts::Message),
     SliderChanged(pane_grid::Pane, f32, bool),
@@ -117,13 +117,13 @@ impl PaneState {
         &mut self,
         content: &str,
         exchange: Exchange,
-        ticker: Ticker,
+        ticker: (Ticker, TickerInfo),
         pane: pane_grid::Pane,
         window: window::Id,
     ) -> Task<Message> {
         let streams = match content {
             "heatmap" | "time&sales" => {
-                vec![StreamType::DepthAndTrades { exchange, ticker }]
+                vec![StreamType::DepthAndTrades { exchange, ticker: ticker.0 }]
             }
             "footprint" => {
                 let timeframe = self
@@ -132,10 +132,10 @@ impl PaneState {
                     .unwrap_or(Timeframe::M5);
 
                 vec![
-                    StreamType::DepthAndTrades { exchange, ticker },
+                    StreamType::DepthAndTrades { exchange, ticker: ticker.0 },
                     StreamType::Kline {
                         exchange,
-                        ticker,
+                        ticker: ticker.0,
                         timeframe,
                     },
                 ]
@@ -148,7 +148,7 @@ impl PaneState {
 
                 vec![StreamType::Kline {
                     exchange,
-                    ticker,
+                    ticker: ticker.0,
                     timeframe,
                 }]
             }
@@ -162,6 +162,7 @@ impl PaneState {
             content.to_string(),
             Some(pane),
             streams,
+            ticker.1,
         ))
     }
 

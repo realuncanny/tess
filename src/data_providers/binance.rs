@@ -1070,6 +1070,8 @@ struct DeOpenInterest {
     pub sum: f32,
 }
 
+const THIRTY_DAYS_MS: i64 = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+
 pub async fn fetch_historical_oi(
     ticker: Ticker, 
     range: Option<(i64, i64)>,
@@ -1081,6 +1083,7 @@ pub async fn fetch_historical_oi(
         Timeframe::M15 => "15m",
         Timeframe::M30 => "30m",
         Timeframe::H1 => "1h",
+        Timeframe::H2 => "2h",
         Timeframe::H4 => "4h",
         _ => {
             let err_msg = format!("Unsupported timeframe for open interest: {}", period);
@@ -1095,12 +1098,33 @@ pub async fn fetch_historical_oi(
     );
 
     if let Some((start, end)) = range {
+        // This API seems to be limited to 30 days of historical data
+        let thirty_days_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Could not get system time")
+            .as_millis() as i64 - THIRTY_DAYS_MS;
+        
+        if end < thirty_days_ago {
+            let err_msg = format!(
+                "Requested end time {} is before available data (30 days is the API limit)", end
+            );
+            log::error!("{}", err_msg);
+            return Err(StreamError::UnknownError(err_msg));
+        }
+
+        let adjusted_start = if start < thirty_days_ago {
+            log::warn!("Adjusting start time from {} to {} (30 days limit)", start, thirty_days_ago);
+            thirty_days_ago
+        } else {
+            start
+        };
+
         let interval_ms = period.to_milliseconds() as i64;
-        let num_intervals = ((end - start) / interval_ms).min(500);
+        let num_intervals = ((end - adjusted_start) / interval_ms).min(500);
 
         if num_intervals > 1 {
             url.push_str(&format!(
-                "&startTime={start}&endTime={end}&limit={num_intervals}"
+                "&startTime={adjusted_start}&endTime={end}&limit={num_intervals}"
             ));
         } else {
             url.push_str("&limit=200");
