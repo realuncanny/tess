@@ -77,6 +77,7 @@ pub fn custom_theme() -> Custom {
     )
 }
 
+#[cfg(target_os = "macos")]
 pub fn branding_text(theme: &Theme) -> iced::widget::text::Style {
     let palette = theme.extended_palette();
 

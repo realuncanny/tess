@@ -948,7 +948,7 @@ impl Dashboard {
         main_window: &'a Window, 
         layout_locked: bool,
         timezone: &'a UserTimezone,
-    ) -> Element<'_, Message> {
+    ) -> Element<'a, Message> {
         let focus = self.focus;
 
         let mut pane_grid = PaneGrid::new(&self.panes, |id, pane, maximized| {

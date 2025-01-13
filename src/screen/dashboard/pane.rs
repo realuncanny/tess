@@ -466,7 +466,7 @@ trait ChartView {
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
-    ) -> Element<Message>;
+    ) -> Element<'a, Message>;
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -542,7 +542,7 @@ impl ChartView for HeatmapChart {
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
-    ) -> Element<Message> {
+    ) -> Element<'a, Message> {
         let underlay = self
             .view(indicators, state.settings.ticker_info, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
@@ -574,7 +574,7 @@ impl ChartView for FootprintChart {
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
-    ) -> Element<Message> {
+    ) -> Element<'a, Message> {
         let underlay = self
             .view(indicators, state.settings.ticker_info, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
@@ -606,7 +606,7 @@ impl ChartView for CandlestickChart {
         indicators: &'a [I],
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
-    ) -> Element<Message> {
+    ) -> Element<'a, Message> {
         let underlay = self
             .view(indicators, state.settings.ticker_info, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));

@@ -715,7 +715,7 @@ impl FootprintChart {
         indicators: &'a [I], 
         ticker_info: Option<TickerInfo>,
         timezone: &'a UserTimezone,
-    ) -> Element<Message> {
+    ) -> Element<'a, Message> {
         view_chart(self, indicators, ticker_info, timezone)
     }
 }

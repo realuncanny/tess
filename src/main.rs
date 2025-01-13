@@ -25,7 +25,7 @@ use data_providers::{
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
-    widget::{button, pick_list, Space, column, container, row, text, center, responsive, pane_grid},
+    widget::{button, pick_list, Space, column, container, row, text, responsive, pane_grid},
     padding, Alignment, Element, Length, Point, Size, Subscription, Task, Theme,
 };
 use iced_futures::MaybeSend;
@@ -655,7 +655,7 @@ impl State {
             let base = column![
                 {
                     #[cfg(target_os = "macos")] {
-                        center(
+                        iced::widget::center(
                             text("FLOWSURFACE")
                                 .font(
                                     iced::Font {

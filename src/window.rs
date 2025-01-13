@@ -107,8 +107,6 @@ where
 
 #[cfg(target_os = "linux")]
 pub fn settings() -> Settings {
-    use iced::window;
-
     Settings {
         ..Default::default()
     }
@@ -130,8 +128,6 @@ pub fn settings() -> Settings {
 
 #[cfg(target_os = "windows")]
 pub fn settings() -> Settings {
-    use iced::window;
-
     Settings {
         ..Default::default()
     }
