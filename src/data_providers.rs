@@ -26,7 +26,7 @@ pub enum State {
 pub enum Event {
     Connected(Connection),
     Disconnected(String),
-    DepthReceived(Ticker, i64, Depth, Vec<Trade>),
+    DepthReceived(Ticker, i64, Depth, Box<[Trade]>),
     KlineReceived(Ticker, Kline, Timeframe),
 }
 
@@ -607,6 +607,13 @@ async fn setup_websocket_connection(
         .map_err(|e| StreamError::WebsocketError(e.to_string()))?;
 
     Ok(FragmentCollector::new(ws))
+}
+
+fn str_f32_parse(s: &str) -> f32 {
+    s.parse::<f32>().unwrap_or_else(|e| {
+        log::error!("Failed to parse float: {}, error: {}", s, e);
+        0.0
+    })
 }
 
 #[allow(unused_imports)]

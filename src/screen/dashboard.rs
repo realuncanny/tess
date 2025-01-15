@@ -1260,12 +1260,10 @@ impl Dashboard {
         stream_type: &StreamType,
         depth_update_t: i64,
         depth: Depth,
-        trades_buffer: Vec<Trade>,
+        trades_buffer: Box<[Trade]>,
         main_window: window::Id,
     ) -> Task<Message> {
         let mut found_match = false;
-
-        let trades_buffer = trades_buffer.into_boxed_slice();
 
         self.iter_all_panes_mut(main_window)
             .for_each(|(_, _, pane_state)| {

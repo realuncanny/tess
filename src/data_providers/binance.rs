@@ -10,20 +10,10 @@ use serde::{Deserialize, Serialize};
 use sonic_rs::{to_object_iter_unchecked, FastStr};
 
 use super::{
-    deserialize_string_to_f32, setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
-    Connection, Event, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, StreamError,
-    Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache,
+    deserialize_string_to_f32, setup_tcp_connection, setup_tls_connection, setup_websocket_connection, str_f32_parse, 
+    Connection, Event, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, StreamError, 
+    Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache
 };
-
-async fn connect(
-    domain: &str,
-    streams: &str,
-) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
-    let tcp_stream = setup_tcp_connection(domain).await?;
-    let tls_stream = setup_tls_connection(domain, tcp_stream).await?;
-    let url = format!("wss://{domain}/stream?streams={streams}");
-    setup_websocket_connection(domain, tls_stream, &url).await
-}
 
 mod string_to_f32 {
     use serde::{self, Deserialize, Deserializer};
@@ -35,13 +25,6 @@ mod string_to_f32 {
         let s: &str = <&str>::deserialize(deserializer)?;
         s.parse::<f32>().map_err(serde::de::Error::custom)
     }
-}
-
-fn str_f32_parse(s: &str) -> f32 {
-    s.parse::<f32>().unwrap_or_else(|e| {
-        log::error!("Failed to parse float: {}, error: {}", s, e);
-        0.0
-    })
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -235,6 +218,53 @@ fn feed_de(slice: &[u8], market: MarketType) -> Result<StreamData, StreamError> 
     ))
 }
 
+async fn connect(
+    domain: &str,
+    streams: &str,
+) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
+    let tcp_stream = setup_tcp_connection(domain).await?;
+    let tls_stream = setup_tls_connection(domain, tcp_stream).await?;
+    let url = format!("wss://{domain}/stream?streams={streams}");
+    setup_websocket_connection(domain, tls_stream, &url).await
+}
+
+async fn try_resync(
+    ticker: Ticker,
+    orderbook: &mut LocalDepthCache,
+    state: &mut State,
+    output: &mut futures::channel::mpsc::Sender<Event>,
+    already_fetching: &mut bool,
+) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    *already_fetching = true;
+
+    tokio::spawn(async move {
+        let result = fetch_depth(&ticker).await;
+        let _ = tx.send(result);
+    });
+    
+    match rx.await {
+        Ok(Ok(depth)) => {
+            orderbook.fetched(&depth);
+        }
+        Ok(Err(e)) => {
+            let _ = output
+                .send(Event::Disconnected(format!("Depth fetch failed: {}", e))).await;
+        }
+        Err(e) => {
+            *state = State::Disconnected;
+            
+            output
+                .send(Event::Disconnected(
+                    format!("Failed to send fetched depth for {ticker}, error: {e}")
+                ))
+                .await
+                .expect("Trying to send disconnect event...");
+        }
+    }
+    *already_fetching = false;
+}
+
 #[allow(unused_assignments)]
 pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
     stream::channel(100, move |mut output| async move {
@@ -334,29 +364,13 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                     {
                                                         log::warn!("Out of sync at first event. Trying to resync...\n");
 
-                                                        let (tx, rx) = tokio::sync::oneshot::channel();
-                                                        already_fetching = true;
-
-                                                        tokio::spawn(async move {
-                                                            let result = fetch_depth(&ticker).await;
-                                                            let _ = tx.send(result);
-                                                        });
-                                                        match rx.await {
-                                                            Ok(Ok(depth)) => {
-                                                                orderbook.fetched(&depth);
-                                                            }
-                                                            Ok(Err(e)) => {
-                                                                let _ = output
-                                                                    .send(Event::Disconnected(format!("Depth fetch failed: {}", e))).await;
-                                                            }
-                                                            Err(e) => {
-                                                                state = State::Disconnected;
-                                                                output.send(Event::Disconnected(
-                                                                        format!("Failed to send fetched depth for {symbol_str}, error: {e}")
-                                                                    )).await.expect("Trying to send disconnect event...");
-                                                            }
-                                                        }
-                                                        already_fetching = false;
+                                                        try_resync(
+                                                            ticker, 
+                                                            &mut orderbook, 
+                                                            &mut state, 
+                                                            &mut output, 
+                                                            &mut already_fetching
+                                                        ).await;
                                                     }
 
                                                     if (prev_id == 0) || (prev_id == de_depth.prev_final_id)
@@ -372,7 +386,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                                 ticker,
                                                                 time,
                                                                 orderbook.get_depth(),
-                                                                std::mem::take(&mut trades_buffer),
+                                                                std::mem::take(&mut trades_buffer).into_boxed_slice(),
                                                             ))
                                                             .await;
 
@@ -399,29 +413,13 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                     {
                                                         log::warn!("Out of sync at first event. Trying to resync...\n");
 
-                                                        let (tx, rx) = tokio::sync::oneshot::channel();
-                                                        already_fetching = true;
-
-                                                        tokio::spawn(async move {
-                                                            let result = fetch_depth(&ticker).await;
-                                                            let _ = tx.send(result);
-                                                        });
-                                                        match rx.await {
-                                                            Ok(Ok(depth)) => {
-                                                                orderbook.fetched(&depth);
-                                                            }
-                                                            Ok(Err(e)) => {
-                                                                let _ = output
-                                                                    .send(Event::Disconnected(format!("Depth fetch failed: {}", e))).await;
-                                                            }
-                                                            Err(e) => {
-                                                                state = State::Disconnected;
-                                                                output.send(Event::Disconnected(
-                                                                        format!("Failed to send fetched depth for {symbol_str}, error: {e}")
-                                                                    )).await.expect("Trying to send disconnect event...");
-                                                            }
-                                                        }
-                                                        already_fetching = false;
+                                                        try_resync(
+                                                            ticker, 
+                                                            &mut orderbook, 
+                                                            &mut state, 
+                                                            &mut output, 
+                                                            &mut already_fetching
+                                                        ).await;
                                                     }
 
                                                     if (prev_id == 0) || (prev_id == de_depth.first_id - 1)
@@ -437,7 +435,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                                 ticker,
                                                                 time,
                                                                 orderbook.get_depth(),
-                                                                std::mem::take(&mut trades_buffer),
+                                                                std::mem::take(&mut trades_buffer).into_boxed_slice(),
                                                             ))
                                                             .await;
 

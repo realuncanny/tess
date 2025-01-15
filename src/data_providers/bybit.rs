@@ -25,6 +25,7 @@ use crate::data_providers::{
 };
 use crate::{Ticker, Timeframe};
 
+use super::str_f32_parse;
 use super::OpenInterest;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -208,7 +209,10 @@ fn feed_de(
     Err(StreamError::UnknownError("Unknown data".to_string()))
 }
 
-async fn connect(domain: &str, market_type: MarketType) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
+async fn connect(
+    domain: &str, 
+    market_type: MarketType
+) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
     let tcp_stream = setup_tcp_connection(domain).await?;
     let tls_stream = setup_tls_connection(domain, tcp_stream).await?;
     let url = format!(
@@ -221,25 +225,42 @@ async fn connect(domain: &str, market_type: MarketType) -> Result<FragmentCollec
     setup_websocket_connection(domain, tls_stream, &url).await
 }
 
-fn str_f32_parse(s: &str) -> f32 {
-    s.parse::<f32>().unwrap_or_else(|e| {
-        log::error!("Failed to parse float: {}, error: {}", s, e);
-        0.0
-    })
-}
+async fn try_connect(
+    streams: &Value,
+    market_type: MarketType,
+    output: &mut futures::channel::mpsc::Sender<Event>,
+) -> State {
+    match connect("stream.bybit.com", market_type).await {
+        Ok(mut websocket) => {
+            if let Err(e) = websocket
+                .write_frame(Frame::text(fastwebsockets::Payload::Borrowed(
+                    streams.to_string().as_bytes(),
+                )))
+                .await
+            {
+                let _ = output
+                    .send(Event::Disconnected(format!("Failed subscribing: {e}")))
+                    .await;
+                return State::Disconnected;
+            }
 
-fn string_to_timeframe(interval: &str) -> Option<Timeframe> {
-    Timeframe::ALL
-        .iter()
-        .find(|&tf| tf.to_minutes().to_string() == interval)
-        .copied()
+            let _ = output.send(Event::Connected(Connection)).await;
+            State::Connected(websocket)
+        }
+        Err(err) => {
+            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+
+            let _ = output
+                .send(Event::Disconnected(format!("Failed to connect: {err}")))
+                .await;
+            State::Disconnected
+        }
+    }
 }
 
 pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
     stream::channel(100, move |mut output| async move {
         let mut state: State = State::Disconnected;
-
-        let mut trades_buffer: Vec<Trade> = Vec::new();
 
         let (symbol_str, market_type) = ticker.get_string();
 
@@ -253,44 +274,22 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
             symbol_str,
         );
 
-        let mut orderbook: LocalDepthCache = LocalDepthCache::new();
+        let subscribe_message = serde_json::json!({
+            "op": "subscribe",
+            "args": [stream_1, stream_2]
+        });
+
+        let mut trades_buffer: Vec<Trade> = Vec::new();
+        let mut orderbook = LocalDepthCache::new();
 
         loop {
             match &mut state {
                 State::Disconnected => {
-                    let domain: &str = "stream.bybit.com";
-
-                    if let Ok(mut websocket) = connect(domain, market_type).await {
-                        let subscribe_message: String = serde_json::json!({
-                            "op": "subscribe",
-                            "args": [stream_1, stream_2]
-                        })
-                        .to_string();
-
-                        if let Err(e) = websocket
-                            .write_frame(Frame::text(fastwebsockets::Payload::Borrowed(
-                                subscribe_message.as_bytes(),
-                            )))
-                            .await
-                        {
-                            let _ = output
-                                .send(Event::Disconnected(format!("Failed subscribing: {e}")))
-                                .await;
-
-                            continue;
-                        }
-
-                        state = State::Connected(websocket);
-                        let _ = output.send(Event::Connected(Connection)).await;
-                    } else {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-                        let _ = output
-                            .send(Event::Disconnected(
-                                "Failed to connect to websocket".to_string(),
-                            ))
-                            .await;
-                    }
+                    state = try_connect(
+                        &subscribe_message, 
+                        market_type,
+                        &mut output
+                    ).await;
                 }
                 State::Connected(websocket) => match websocket.read_frame().await {
                     Ok(msg) => match msg.opcode {
@@ -343,7 +342,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                     ticker,
                                                     time,
                                                     orderbook.get_depth(),
-                                                    std::mem::take(&mut trades_buffer),
+                                                    std::mem::take(&mut trades_buffer).into_boxed_slice(),
                                                 ))
                                                 .await;
                                         }
@@ -390,43 +389,20 @@ pub fn connect_kline_stream(
                 format!("kline.{timeframe_str}.{}", ticker.get_string().0)
             })
             .collect::<Vec<String>>();
+    
+        let subscribe_message = serde_json::json!({
+            "op": "subscribe",
+            "args": stream_str
+        });
 
         loop {
             match &mut state {
                 State::Disconnected => {
-                    let domain = "stream.bybit.com";
-
-                    if let Ok(mut websocket) = connect(domain, market_type).await {
-                        let subscribe_message = serde_json::json!({
-                            "op": "subscribe",
-                            "args": stream_str
-                        })
-                        .to_string();
-
-                        if let Err(e) = websocket
-                            .write_frame(Frame::text(fastwebsockets::Payload::Borrowed(
-                                subscribe_message.as_bytes(),
-                            )))
-                            .await
-                        {
-                            let _ = output
-                                .send(Event::Disconnected(format!("Failed subscribing: {e}")))
-                                .await;
-
-                            continue;
-                        }
-
-                        state = State::Connected(websocket);
-                        let _ = output.send(Event::Connected(Connection)).await;
-                    } else {
-                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-
-                        let _ = output
-                            .send(Event::Disconnected(
-                                "Failed to connect to websocket".to_string(),
-                            ))
-                            .await;
-                    }
+                    state = try_connect(
+                        &subscribe_message, 
+                        market_type,
+                        &mut output
+                    ).await;
                 }
                 State::Connected(websocket) => match websocket.read_frame().await {
                     Ok(msg) => match msg.opcode {
@@ -479,6 +455,13 @@ pub fn connect_kline_stream(
             }
         }
     })
+}
+
+fn string_to_timeframe(interval: &str) -> Option<Timeframe> {
+    Timeframe::ALL
+        .iter()
+        .find(|&tf| tf.to_minutes().to_string() == interval)
+        .copied()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
