@@ -29,7 +29,7 @@ use iced::{
     padding, Alignment, Element, Length, Point, Size, Subscription, Task, Theme,
 };
 use iced_futures::MaybeSend;
-use futures::TryFutureExt;
+use futures::{StreamExt, TryFutureExt};
 use std::{collections::HashMap, vec, future::Future};
 
 fn main() {
@@ -927,26 +927,16 @@ impl State {
                             let ticker: Ticker = *ticker;
 
                             let depth_stream = match exchange {
-                                Exchange::BinanceFutures => Subscription::run_with_id(
-                                    ticker,
-                                    binance::connect_market_stream(ticker),
-                                )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
-                                Exchange::BybitLinear => Subscription::run_with_id(
-                                    ticker,
-                                    bybit::connect_market_stream(ticker),
-                                )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
-                                Exchange::BinanceSpot => Subscription::run_with_id(
-                                    ticker,
-                                    binance::connect_market_stream(ticker),
-                                )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
-                                Exchange::BybitSpot => Subscription::run_with_id(
-                                    ticker,
-                                    bybit::connect_market_stream(ticker),
-                                )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
+                                Exchange::BinanceFutures | Exchange::BinanceSpot => {
+                                    let stream = binance::connect_market_stream(ticker)
+                                        .map(move |evt| create_market_event(exchange, evt));
+                                    Subscription::run_with_id(ticker, stream)
+                                },
+                                Exchange::BybitLinear | Exchange::BybitSpot => {
+                                    let stream = bybit::connect_market_stream(ticker)
+                                        .map(move |evt| create_market_event(exchange, evt));
+                                    Subscription::run_with_id(ticker, stream)
+                                },
                             };
                             depth_streams.push(depth_stream);
                         }
@@ -956,27 +946,30 @@ impl State {
                 if !kline_streams.is_empty() {
                     let kline_streams_id: Vec<(Ticker, Timeframe)> = kline_streams.clone();
 
+                    let market_type = match exchange {
+                        Exchange::BinanceFutures | Exchange::BybitLinear => MarketType::LinearPerps,
+                        Exchange::BinanceSpot | Exchange::BybitSpot => MarketType::Spot,
+                    };
+
                     let kline_subscription = match exchange {
-                        Exchange::BinanceFutures => Subscription::run_with_id(
-                            kline_streams_id,
-                            binance::connect_kline_stream(kline_streams, MarketType::LinearPerps),
-                        )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
-                        Exchange::BybitLinear => Subscription::run_with_id(
-                            kline_streams_id,
-                            bybit::connect_kline_stream(kline_streams, MarketType::LinearPerps),
-                        )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
-                        Exchange::BinanceSpot => Subscription::run_with_id(
-                            kline_streams_id,
-                            binance::connect_kline_stream(kline_streams, MarketType::Spot),
-                        )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
-                        Exchange::BybitSpot => Subscription::run_with_id(
-                            kline_streams_id,
-                            bybit::connect_kline_stream(kline_streams, MarketType::Spot),
-                        )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
+                        Exchange::BinanceFutures | Exchange::BinanceSpot => {
+                            let stream = binance::connect_kline_stream(
+                                kline_streams, 
+                                market_type,
+                            )
+                            .map(move |evt| create_market_event(exchange, evt));
+
+                            Subscription::run_with_id(kline_streams_id, stream)
+                        },
+                        Exchange::BybitLinear | Exchange::BybitSpot => {
+                            let stream = bybit::connect_kline_stream(
+                                kline_streams, 
+                                market_type,
+                            )
+                            .map(move |evt| create_market_event(exchange, evt));
+
+                            Subscription::run_with_id(kline_streams_id, stream)
+                        },
                     };
                     market_subscriptions.push(kline_subscription);
                 }
@@ -1007,6 +1000,10 @@ impl State {
     fn get_dashboard(&self, layout_id: layout::LayoutId) -> &Dashboard {
         self.layouts.get(&layout_id).expect("No active layout")
     }
+}
+
+fn create_market_event(exchange: Exchange, event: data_providers::Event) -> Message {
+    Message::MarketWsEvent(exchange, event)
 }
 
 fn fetch_ticker_info<F>(exchange: Exchange, fetch_fn: F) -> Task<Message>
