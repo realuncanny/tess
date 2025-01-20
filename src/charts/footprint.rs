@@ -899,10 +899,8 @@ impl canvas::Program<Message> for FootprintChart {
 
                 // last price line
                 if let Some(price) = &chart.last_price {
-                    let (line_color, y_pos) = match price {
-                        PriceInfoLabel::Up(p) => (palette.success.weak.color, chart.price_to_y(*p)),
-                        PriceInfoLabel::Down(p) => (palette.danger.weak.color, chart.price_to_y(*p)),
-                    };
+                    let (mut y_pos, line_color) = price.get_with_color(palette);
+                    y_pos = chart.price_to_y(y_pos);
 
                     let marker_line = Stroke::with_color(
                         Stroke {

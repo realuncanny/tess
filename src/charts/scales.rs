@@ -2,7 +2,10 @@ pub mod linear;
 pub mod timeseries;
 
 use chrono::DateTime;
-use iced::{mouse, widget::canvas::{self, Cache, Frame, Geometry}, Alignment, Color, Event, Point, Rectangle, Renderer, Size, Theme};
+use iced::{
+    mouse, theme::palette::Extended, widget::canvas::{self, Cache, Frame, Geometry}, 
+    Alignment, Color, Event, Point, Rectangle, Renderer, Size, Theme
+};
 
 use crate::screen::UserTimezone;
 
@@ -564,57 +567,66 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
             );
 
             // Last price (priority 2)
-            if let Some(last_price) = self.last_price {
-                let (price, color) = match last_price {
-                    PriceInfoLabel::Up(price) => (price, palette.success.base.color),
-                    PriceInfoLabel::Down(price) => (price, palette.danger.base.color),
-                };
-
+            if let Some(label) = self.last_price {
                 let candle_close_label = {
                     let current_time = chrono::Utc::now().timestamp_millis();
                     let next_kline_open =
                         (current_time / i64::from(self.timeframe) + 1) * i64::from(self.timeframe);
 
                     let remaining_seconds = (next_kline_open - current_time) / 1000;
-                    let hours = remaining_seconds / 3600;
-                    let minutes = (remaining_seconds % 3600) / 60;
-                    let seconds = remaining_seconds % 60;
+                    
+                    if remaining_seconds > 0 {
+                        let hours = remaining_seconds / 3600;
+                        let minutes = (remaining_seconds % 3600) / 60;
+                        let seconds = remaining_seconds % 60;
 
-                    let time_format = if hours > 0 {
-                        format!("{hours:02}:{minutes:02}:{seconds:02}")
-                    } else {
-                        format!("{minutes:02}:{seconds:02}")
-                    };
-
-                    Label {
-                        content: time_format,
-                        background_color: Some(palette.background.strong.color),
-                        text_color: if palette.is_dark {
-                            Color::BLACK.scale_alpha(0.8)
+                        let time_format = if hours > 0 {
+                            format!("{hours:02}:{minutes:02}:{seconds:02}")
                         } else {
-                            Color::WHITE.scale_alpha(0.8)
-                        },
-                        text_size: 11.0,
+                            format!("{minutes:02}:{seconds:02}")
+                        };
+
+                        Some(Label {
+                            content: time_format,
+                            background_color: Some(palette.background.strong.color),
+                            text_color: if palette.is_dark {
+                                Color::BLACK.scale_alpha(0.8)
+                            } else {
+                                Color::WHITE.scale_alpha(0.8)
+                            },
+                            text_size: 11.0,
+                        })
+                    } else {
+                        None
                     }
                 };
 
+                let (price, color) = label.get_with_color(&palette);
+                
                 let price_label = Label {
                     content: format!("{:.*}", self.decimals, price),
                     background_color: Some(color),
-                    text_color: if palette.is_dark {
-                        Color::BLACK
-                    } else {
-                        Color::WHITE
+                    text_color: {
+                        if candle_close_label.is_some() {
+                            if palette.is_dark {
+                                Color::BLACK
+                            } else {
+                                Color::WHITE
+                            }
+                        } else {
+                            palette.primary.weak.text
+                        }
                     },
                     text_size: 12.0,
                 };
 
-                let y_position = bounds.height - ((price - lowest) / range * bounds.height);
+                let y_pos = bounds.height - ((price - lowest) / range * bounds.height);
+                let content_amt = if candle_close_label.is_some() { 2 } else { 1 };
 
                 all_labels.push(AxisLabel::Y(
-                    calc_label_rect(y_position, 2, text_size, bounds),
+                    calc_label_rect(y_pos, content_amt, text_size, bounds),
                     price_label,
-                    Some(candle_close_label),
+                    candle_close_label,
                 ));
             }
 
@@ -671,4 +683,15 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
 pub enum PriceInfoLabel {
     Up(f32),
     Down(f32),
+    Neutral(f32),
+}
+
+impl PriceInfoLabel {
+    pub fn get_with_color(&self, palette: &Extended) -> (f32, iced::Color) {
+        match self {
+            PriceInfoLabel::Up(p) => (*p, palette.success.base.color),
+            PriceInfoLabel::Down(p) => (*p, palette.danger.base.color),
+            PriceInfoLabel::Neutral(p) => (*p, palette.primary.weak.color),
+        }
+    }
 }

@@ -9,7 +9,7 @@ use iced::widget::canvas::{self, Event, Geometry, Path};
 use crate::{data_providers::TickerInfo, layout::SerializableChartData, screen::UserTimezone};
 use crate::data_providers::{Depth, Trade};
 
-use super::indicators::{HeatmapIndicator, Indicator};
+use super::{indicators::{HeatmapIndicator, Indicator}, scales::PriceInfoLabel};
 use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
 use super::{canvas_interaction, view_chart, update_chart, abbr_large_numbers, count_decimals};
 
@@ -349,22 +349,22 @@ impl HeatmapChart {
 
         chart.latest_x = rounded_depth_update;
 
+        let mid_price = match (
+            depth.asks.first_key_value(),
+            depth.bids.last_key_value()
+        ) {
+            (Some((ask_price, _)), Some((bid_price, _))) => {
+                (ask_price.into_inner() + bid_price.into_inner()) / 2.0
+            }
+            _ => chart.base_price_y
+        };
+
+        chart.last_price = Some(
+            PriceInfoLabel::Neutral(mid_price)
+        );
+
         if !(chart.translation.x * chart.scaling > chart.bounds.width / 2.0) {
-            chart.base_price_y = {
-                let best_ask_price = depth
-                    .asks
-                    .first_key_value()
-                    .map_or(0.0, |(price, _)| price.into_inner());
-
-                let best_bid_price = depth
-                    .bids
-                    .last_key_value()
-                    .map_or(0.0, |(price, _)| price.into_inner());
-
-                let mid_price = (best_ask_price + best_bid_price) / 2.0;
-
-                (mid_price / (chart.tick_size)).round() * (chart.tick_size)
-            };
+            chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size)
         } else {
             chart.translation.x += chart.cell_width;
         }
