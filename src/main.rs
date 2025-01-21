@@ -108,7 +108,7 @@ enum Message {
 
     ToggleModal(DashboardModal),
 
-    MarketWsEvent(Exchange, data_providers::Event),
+    MarketWsEvent(data_providers::Event),
     ToggleTradeFetch(bool),
 
     WindowEvent(WindowEvent),
@@ -220,18 +220,19 @@ impl State {
                 log::info!("Received tickers info for {exchange}, len: {}", tickers_info.len());
                 self.tickers_info.insert(exchange, tickers_info);
             }
-            Message::MarketWsEvent(exchange, event) => {
+            Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
                 let dashboard = self.get_mut_dashboard(self.last_active_layout);
 
                 match event {
-                    data_providers::Event::Connected(_) => {
+                    data_providers::Event::Connected(exchange, _) => {
                         log::info!("a stream connected to {exchange} WS");
                     }
-                    data_providers::Event::Disconnected(reason) => {
+                    data_providers::Event::Disconnected(exchange, reason) => {
                         log::info!("a stream disconnected from {exchange} WS: {reason:?}");
                     }
                     data_providers::Event::DepthReceived(
+                        exchange,
                         ticker,
                         depth_update_t,
                         depth,
@@ -239,7 +240,10 @@ impl State {
                     ) => {
                         return dashboard
                             .update_depth_and_trades(
-                                &StreamType::DepthAndTrades { exchange, ticker },
+                                &StreamType::DepthAndTrades { 
+                                    exchange, 
+                                    ticker,
+                                },
                                 depth_update_t,
                                 depth,
                                 trades_buffer,
@@ -247,7 +251,12 @@ impl State {
                             )
                             .map(Message::Dashboard);
                     }
-                    data_providers::Event::KlineReceived(ticker, kline, timeframe) => {
+                    data_providers::Event::KlineReceived(
+                        exchange,
+                        ticker, 
+                        kline, 
+                        timeframe,
+                    ) => {
                         return dashboard
                             .update_latest_klines(
                                 &StreamType::Kline {
@@ -926,27 +935,27 @@ impl State {
                         StreamType::DepthAndTrades { ticker, .. } => {
                             let ticker: Ticker = *ticker;
 
-                            let depth_stream = match exchange {
+                            let depth_stream: Subscription<Message> = match exchange {
                                 Exchange::BinanceFutures => Subscription::run_with_id(
                                     ticker,
                                     binance::connect_market_stream(ticker),
                                 )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
+                                .map(move |event| Message::MarketWsEvent(event)),
                                 Exchange::BybitLinear => Subscription::run_with_id(
                                     ticker,
                                     bybit::connect_market_stream(ticker),
                                 )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
+                                .map(move |event| Message::MarketWsEvent(event)),
                                 Exchange::BinanceSpot => Subscription::run_with_id(
                                     ticker,
                                     binance::connect_market_stream(ticker),
                                 )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
+                                .map(move |event| Message::MarketWsEvent(event)),
                                 Exchange::BybitSpot => Subscription::run_with_id(
                                     ticker,
                                     bybit::connect_market_stream(ticker),
                                 )
-                                .map(move |event| Message::MarketWsEvent(exchange, event)),
+                                .map(move |event| Message::MarketWsEvent(event)),
                             };
                             depth_streams.push(depth_stream);
                         }
@@ -956,27 +965,27 @@ impl State {
                 if !kline_streams.is_empty() {
                     let kline_streams_id: Vec<(Ticker, Timeframe)> = kline_streams.clone();
 
-                    let kline_subscription = match exchange {
+                    let kline_subscription: Subscription<Message> = match exchange {
                         Exchange::BinanceFutures => Subscription::run_with_id(
                             kline_streams_id,
                             binance::connect_kline_stream(kline_streams, MarketType::LinearPerps),
                         )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
+                        .map(move |event| Message::MarketWsEvent(event)),
                         Exchange::BybitLinear => Subscription::run_with_id(
                             kline_streams_id,
                             bybit::connect_kline_stream(kline_streams, MarketType::LinearPerps),
                         )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
+                        .map(move |event| Message::MarketWsEvent(event)),
                         Exchange::BinanceSpot => Subscription::run_with_id(
                             kline_streams_id,
                             binance::connect_kline_stream(kline_streams, MarketType::Spot),
                         )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
+                        .map(move |event| Message::MarketWsEvent(event)),
                         Exchange::BybitSpot => Subscription::run_with_id(
                             kline_streams_id,
                             bybit::connect_kline_stream(kline_streams, MarketType::Spot),
                         )
-                        .map(move |event| Message::MarketWsEvent(exchange, event)),
+                        .map(move |event| Message::MarketWsEvent(event)),
                     };
                     market_subscriptions.push(kline_subscription);
                 }

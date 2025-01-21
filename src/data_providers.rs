@@ -24,10 +24,10 @@ pub enum State {
 
 #[derive(Debug, Clone)]
 pub enum Event {
-    Connected(Connection),
-    Disconnected(String),
-    DepthReceived(Ticker, i64, Depth, Box<[Trade]>),
-    KlineReceived(Ticker, Kline, Timeframe),
+    Connected(Exchange, Connection),
+    Disconnected(Exchange, String),
+    DepthReceived(Exchange, Ticker, i64, Depth, Box<[Trade]>),
+    KlineReceived(Exchange, Ticker, Kline, Timeframe),
 }
 
 #[derive(Debug, Clone)]

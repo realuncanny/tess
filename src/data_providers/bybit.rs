@@ -26,6 +26,7 @@ use crate::data_providers::{
 use crate::{Ticker, Timeframe};
 
 use super::str_f32_parse;
+use super::Exchange;
 use super::OpenInterest;
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -230,6 +231,11 @@ async fn try_connect(
     market_type: MarketType,
     output: &mut futures::channel::mpsc::Sender<Event>,
 ) -> State {
+    let exchange = match market_type {
+        MarketType::Spot => Exchange::BybitSpot,
+        MarketType::LinearPerps => Exchange::BybitLinear,
+    };
+
     match connect("stream.bybit.com", market_type).await {
         Ok(mut websocket) => {
             if let Err(e) = websocket
@@ -239,19 +245,25 @@ async fn try_connect(
                 .await
             {
                 let _ = output
-                    .send(Event::Disconnected(format!("Failed subscribing: {e}")))
+                    .send(Event::Disconnected(
+                        exchange,
+                        format!("Failed subscribing: {e}")
+                    ))
                     .await;
                 return State::Disconnected;
             }
 
-            let _ = output.send(Event::Connected(Connection)).await;
+            let _ = output.send(Event::Connected(exchange, Connection)).await;
             State::Connected(websocket)
         }
         Err(err) => {
             tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
             let _ = output
-                .send(Event::Disconnected(format!("Failed to connect: {err}")))
+                .send(Event::Disconnected(
+                    exchange,
+                    format!("Failed to connect: {err}")
+                ))
                 .await;
             State::Disconnected
         }
@@ -263,6 +275,11 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
         let mut state: State = State::Disconnected;
 
         let (symbol_str, market_type) = ticker.get_string();
+
+        let exchange = match market_type {
+            MarketType::Spot => Exchange::BybitSpot,
+            MarketType::LinearPerps => Exchange::BybitLinear,
+        };
 
         let stream_1 = format!("publicTrade.{symbol_str}");
         let stream_2 = format!(
@@ -339,6 +356,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                             let _ = output
                                                 .send(Event::DepthReceived(
+                                                    exchange,
                                                     ticker,
                                                     time,
                                                     orderbook.get_depth(),
@@ -356,7 +374,10 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                         OpCode::Close => {
                             state = State::Disconnected;
                             let _ = output
-                                .send(Event::Disconnected("Connection closed".to_string()))
+                                .send(Event::Disconnected(
+                                    exchange,
+                                    "Connection closed".to_string()
+                                ))
                                 .await;
                         }
                         _ => {}
@@ -365,6 +386,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                         state = State::Disconnected;
                         let _ = output
                             .send(Event::Disconnected(
+                                exchange,
                                 "Error reading frame: ".to_string() + &e.to_string(),
                             ))
                             .await;
@@ -381,6 +403,11 @@ pub fn connect_kline_stream(
 ) -> impl Stream<Item = Event> {
     stream::channel(100, move |mut output| async move {
         let mut state = State::Disconnected;
+
+        let exchange = match market_type {
+            MarketType::Spot => Exchange::BybitSpot,
+            MarketType::LinearPerps => Exchange::BybitLinear,
+        };
 
         let stream_str = streams
             .iter()
@@ -423,7 +450,12 @@ pub fn connect_kline_stream(
                                     if let Some(timeframe) = string_to_timeframe(&de_kline.interval)
                                     {
                                         let _ = output
-                                            .send(Event::KlineReceived(ticker, kline, timeframe))
+                                            .send(Event::KlineReceived(
+                                                exchange,
+                                                ticker, 
+                                                kline, 
+                                                timeframe,
+                                            ))
                                             .await;
                                     } else {
                                         log::error!(
@@ -438,7 +470,10 @@ pub fn connect_kline_stream(
                         OpCode::Close => {
                             state = State::Disconnected;
                             let _ = output
-                                .send(Event::Disconnected("Connection closed".to_string()))
+                                .send(Event::Disconnected(
+                                    exchange,
+                                    "Connection closed".to_string()
+                                ))
                                 .await;
                         }
                         _ => {}
@@ -447,6 +482,7 @@ pub fn connect_kline_stream(
                         state = State::Disconnected;
                         let _ = output
                             .send(Event::Disconnected(
+                                exchange,
                                 "Error reading frame: ".to_string() + &e.to_string(),
                             ))
                             .await;

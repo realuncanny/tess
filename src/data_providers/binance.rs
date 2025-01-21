@@ -11,7 +11,7 @@ use sonic_rs::{to_object_iter_unchecked, FastStr};
 
 use super::{
     deserialize_string_to_f32, setup_tcp_connection, setup_tls_connection, setup_websocket_connection, str_f32_parse, 
-    Connection, Event, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, StreamError, 
+    Connection, Event, Exchange, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, StreamError, 
     Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache
 };
 
@@ -229,6 +229,7 @@ async fn connect(
 }
 
 async fn try_resync(
+    exchange: Exchange,
     ticker: Ticker,
     orderbook: &mut LocalDepthCache,
     state: &mut State,
@@ -249,13 +250,17 @@ async fn try_resync(
         }
         Ok(Err(e)) => {
             let _ = output
-                .send(Event::Disconnected(format!("Depth fetch failed: {}", e))).await;
+                .send(Event::Disconnected(
+                    exchange,
+                    format!("Depth fetch failed: {}", e)
+                )).await;
         }
         Err(e) => {
             *state = State::Disconnected;
             
             output
                 .send(Event::Disconnected(
+                    exchange,
                     format!("Failed to send fetched depth for {ticker}, error: {e}")
                 ))
                 .await
@@ -271,6 +276,11 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
         let mut state = State::Disconnected;
 
         let (symbol_str, market) = ticker.get_string();
+        
+        let exchange = match market {
+            MarketType::Spot => Exchange::BinanceSpot,
+            MarketType::LinearPerps => Exchange::BinanceFutures,
+        };
     
         let stream_1 = format!("{}@aggTrade", symbol_str.to_lowercase());
         let stream_2 = format!("{}@depth@100ms", symbol_str.to_lowercase());
@@ -305,15 +315,21 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                 state = State::Connected(websocket);
 
                                 let _ = output
-                                    .send(Event::Connected(Connection)).await;
+                                    .send(Event::Connected(exchange, Connection)).await;
                             }
                             Ok(Err(e)) => {
                                 let _ = output
-                                    .send(Event::Disconnected(format!("Depth fetch failed: {}", e))).await;
+                                    .send(Event::Disconnected(
+                                        exchange,
+                                        format!("Depth fetch failed: {}", e)
+                                    )).await;
                             }
                             Err(e) => {
                                 let _ = output
-                                    .send(Event::Disconnected(format!("Channel error: {}", e))).await;
+                                    .send(Event::Disconnected(
+                                        exchange,
+                                        format!("Channel error: {}", e)
+                                    )).await;
                             }
                         }
                     } else {
@@ -321,6 +337,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                         let _ = output
                             .send(Event::Disconnected(
+                                exchange,
                                 "Failed to connect to websocket".to_string(),
                             ))
                             .await;
@@ -365,6 +382,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                         log::warn!("Out of sync at first event. Trying to resync...\n");
 
                                                         try_resync(
+                                                            exchange,
                                                             ticker, 
                                                             &mut orderbook, 
                                                             &mut state, 
@@ -383,6 +401,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                                         let _ = output
                                                             .send(Event::DepthReceived(
+                                                                exchange,
                                                                 ticker,
                                                                 time,
                                                                 orderbook.get_depth(),
@@ -395,6 +414,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                         state = State::Disconnected;
                                                         let _ = output.send(
                                                                 Event::Disconnected(
+                                                                    exchange,
                                                                     format!("Out of sync. Expected update_id: {}, got: {}", de_depth.prev_final_id, prev_id)
                                                                 )
                                                             ).await;
@@ -414,6 +434,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                         log::warn!("Out of sync at first event. Trying to resync...\n");
 
                                                         try_resync(
+                                                            exchange,
                                                             ticker, 
                                                             &mut orderbook, 
                                                             &mut state, 
@@ -432,6 +453,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                                         let _ = output
                                                             .send(Event::DepthReceived(
+                                                                exchange,
                                                                 ticker,
                                                                 time,
                                                                 orderbook.get_depth(),
@@ -444,6 +466,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                         state = State::Disconnected;
                                                         let _ = output.send(
                                                                 Event::Disconnected(
+                                                                    exchange,
                                                                     format!("Out of sync. Expected update_id: {}, got: {}", de_depth.final_id, prev_id)
                                                                 )
                                                             ).await;
@@ -458,7 +481,10 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                             OpCode::Close => {
                                 state = State::Disconnected;
                                 let _ = output
-                                    .send(Event::Disconnected("Connection closed".to_string()))
+                                    .send(Event::Disconnected(
+                                        exchange,
+                                        "Connection closed".to_string()
+                                    ))
                                     .await;
                             }
                             _ => {}
@@ -467,6 +493,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                             state = State::Disconnected;
                             let _ = output
                                 .send(Event::Disconnected(
+                                    exchange,
                                     "Error reading frame: ".to_string() + &e.to_string(),
                                 ))
                                 .await;
@@ -484,6 +511,11 @@ pub fn connect_kline_stream(
 ) -> impl Stream<Item = super::Event> {
     stream::channel(100, move |mut output| async move {
         let mut state = State::Disconnected;
+
+        let exchange = match market {
+            MarketType::Spot => Exchange::BinanceSpot,
+            MarketType::LinearPerps => Exchange::BinanceFutures,
+        };
 
         let stream_str = streams
             .iter()
@@ -507,12 +539,13 @@ pub fn connect_kline_stream(
 
                     if let Ok(websocket) = connect(domain, stream_str.as_str()).await {
                         state = State::Connected(websocket);
-                        let _ = output.send(Event::Connected(Connection)).await;
+                        let _ = output.send(Event::Connected(exchange, Connection)).await;
                     } else {
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
                         let _ = output
                             .send(Event::Disconnected(
+                                exchange,
                                 "Failed to connect to websocket".to_string(),
                             ))
                             .await;
@@ -540,7 +573,12 @@ pub fn connect_kline_stream(
                                     .find(|(_, tf)| tf.to_string() == de_kline.interval)
                                 {
                                     let _ = output
-                                        .send(Event::KlineReceived(ticker, kline, timeframe.1))
+                                        .send(Event::KlineReceived(
+                                            exchange,
+                                            ticker, 
+                                            kline, 
+                                            timeframe.1
+                                        ))
                                         .await;
                                 }
                             }
@@ -548,7 +586,10 @@ pub fn connect_kline_stream(
                         OpCode::Close => {
                             state = State::Disconnected;
                             let _ = output
-                                .send(Event::Disconnected("Connection closed".to_string()))
+                                .send(Event::Disconnected(
+                                    exchange,
+                                    "Connection closed".to_string()
+                                ))
                                 .await;
                         }
                         _ => {}
@@ -557,6 +598,7 @@ pub fn connect_kline_stream(
                         state = State::Disconnected;
                         let _ = output
                             .send(Event::Disconnected(
+                                exchange,
                                 "Error reading frame: ".to_string() + &e.to_string(),
                             ))
                             .await;
