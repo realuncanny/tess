@@ -1,18 +1,21 @@
 use std::{collections::HashMap, io::BufReader};
 use csv::ReaderBuilder;
-use fastwebsockets::{FragmentCollector, OpCode};
-use ::futures::{SinkExt, Stream};
-use hyper::upgrade::Upgraded;
-use hyper_util::rt::TokioIo;
-use iced_futures::stream;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
+
 use sonic_rs::{to_object_iter_unchecked, FastStr};
+use fastwebsockets::{FragmentCollector, OpCode};
+use hyper::upgrade::Upgraded;
+use hyper_util::rt::TokioIo;
+
+use futures::{SinkExt, Stream};
+use iced_futures::stream;
 
 use super::{
-    deserialize_string_to_f32, setup_tcp_connection, setup_tls_connection, setup_websocket_connection, str_f32_parse, 
-    Connection, Event, Exchange, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State, StreamError, 
-    Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache
+    setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
+    str_f32_parse, deserialize_string_to_f32,
+    Connection, Event, Exchange, Kline, LocalDepthCache, MarketType, OpenInterest, Order, 
+    State, StreamError, StreamType, Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache
 };
 
 mod string_to_f32 {
@@ -401,8 +404,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                                         let _ = output
                                                             .send(Event::DepthReceived(
-                                                                exchange,
-                                                                ticker,
+                                                                StreamType::DepthAndTrades { exchange, ticker },
                                                                 time,
                                                                 orderbook.get_depth(),
                                                                 std::mem::take(&mut trades_buffer).into_boxed_slice(),
@@ -453,8 +455,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                                         let _ = output
                                                             .send(Event::DepthReceived(
-                                                                exchange,
-                                                                ticker,
+                                                                StreamType::DepthAndTrades { exchange, ticker },
                                                                 time,
                                                                 orderbook.get_depth(),
                                                                 std::mem::take(&mut trades_buffer).into_boxed_slice(),
@@ -574,10 +575,8 @@ pub fn connect_kline_stream(
                                 {
                                     let _ = output
                                         .send(Event::KlineReceived(
-                                            exchange,
-                                            ticker, 
+                                            StreamType::Kline { exchange, ticker, timeframe: timeframe.1 },
                                             kline, 
-                                            timeframe.1
                                         ))
                                         .await;
                                 }

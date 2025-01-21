@@ -1,16 +1,7 @@
-use crate::data_providers::deserialize_string_to_f32;
-use crate::data_providers::deserialize_string_to_i64;
 use std::collections::HashMap;
-
-use iced::{
-    stream, 
-    futures::{sink::SinkExt, Stream},
-};
-
 use regex::Regex;
 use serde_json::json;
 use serde_json::Value;
-
 use sonic_rs::{JsonValueTrait, Deserialize, Serialize};
 use sonic_rs::to_object_iter_unchecked;
 
@@ -18,16 +9,15 @@ use fastwebsockets::{Frame, FragmentCollector, OpCode};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 
-use crate::data_providers::{
-    setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
-    Connection, Event, Kline, LocalDepthCache, MarketType, Order, State, 
-    StreamError, TickerInfo, TickerStats, Trade, VecLocalDepthCache,
-};
-use crate::{Ticker, Timeframe};
+use futures::{SinkExt, Stream};
+use iced_futures::stream;
 
-use super::str_f32_parse;
-use super::Exchange;
-use super::OpenInterest;
+use super::{
+    setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
+    str_f32_parse, deserialize_string_to_i64, deserialize_string_to_f32,
+    Connection, Event, Kline, LocalDepthCache, MarketType, Order, State, Exchange, OpenInterest,
+    StreamError, TickerInfo, TickerStats, Trade, VecLocalDepthCache, StreamType, Ticker, Timeframe,
+};
 
 #[derive(Serialize, Deserialize, Debug)]
 struct SonicDepth {
@@ -356,8 +346,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                             let _ = output
                                                 .send(Event::DepthReceived(
-                                                    exchange,
-                                                    ticker,
+                                                    StreamType::DepthAndTrades { exchange, ticker },
                                                     time,
                                                     orderbook.get_depth(),
                                                     std::mem::take(&mut trades_buffer).into_boxed_slice(),
@@ -451,10 +440,8 @@ pub fn connect_kline_stream(
                                     {
                                         let _ = output
                                             .send(Event::KlineReceived(
-                                                exchange,
-                                                ticker, 
+                                                StreamType::Kline { exchange, ticker, timeframe },
                                                 kline, 
-                                                timeframe,
                                             ))
                                             .await;
                                     } else {

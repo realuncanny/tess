@@ -1219,7 +1219,7 @@ impl Dashboard {
 
     pub fn update_latest_klines(
         &mut self,
-        stream_type: &StreamType,
+        stream: &StreamType,
         kline: &Kline,
         main_window: window::Id,
     ) -> Task<Message> {
@@ -1229,7 +1229,7 @@ impl Dashboard {
 
         self.iter_all_panes_mut(main_window)
             .for_each(|(window, pane, pane_state)| {
-                if pane_state.matches_stream(stream_type) {
+                if pane_state.matches_stream(stream) {
                     match &mut pane_state.content {
                         PaneContent::Candlestick(chart, _) => tasks.push(
                             chart
@@ -1248,7 +1248,7 @@ impl Dashboard {
             });
 
         if !found_match {
-            log::error!("No matching pane found for the stream: {stream_type:?}");
+            log::error!("No matching pane found for the stream: {stream:?}");
             tasks.push(Task::done(Message::RefreshStreams));
         }
 
@@ -1257,7 +1257,7 @@ impl Dashboard {
 
     pub fn update_depth_and_trades(
         &mut self,
-        stream_type: &StreamType,
+        stream: &StreamType,
         depth_update_t: i64,
         depth: Depth,
         trades_buffer: Box<[Trade]>,
@@ -1267,7 +1267,7 @@ impl Dashboard {
 
         self.iter_all_panes_mut(main_window)
             .for_each(|(_, _, pane_state)| {
-                if pane_state.matches_stream(stream_type) {
+                if pane_state.matches_stream(stream) {
                     match &mut pane_state.content {
                         PaneContent::Heatmap(chart, _) => {
                             chart.insert_datapoint(&trades_buffer, depth_update_t, &depth);
@@ -1279,7 +1279,7 @@ impl Dashboard {
                             chart.update(&trades_buffer);
                         }
                         _ => {
-                            log::error!("No chart found for the stream: {stream_type:?}");
+                            log::error!("No chart found for the stream: {stream:?}");
                         }
                     }
                     found_match = true;
@@ -1289,7 +1289,7 @@ impl Dashboard {
         if found_match {
             Task::none()
         } else {
-            log::error!("No matching pane found for the stream: {stream_type:?}");
+            log::error!("No matching pane found for the stream: {stream:?}");
             Task::done(Message::RefreshStreams)
         }
     }

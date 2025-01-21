@@ -232,18 +232,14 @@ impl State {
                         log::info!("a stream disconnected from {exchange} WS: {reason:?}");
                     }
                     data_providers::Event::DepthReceived(
-                        exchange,
-                        ticker,
+                        stream,
                         depth_update_t,
                         depth,
                         trades_buffer,
                     ) => {
                         return dashboard
                             .update_depth_and_trades(
-                                &StreamType::DepthAndTrades { 
-                                    exchange, 
-                                    ticker,
-                                },
+                                &stream,
                                 depth_update_t,
                                 depth,
                                 trades_buffer,
@@ -252,18 +248,12 @@ impl State {
                             .map(Message::Dashboard);
                     }
                     data_providers::Event::KlineReceived(
-                        exchange,
-                        ticker, 
+                        stream,
                         kline, 
-                        timeframe,
                     ) => {
                         return dashboard
                             .update_latest_klines(
-                                &StreamType::Kline {
-                                    exchange,
-                                    ticker,
-                                    timeframe,
-                                },
+                                &stream,
                                 &kline,
                                 main_window_id,
                             )

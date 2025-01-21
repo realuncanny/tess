@@ -450,8 +450,10 @@ impl PaneState {
         content.title_bar(title_bar)
     }
 
-    pub fn matches_stream(&self, stream_type: &StreamType) -> bool {
-        self.stream.iter().any(|stream| stream == stream_type)
+    pub fn matches_stream(&self, stream: &StreamType) -> bool {
+        self.stream
+            .iter()
+            .any(|existing| existing == stream)
     }
 }
 
