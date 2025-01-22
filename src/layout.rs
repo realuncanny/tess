@@ -72,6 +72,7 @@ pub struct SavedState {
     pub timezone: UserTimezone,
     pub sidebar: Sidebar,
     pub present_mode: screen::PresentMode,
+    pub scale_factor: ScaleFactor,
 }
 
 impl Default for SavedState {
@@ -92,6 +93,7 @@ impl Default for SavedState {
             timezone: UserTimezone::default(),
             sidebar: Sidebar::default(),
             present_mode: screen::PresentMode::default(),
+            scale_factor: ScaleFactor::default(),
         }
     }
 }
@@ -190,6 +192,7 @@ pub struct SerializableState {
     pub timezone: UserTimezone,
     pub sidebar: Sidebar,
     pub present_mode: screen::PresentMode,
+    pub scale_factor: ScaleFactor,
 }
 
 impl SerializableState {
@@ -203,6 +206,7 @@ impl SerializableState {
         timezone: UserTimezone,
         sidebar: Sidebar,
         present_mode: screen::PresentMode,
+        scale_factor: ScaleFactor,
     ) -> Self {
         SerializableState {
             layouts,
@@ -216,6 +220,7 @@ impl SerializableState {
             timezone,
             sidebar,
             present_mode,
+            scale_factor,
         }
     }
 }
@@ -363,6 +368,27 @@ pub enum Axis {
     Vertical,
 }
 
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
+pub struct ScaleFactor(f64);
+
+impl Default for ScaleFactor {
+    fn default() -> Self {
+        Self(1.0)
+    }
+}
+
+impl From<f64> for ScaleFactor {
+    fn from(value: f64) -> Self {
+        ScaleFactor(value.clamp(0.8, 1.8))
+    }
+}
+
+impl From<ScaleFactor> for f64 {
+    fn from(value: ScaleFactor) -> Self {
+        value.0
+    }
+}
+
 pub fn load_saved_state(file_path: &str) -> SavedState {
     match read_from_file(file_path) {
         Ok(state) => {
@@ -376,6 +402,7 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                 timezone: state.timezone,
                 sidebar: state.sidebar,
                 present_mode: state.present_mode,
+                scale_factor: state.scale_factor,
             };
 
             fn configuration(pane: SerializablePane) -> Configuration<PaneState> {

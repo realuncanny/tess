@@ -16,17 +16,16 @@ use tickers_table::TickersTable;
 use layout::{SerializableDashboard, Sidebar};
 use style::{get_icon_text, Icon, ICON_BYTES};
 use screen::{
-    create_button, dashboard, handle_error, Notification, UserTimezone, 
-    dashboard::{Dashboard, pane},
-    modal::{confirmation_modal, dashboard_modal}
+    create_button, dashboard::{self, pane, Dashboard}, handle_error, modal::{confirmation_modal, dashboard_modal}, 
+    Notification, UserTimezone
 };
 use data_providers::{
     binance, bybit, Exchange, MarketType, StreamType, Ticker, TickerInfo, TickerStats, Timeframe
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
-    widget::{button, column, container, pane_grid, pick_list, responsive, row, text, Space}, 
-    Alignment, Element, Length, Point, Size, Subscription, Task, Theme, padding,
+    padding, widget::{button, column, container, pane_grid, pick_list, responsive, row, text, Space}, 
+    Alignment, Element, Length, Point, Size, Subscription, Task, Theme
 };
 use iced_futures::MaybeSend;
 use futures::TryFutureExt;
@@ -87,6 +86,7 @@ fn main() {
             antialiasing: true,
             ..Default::default()
         })
+        .scale_factor(State::scale_factor)
         .theme(State::theme)
         .subscription(State::subscription)
         .font(ICON_BYTES)
@@ -138,6 +138,8 @@ enum Message {
 
     PresentModeSelected(screen::PresentMode),
     ChangePresentMode(screen::PresentMode),
+
+    ScaleFactorChanged(f64),
 }
 
 struct State {
@@ -152,6 +154,7 @@ struct State {
     sidebar_location: Sidebar,
     notification: Option<Notification>,
     show_tickers_dashboard: bool,
+    scale_factor: layout::ScaleFactor,
     tickers_table: TickersTable,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     present_mode: screen::PresentMode,
@@ -212,6 +215,7 @@ impl State {
                 confirmation_dialog: None,
                 layout_locked: false,
                 timezone: saved_state.timezone,
+                scale_factor: saved_state.scale_factor,
                 present_mode: saved_state.present_mode,
             },
             open_main_window
@@ -340,6 +344,7 @@ impl State {
                     self.timezone,
                     self.sidebar_location,
                     self.present_mode,
+                    self.scale_factor,
                 );
 
                 match serde_json::to_string(&layout) {
@@ -526,6 +531,9 @@ impl State {
             Message::ChangePresentMode(mode) => {
                 self.present_mode = mode;
                 self.confirmation_dialog = None;
+            }
+            Message::ScaleFactorChanged(value) => {
+                self.scale_factor = layout::ScaleFactor::from(value);
             }
         }
         Task::none()
@@ -766,6 +774,38 @@ impl State {
                             Message::SidebarPosition,
                         );
 
+                        let scale_factor = {
+                            let current_value: f64 = self.scale_factor.into();
+                        
+                            let decrease_btn = if current_value > 0.8 {
+                                button(text("-")).on_press(Message::ScaleFactorChanged(current_value - 0.1))
+                            } else {
+                                button(text("-"))
+                            };
+                        
+                            let increase_btn = if current_value < 1.8 {
+                                button(text("+")).on_press(Message::ScaleFactorChanged(current_value + 0.1))
+                            } else {
+                                button(text("+"))
+                            };
+                        
+                            container(
+                                row![
+                                    decrease_btn,
+                                    text(format!(
+                                        "{:.0}%", 
+                                        current_value * 100.0)
+                                    )
+                                    .size(14),
+                                    increase_btn,
+                                ]
+                                .align_y(Alignment::Center)
+                                .spacing(8)
+                                .padding(8),
+                            )
+                            .style(style::modal_container)
+                        };
+
                         container(
                             column![
                                 column![
@@ -774,6 +814,7 @@ impl State {
                                 ].spacing(8),
                                 column![text("Time zone").size(14), timezone_picklist,].spacing(8),
                                 column![text("Theme").size(14), theme_picklist,].spacing(8),
+                                column![text("Interface scale").size(14), scale_factor,].spacing(8),
                                 column![
                                     text("Experimental").size(14),
                                     trade_fetch_checkbox,
@@ -945,6 +986,10 @@ impl State {
 
     fn theme(&self, _window: window::Id) -> Theme {
         self.theme.clone()
+    }
+
+    fn scale_factor(&self, _window: window::Id) -> f64 {
+        self.scale_factor.into()
     }
 
     fn subscription(&self) -> Subscription<Message> {
