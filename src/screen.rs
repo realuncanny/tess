@@ -313,3 +313,33 @@ pub enum DashboardError {
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
+
+#[derive(Default, Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
+pub enum PresentMode {
+    #[default]
+    AutoVsync,
+    AutoNoVsync,
+}
+
+impl ToString for PresentMode {
+    fn to_string(&self) -> String {
+        match self {
+            PresentMode::AutoVsync => "Auto Vsync(Default)".to_string(),
+            PresentMode::AutoNoVsync => "Auto No-Vsync".to_string(),
+        }
+    }
+}
+
+impl PresentMode {
+    pub const ALL: [PresentMode; 2] = [
+        PresentMode::AutoVsync,
+        PresentMode::AutoNoVsync,
+    ];
+
+    pub fn get_env_name(&self) -> &'static str {
+        match self {
+            PresentMode::AutoVsync => "vsync",
+            PresentMode::AutoNoVsync => "no_vsync",
+        }
+    }
+}

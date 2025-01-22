@@ -11,7 +11,7 @@ use crate::charts::timeandsales::TimeAndSales;
 use crate::charts::indicators::{CandlestickIndicator, FootprintIndicator, HeatmapIndicator};
 use crate::data_providers::{Exchange, StreamType, TickMultiplier, Ticker, Timeframe};
 use crate::screen::{UserTimezone, dashboard::{Dashboard, PaneContent, PaneSettings, PaneState}};
-use crate::style;
+use crate::{screen, style};
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -71,6 +71,7 @@ pub struct SavedState {
     pub window_position: Option<(f32, f32)>,
     pub timezone: UserTimezone,
     pub sidebar: Sidebar,
+    pub present_mode: screen::PresentMode,
 }
 
 impl Default for SavedState {
@@ -90,6 +91,7 @@ impl Default for SavedState {
             window_position: None,
             timezone: UserTimezone::default(),
             sidebar: Sidebar::default(),
+            present_mode: screen::PresentMode::default(),
         }
     }
 }
@@ -187,6 +189,7 @@ pub struct SerializableState {
     pub window_position: Option<(f32, f32)>,
     pub timezone: UserTimezone,
     pub sidebar: Sidebar,
+    pub present_mode: screen::PresentMode,
 }
 
 impl SerializableState {
@@ -199,6 +202,7 @@ impl SerializableState {
         position: Option<Point>,
         timezone: UserTimezone,
         sidebar: Sidebar,
+        present_mode: screen::PresentMode,
     ) -> Self {
         SerializableState {
             layouts,
@@ -211,6 +215,7 @@ impl SerializableState {
             window_position: position.map(|p| (p.x, p.y)),
             timezone,
             sidebar,
+            present_mode,
         }
     }
 }
@@ -370,6 +375,7 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                 window_position: state.window_position,
                 timezone: state.timezone,
                 sidebar: state.sidebar,
+                present_mode: state.present_mode,
             };
 
             fn configuration(pane: SerializablePane) -> Configuration<PaneState> {

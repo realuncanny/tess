@@ -25,8 +25,8 @@ use data_providers::{
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
-    widget::{button, pick_list, Space, column, container, row, text, responsive, pane_grid},
-    padding, Alignment, Element, Length, Point, Size, Subscription, Task, Theme,
+    widget::{button, column, container, pane_grid, pick_list, responsive, row, text, Space}, 
+    Alignment, Element, Length, Point, Size, Subscription, Task, Theme, padding,
 };
 use iced_futures::MaybeSend;
 use futures::TryFutureExt;
@@ -40,7 +40,12 @@ fn main() {
         layout::cleanup_old_data(data_dir_path)
     });
 
-    let saved_state = layout::load_saved_state("dashboard_state.json");
+    let saved_state: layout::SavedState = layout::load_saved_state("dashboard_state.json");
+
+    std::env::set_var(
+        "ICED_PRESENT_MODE", 
+        saved_state.present_mode.get_env_name(),
+    );
 
     let window_size = saved_state.window_size.unwrap_or((1600.0, 900.0));
     let window_position = saved_state.window_position;
@@ -129,7 +134,10 @@ enum Message {
     FetchAndUpdateTickersTable,
 
     LoadLayout(layout::LayoutId),
-    ToggleDialogModal(Option<String>),
+    ToggleDialogModal(Option<(String, Box<Message>)>),
+
+    PresentModeSelected(screen::PresentMode),
+    ChangePresentMode(screen::PresentMode),
 }
 
 struct State {
@@ -137,7 +145,7 @@ struct State {
     main_window: Window,
     timezone: UserTimezone,
     layout_locked: bool,
-    confirmation_dialog: Option<String>,
+    confirmation_dialog: Option<(String, Box<Message>)>,
     layouts: HashMap<layout::LayoutId, Dashboard>,
     last_active_layout: layout::LayoutId,
     active_modal: DashboardModal,
@@ -146,6 +154,7 @@ struct State {
     show_tickers_dashboard: bool,
     tickers_table: TickersTable,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
+    present_mode: screen::PresentMode,
 }
 
 #[allow(dead_code)]
@@ -203,6 +212,7 @@ impl State {
                 confirmation_dialog: None,
                 layout_locked: false,
                 timezone: saved_state.timezone,
+                present_mode: saved_state.present_mode,
             },
             open_main_window
                 .then(|_| Task::none())
@@ -329,6 +339,7 @@ impl State {
                     position,
                     self.timezone,
                     self.sidebar_location,
+                    self.present_mode,
                 );
 
                 match serde_json::to_string(&layout) {
@@ -501,6 +512,20 @@ impl State {
             }
             Message::ToggleDialogModal(dialog) => {
                 self.confirmation_dialog = dialog;
+            }
+            Message::PresentModeSelected(mode) => {
+                if mode != self.present_mode {
+                    return Task::done(Message::ToggleDialogModal(
+                        Some((
+                            "This will take effect next time applications starts".to_string(),
+                            Box::new(Message::ChangePresentMode(mode)),
+                        )),
+                    ));
+                }
+            }
+            Message::ChangePresentMode(mode) => {
+                self.present_mode = mode;
+                self.confirmation_dialog = None;
             }
         }
         Task::none()
@@ -701,10 +726,11 @@ impl State {
                                 .on_toggle(|checked| {
                                         if checked {
                                             Message::ToggleDialogModal(
-                                                Some(
+                                                Some((
                                                     "This might be unreliable and take some time to complete"
-                                                    .to_string()
-                                                ),
+                                                    .to_string(),
+                                                    Box::new(Message::ToggleTradeFetch(true)),
+                                                )),
                                             )
                                         } else {
                                             Message::ToggleTradeFetch(false)
@@ -718,6 +744,12 @@ impl State {
                                 tooltip::Position::Top,
                             )
                         };
+
+                        let present_mode_picklist = pick_list(
+                            screen::PresentMode::ALL,
+                            Some(self.present_mode),
+                            Message::PresentModeSelected,
+                        );
 
                         let theme_picklist =
                             pick_list(all_themes, Some(self.theme.clone()), Message::ThemeSelected);
@@ -739,15 +771,16 @@ impl State {
                                 column![
                                     text("Sidebar").size(14),
                                     sidebar_pos,
-                                ].spacing(4),
-                                column![text("Time zone").size(14), timezone_picklist,].spacing(4),
-                                column![text("Theme").size(14), theme_picklist,].spacing(4),
+                                ].spacing(8),
+                                column![text("Time zone").size(14), timezone_picklist,].spacing(8),
+                                column![text("Theme").size(14), theme_picklist,].spacing(8),
                                 column![
                                     text("Experimental").size(14),
                                     trade_fetch_checkbox,
-                                ].spacing(4),
+                                    present_mode_picklist,
+                                ].spacing(8),
                             ]
-                            .spacing(16),
+                            .spacing(20),
                         )
                         .align_x(Alignment::Start)
                         .max_width(500)
@@ -769,24 +802,11 @@ impl State {
                         align_x,
                     );
 
-                    if let Some(confirm_dialog) = &self.confirmation_dialog {
-                        let dialog_content = container(
-                            column![
-                                text(confirm_dialog).size(14),
-                                row![
-                                    button(text("Cancel"))
-                                        .style(|theme, status| style::button_transparent(theme, status, false))
-                                        .on_press(Message::ToggleDialogModal(None)),
-                                    button(text("Confirm"))
-                                        .on_press(Message::ToggleTradeFetch(true)),
-                                ]
-                                .spacing(8),
-                            ]
-                            .align_x(Alignment::Center)
-                            .spacing(16),
-                        )
-                        .padding(24)
-                        .style(style::dashboard_modal);
+                    if let Some((dialog, message)) = &self.confirmation_dialog {
+                        let dialog_content = self.confirm_dialog(
+                            dialog,
+                            message,
+                        );
     
                         confirmation_modal(
                             base_content, 
@@ -814,7 +834,7 @@ impl State {
                         button(text("i")).style(move |theme, status| {
                             style::button_transparent(theme, status, false)
                         }),
-                        Some("Layouts won't be saved if app exited abruptly"),
+                        Some("Layouts and settings won't be saved if app exited abruptly"),
                         tooltip::Position::Top,
                     );
     
@@ -895,6 +915,32 @@ impl State {
                 DashboardModal::None => base.into(),
             }
         }
+    }
+
+    fn confirm_dialog<'a>(
+        &'a self, 
+        dialog: &'a str, 
+        on_confirm: &Box<Message>
+    ) -> Element<'_, Message> {
+        let dialog_content = container(
+            column![
+                text(dialog).size(14),
+                row![
+                    button(text("Cancel"))
+                        .style(|theme, status| style::button_transparent(theme, status, false))
+                        .on_press(Message::ToggleDialogModal(None)),
+                    button(text("Confirm"))
+                        .on_press(*on_confirm.clone()),
+                ]
+                .spacing(8),
+            ]
+            .align_x(Alignment::Center)
+            .spacing(16),
+        )
+        .padding(24)
+        .style(style::dashboard_modal);
+
+        dialog_content.into()
     }
 
     fn theme(&self, _window: window::Id) -> Theme {
