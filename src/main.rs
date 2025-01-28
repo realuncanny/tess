@@ -16,11 +16,13 @@ use tickers_table::TickersTable;
 use layout::{SerializableDashboard, Sidebar};
 use style::{get_icon_text, Icon, ICON_BYTES};
 use screen::{
-    create_button, dashboard::{self, pane, Dashboard}, handle_error, modal::{confirmation_modal, dashboard_modal}, 
+    create_button, dashboard::{self, pane, Dashboard}, handle_error, 
+    modal::{confirmation_modal, dashboard_modal}, 
     Notification, UserTimezone
 };
 use data_providers::{
-    binance, bybit, Exchange, MarketType, StreamType, Ticker, TickerInfo, TickerStats, Timeframe
+    binance, bybit, Exchange, MarketType, StreamConfig, StreamType, 
+    Ticker, TickerInfo, TickerStats, Timeframe
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
@@ -93,25 +95,12 @@ fn main() {
         .run_with(move || State::new(saved_state, window_settings));
 }
 
-#[derive(thiserror::Error, Debug, Clone)]
-enum InternalError {
-    #[error("Fetch error: {0}")]
-    Fetch(String),
-}
-
-#[derive(Debug, Clone, PartialEq)]
-enum DashboardModal {
-    Layout,
-    Settings,
-    None,
-}
-
 #[derive(Debug, Clone)]
 enum Message {
     Notification(Notification),
     ErrorOccurred(InternalError),
 
-    ToggleModal(DashboardModal),
+    ToggleModal(SidebarModal),
 
     MarketWsEvent(data_providers::Event),
     ToggleTradeFetch(bool),
@@ -149,8 +138,8 @@ struct State {
     layout_locked: bool,
     confirmation_dialog: Option<(String, Box<Message>)>,
     layouts: HashMap<layout::LayoutId, Dashboard>,
-    last_active_layout: layout::LayoutId,
-    active_modal: DashboardModal,
+    active_layout: layout::LayoutId,
+    active_modal: SidebarModal,
     sidebar_location: Sidebar,
     notification: Option<Notification>,
     show_tickers_dashboard: bool,
@@ -168,7 +157,7 @@ impl State {
     ) -> (Self, Task<Message>) {
         let (main_window, open_main_window) = window::open(window_settings);
 
-        let last_active_layout = saved_state.last_active_layout;
+        let active_layout = saved_state.last_active_layout;
 
         let mut tickers_info = HashMap::new();
 
@@ -204,9 +193,9 @@ impl State {
             Self {
                 theme: saved_state.selected_theme.theme,
                 layouts: saved_state.layouts,
-                last_active_layout,
+                active_layout,
                 main_window: Window::new(main_window),
-                active_modal: DashboardModal::None,
+                active_modal: SidebarModal::None,
                 notification: None,
                 tickers_info,
                 show_tickers_dashboard: false,
@@ -221,7 +210,7 @@ impl State {
             open_main_window
                 .then(|_| Task::none())
                 .chain(Task::batch(vec![
-                    Task::done(Message::LoadLayout(last_active_layout)),
+                    Task::done(Message::LoadLayout(active_layout)),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
                     Task::batch(exchange_fetch_tasks),
                 ])),
@@ -236,7 +225,7 @@ impl State {
             }
             Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
-                let dashboard = self.get_mut_dashboard(self.last_active_layout);
+                let dashboard = self.get_mut_dashboard(self.active_layout);
 
                 match event {
                     data_providers::Event::Connected(exchange, _) => {
@@ -277,12 +266,12 @@ impl State {
             }
             Message::ToggleLayoutLock => {
                 self.layout_locked = !self.layout_locked;
-                self.get_mut_dashboard(self.last_active_layout).focus = None;
+                self.get_mut_dashboard(self.active_layout).focus = None;
             }
             Message::WindowEvent(event) => match event {
                 WindowEvent::CloseRequested(window) => {
                     if window != self.main_window.id {
-                        self.get_mut_dashboard(self.last_active_layout)
+                        self.get_mut_dashboard(self.active_layout)
                             .popout
                             .remove(&window);
 
@@ -290,7 +279,7 @@ impl State {
                     }
 
                     let mut opened_windows: Vec<window::Id> = self
-                        .get_dashboard(self.last_active_layout)
+                        .get_dashboard(self.active_layout)
                         .popout
                         .keys()
                         .copied()
@@ -305,7 +294,7 @@ impl State {
                 }
             }
             Message::SaveAndExit(windows) => {
-                self.get_mut_dashboard(self.last_active_layout)
+                self.get_mut_dashboard(self.active_layout)
                     .popout
                     .iter_mut()
                     .for_each(|(id, (_, (pos, size)))| {
@@ -338,7 +327,7 @@ impl State {
                     layouts,
                     self.theme.clone(),
                     favorited_tickers,
-                    self.last_active_layout,
+                    self.active_layout,
                     size,
                     position,
                     self.timezone,
@@ -364,7 +353,7 @@ impl State {
             }
             Message::ToggleModal(modal) => {
                 if modal == self.active_modal {
-                    self.active_modal = DashboardModal::None;
+                    self.active_modal = SidebarModal::None;
                 } else {
                     self.active_modal = modal;
                 }
@@ -385,7 +374,7 @@ impl State {
                 self.theme = theme;
             }
             Message::ResetCurrentLayout => {
-                let dashboard = self.get_mut_dashboard(self.last_active_layout);
+                let dashboard = self.get_mut_dashboard(self.active_layout);
 
                 let active_popout_keys = dashboard.popout.keys().copied().collect::<Vec<_>>();
 
@@ -405,7 +394,7 @@ impl State {
             }
             Message::LayoutSelected(new_layout_id) => {
                 let active_popout_keys = self
-                    .get_dashboard(self.last_active_layout)
+                    .get_dashboard(self.active_layout)
                     .popout
                     .keys()
                     .copied()
@@ -428,7 +417,7 @@ impl State {
                 .chain(Task::done(Message::LoadLayout(new_layout_id)));
             }
             Message::LoadLayout(layout_id) => {
-                self.last_active_layout = layout_id;
+                self.active_layout = layout_id;
 
                 return self
                     .get_mut_dashboard(layout_id)
@@ -436,7 +425,7 @@ impl State {
                     .map(Message::Dashboard);
             }
             Message::Dashboard(message) => {
-                if let Some(dashboard) = self.layouts.get_mut(&self.last_active_layout) {
+                if let Some(dashboard) = self.layouts.get_mut(&self.active_layout) {
                     let command = dashboard.update(message, &self.main_window);
 
                     return Task::batch(vec![command.map(Message::Dashboard)]);
@@ -483,7 +472,7 @@ impl State {
 
                     if let Some(ticker_info) = ticker_info {
                         let task = self
-                            .get_mut_dashboard(self.last_active_layout)
+                            .get_mut_dashboard(self.active_layout)
                             .init_pane_task(main_window_id, (ticker, ticker_info), exchange, &content);
 
                         return task.map(Message::Dashboard);
@@ -522,7 +511,7 @@ impl State {
                 if mode != self.present_mode {
                     return Task::done(Message::ToggleDialogModal(
                         Some((
-                            "This will take effect next time applications starts".to_string(),
+                            "This will take effect after restarting the app".to_string(),
                             Box::new(Message::ChangePresentMode(mode)),
                         )),
                     ));
@@ -540,7 +529,7 @@ impl State {
     }
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
-        let dashboard = self.get_dashboard(self.last_active_layout);
+        let dashboard = self.get_dashboard(self.active_layout);
 
         if id != self.main_window.id {
             return container(
@@ -582,16 +571,16 @@ impl State {
                         )
                     };
                     let settings_modal_button = {
-                        let is_active = matches!(self.active_modal, DashboardModal::Settings);
+                        let is_active = matches!(self.active_modal, SidebarModal::Settings);
 
                         create_button(
                             get_icon_text(Icon::Cog, 14)
                                 .width(24)
                                 .align_x(Alignment::Center),
                             Message::ToggleModal(if is_active {
-                                DashboardModal::None
+                                SidebarModal::None
                             } else {
-                                DashboardModal::Settings
+                                SidebarModal::Settings
                             }),
                             Some("Settings"),
                             tooltip_position,
@@ -601,16 +590,16 @@ impl State {
                         )
                     };
                     let layout_modal_button = {
-                        let is_active = matches!(self.active_modal, DashboardModal::Layout);
+                        let is_active = matches!(self.active_modal, SidebarModal::Layout);
                 
                         create_button(
                             get_icon_text(Icon::Layout, 14)
                                 .width(24)
                                 .align_x(Alignment::Center),
                             Message::ToggleModal(if is_active {
-                                DashboardModal::None
+                                SidebarModal::None
                             } else {
-                                DashboardModal::Layout
+                                SidebarModal::Layout
                             }),
                             Some("Manage Layouts"),
                             tooltip_position,
@@ -722,7 +711,7 @@ impl State {
             ];
 
             match self.active_modal {
-                DashboardModal::Settings => {
+                SidebarModal::Settings => {
                     let settings_modal = {
                         let mut all_themes: Vec<Theme> = Theme::ALL.to_vec();
                         all_themes.push(Theme::Custom(style::custom_theme().into()));
@@ -759,8 +748,11 @@ impl State {
                             Message::PresentModeSelected,
                         );
 
-                        let theme_picklist =
-                            pick_list(all_themes, Some(self.theme.clone()), Message::ThemeSelected);
+                        let theme_picklist = pick_list(
+                            all_themes, 
+                            Some(self.theme.clone()), 
+                            Message::ThemeSelected,
+                        );
         
                         let timezone_picklist = pick_list(
                             [UserTimezone::Utc, UserTimezone::Local],
@@ -837,7 +829,7 @@ impl State {
                     let base_content = dashboard_modal(
                         base,
                         settings_modal,
-                        Message::ToggleModal(DashboardModal::None),
+                        Message::ToggleModal(SidebarModal::None),
                         padding,
                         Alignment::End,
                         align_x,
@@ -858,10 +850,10 @@ impl State {
                         base_content
                     }
                 }
-                DashboardModal::Layout => {
+                SidebarModal::Layout => {
                     let layout_picklist = pick_list(
                         &layout::LayoutId::ALL[..],
-                        Some(self.last_active_layout),
+                        Some(self.active_layout),
                         move |layout: layout::LayoutId| Message::LayoutSelected(layout),
                     );
                     let reset_layout_button = tooltip(
@@ -947,13 +939,13 @@ impl State {
                     dashboard_modal(
                         base,
                         manage_layout_modal,
-                        Message::ToggleModal(DashboardModal::None),
+                        Message::ToggleModal(SidebarModal::None),
                         padding,
                         Alignment::Start,
                         align_x,
                     )
                 }
-                DashboardModal::None => base.into(),
+                SidebarModal::None => base.into(),
             }
         }
     }
@@ -961,8 +953,8 @@ impl State {
     fn confirm_dialog<'a>(
         &'a self, 
         dialog: &'a str, 
-        on_confirm: &Box<Message>
-    ) -> Element<'_, Message> {
+        on_confirm: &Box<Message>,
+    ) -> Element<'a, Message> {
         let dialog_content = container(
             column![
                 text(dialog).size(14),
@@ -995,7 +987,7 @@ impl State {
     fn subscription(&self) -> Subscription<Message> {
         let mut market_subscriptions: Vec<Subscription<Message>> = Vec::new();
 
-        self.get_dashboard(self.last_active_layout)
+        self.get_dashboard(self.active_layout)
             .pane_streams
             .iter()
             .for_each(|(exchange, stream)| {
@@ -1014,27 +1006,17 @@ impl State {
                             kline_streams.push((*ticker, *timeframe));
                         }
                         StreamType::DepthAndTrades { ticker, .. } => {
-                            let ticker: Ticker = *ticker;
+                            let config = StreamConfig::new(*ticker, exchange);
 
-                            let depth_stream: Subscription<Message> = match exchange {
-                                Exchange::BinanceFutures => Subscription::run_with_id(
-                                    ticker,
-                                    binance::connect_market_stream(ticker),
+                            let depth_stream = match exchange {
+                                Exchange::BinanceSpot | Exchange::BinanceFutures => Subscription::run_with(
+                                    config,
+                                    |cfg| binance::connect_market_stream(cfg.id)
                                 )
                                 .map(move |event| Message::MarketWsEvent(event)),
-                                Exchange::BybitLinear => Subscription::run_with_id(
-                                    ticker,
-                                    bybit::connect_market_stream(ticker),
-                                )
-                                .map(move |event| Message::MarketWsEvent(event)),
-                                Exchange::BinanceSpot => Subscription::run_with_id(
-                                    ticker,
-                                    binance::connect_market_stream(ticker),
-                                )
-                                .map(move |event| Message::MarketWsEvent(event)),
-                                Exchange::BybitSpot => Subscription::run_with_id(
-                                    ticker,
-                                    bybit::connect_market_stream(ticker),
+                                Exchange::BybitSpot | Exchange::BybitLinear => Subscription::run_with(
+                                    config,
+                                    |cfg| bybit::connect_market_stream(cfg.id)
                                 )
                                 .map(move |event| Message::MarketWsEvent(event)),
                             };
@@ -1043,33 +1025,24 @@ impl State {
                         StreamType::None => {}
                     });
 
-                if !kline_streams.is_empty() {
-                    let kline_streams_id: Vec<(Ticker, Timeframe)> = kline_streams.clone();
-
-                    let kline_subscription: Subscription<Message> = match exchange {
-                        Exchange::BinanceFutures => Subscription::run_with_id(
-                            kline_streams_id,
-                            binance::connect_kline_stream(kline_streams, MarketType::LinearPerps),
-                        )
-                        .map(move |event| Message::MarketWsEvent(event)),
-                        Exchange::BybitLinear => Subscription::run_with_id(
-                            kline_streams_id,
-                            bybit::connect_kline_stream(kline_streams, MarketType::LinearPerps),
-                        )
-                        .map(move |event| Message::MarketWsEvent(event)),
-                        Exchange::BinanceSpot => Subscription::run_with_id(
-                            kline_streams_id,
-                            binance::connect_kline_stream(kline_streams, MarketType::Spot),
-                        )
-                        .map(move |event| Message::MarketWsEvent(event)),
-                        Exchange::BybitSpot => Subscription::run_with_id(
-                            kline_streams_id,
-                            bybit::connect_kline_stream(kline_streams, MarketType::Spot),
-                        )
-                        .map(move |event| Message::MarketWsEvent(event)),
-                    };
-                    market_subscriptions.push(kline_subscription);
-                }
+                    if !kline_streams.is_empty() {                                                            
+                        let config = StreamConfig::new(kline_streams, exchange);
+                    
+                        let kline_subscription = match exchange {
+                            Exchange::BinanceSpot | Exchange::BinanceFutures => Subscription::run_with(
+                                config,
+                                |cfg| binance::connect_kline_stream(cfg.id.clone(), cfg.market_type)
+                            )
+                            .map(move |event| Message::MarketWsEvent(event)),
+                            
+                            Exchange::BybitSpot | Exchange::BybitLinear => Subscription::run_with(
+                                config,
+                                |cfg| bybit::connect_kline_stream(cfg.id.clone(), cfg.market_type)
+                            )
+                            .map(move |event| Message::MarketWsEvent(event)),
+                        };
+                        market_subscriptions.push(kline_subscription);
+                    }
 
                 if !depth_streams.is_empty() {
                     market_subscriptions.push(Subscription::batch(depth_streams));
@@ -1097,6 +1070,19 @@ impl State {
     fn get_dashboard(&self, layout_id: layout::LayoutId) -> &Dashboard {
         self.layouts.get(&layout_id).expect("No active layout")
     }
+}
+
+#[derive(thiserror::Error, Debug, Clone)]
+enum InternalError {
+    #[error("Fetch error: {0}")]
+    Fetch(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+enum SidebarModal {
+    Layout,
+    Settings,
+    None,
 }
 
 fn fetch_ticker_info<F>(exchange: Exchange, fetch_fn: F) -> Task<Message>

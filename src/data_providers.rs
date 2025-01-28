@@ -388,6 +388,23 @@ impl From<(&str, MarketType)> for Ticker {
     }
 }
 
+#[derive(Debug, Clone, Hash)]
+pub struct StreamConfig<I> {
+    pub id: I,
+    pub market_type: MarketType,
+}
+
+impl<I> StreamConfig<I> {
+    pub fn new(id: I, exchange: Exchange) -> Self {
+        let market_type = match exchange {
+            Exchange::BinanceFutures | Exchange::BybitLinear => MarketType::LinearPerps,
+            Exchange::BinanceSpot | Exchange::BybitSpot => MarketType::Spot,
+        };
+
+        Self { id, market_type }
+    }
+}
+
 impl std::fmt::Display for Timeframe {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
