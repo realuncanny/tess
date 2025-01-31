@@ -21,8 +21,8 @@ use screen::{
     Notification, UserTimezone
 };
 use data_providers::{
-    binance, bybit, Exchange, MarketType, StreamConfig, StreamType, 
-    Ticker, TickerInfo, TickerStats, Timeframe
+    binance, bybit, Exchange, MarketType, StreamType, 
+    Ticker, TickerInfo, TickerStats,
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
@@ -532,7 +532,7 @@ impl State {
         let dashboard = self.get_dashboard(self.active_layout);
 
         if id != self.main_window.id {
-            return container(
+            container(
                 dashboard
                 .view_window(
                     id, 
@@ -543,7 +543,7 @@ impl State {
                 .map(Message::Dashboard)
             )
             .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
-            .into();
+            .into()
         } else {
             let tooltip_position = if self.sidebar_location == Sidebar::Left {
                 tooltip::Position::Right
@@ -838,7 +838,7 @@ impl State {
                     if let Some((dialog, message)) = &self.confirmation_dialog {
                         let dialog_content = self.confirm_dialog(
                             dialog,
-                            message,
+                            *message.to_owned(),
                         );
     
                         confirmation_modal(
@@ -953,7 +953,7 @@ impl State {
     fn confirm_dialog<'a>(
         &'a self, 
         dialog: &'a str, 
-        on_confirm: &Box<Message>,
+        on_confirm: Message,
     ) -> Element<'a, Message> {
         let dialog_content = container(
             column![
@@ -963,7 +963,7 @@ impl State {
                         .style(|theme, status| style::button_transparent(theme, status, false))
                         .on_press(Message::ToggleDialogModal(None)),
                     button(text("Confirm"))
-                        .on_press(*on_confirm.clone()),
+                        .on_press(on_confirm),
                 ]
                 .spacing(8),
             ]
@@ -985,70 +985,9 @@ impl State {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let mut market_subscriptions: Vec<Subscription<Message>> = Vec::new();
-
-        self.get_dashboard(self.active_layout)
-            .pane_streams
-            .iter()
-            .for_each(|(exchange, stream)| {
-                let mut depth_streams: Vec<Subscription<Message>> = Vec::new();
-                let mut kline_streams: Vec<(Ticker, Timeframe)> = Vec::new();
-
-                let exchange: Exchange = *exchange;
-
-                stream
-                    .values()
-                    .flat_map(|stream_types| stream_types.iter())
-                    .for_each(|stream_type| match stream_type {
-                        StreamType::Kline {
-                            ticker, timeframe, ..
-                        } => {
-                            kline_streams.push((*ticker, *timeframe));
-                        }
-                        StreamType::DepthAndTrades { ticker, .. } => {
-                            let config = StreamConfig::new(*ticker, exchange);
-
-                            let depth_stream = match exchange {
-                                Exchange::BinanceSpot | Exchange::BinanceFutures => Subscription::run_with(
-                                    config,
-                                    |cfg| binance::connect_market_stream(cfg.id)
-                                )
-                                .map(move |event| Message::MarketWsEvent(event)),
-                                Exchange::BybitSpot | Exchange::BybitLinear => Subscription::run_with(
-                                    config,
-                                    |cfg| bybit::connect_market_stream(cfg.id)
-                                )
-                                .map(move |event| Message::MarketWsEvent(event)),
-                            };
-                            depth_streams.push(depth_stream);
-                        }
-                        StreamType::None => {}
-                    });
-
-                    if !kline_streams.is_empty() {                                                            
-                        let config = StreamConfig::new(kline_streams, exchange);
-                    
-                        let kline_subscription = match exchange {
-                            Exchange::BinanceSpot | Exchange::BinanceFutures => Subscription::run_with(
-                                config,
-                                |cfg| binance::connect_kline_stream(cfg.id.clone(), cfg.market_type)
-                            )
-                            .map(move |event| Message::MarketWsEvent(event)),
-                            
-                            Exchange::BybitSpot | Exchange::BybitLinear => Subscription::run_with(
-                                config,
-                                |cfg| bybit::connect_kline_stream(cfg.id.clone(), cfg.market_type)
-                            )
-                            .map(move |event| Message::MarketWsEvent(event)),
-                        };
-                        market_subscriptions.push(kline_subscription);
-                    }
-
-                if !depth_streams.is_empty() {
-                    market_subscriptions.push(Subscription::batch(depth_streams));
-                }
-            });
-
+        let exchange_streams = self.get_dashboard(self.active_layout)
+            .get_market_subscriptions(Message::MarketWsEvent);
+        
         let tickers_table_fetch = iced::time::every(std::time::Duration::from_secs(
             if self.show_tickers_dashboard { 25 } else { 300 },
         ))
@@ -1057,7 +996,7 @@ impl State {
         let window_events = window_events().map(Message::WindowEvent);
 
         Subscription::batch(vec![
-            Subscription::batch(market_subscriptions),
+            exchange_streams,
             tickers_table_fetch,
             window_events,
         ])

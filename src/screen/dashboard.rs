@@ -8,7 +8,8 @@ use crate::{
         candlestick::CandlestickChart, footprint::FootprintChart, Message as ChartMessage
     },
     data_providers::{
-        binance, bybit, fetcher::FetchRange, Depth, Exchange, Kline, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe, Trade
+        self, binance, bybit, fetcher::FetchRange, Depth, Exchange, Kline, OpenInterest, 
+        StreamConfig, TickMultiplier, Ticker, TickerInfo, Timeframe, Trade
     },
     screen::InfoType,
     style,
@@ -31,8 +32,7 @@ use iced::{
         center, container,
         pane_grid::{self, Configuration},
         PaneGrid,
-    },
-    Element, Length, Point, Size, Task, Vector,
+    }, Element, Length, Point, Size, Subscription, Task, Vector
 };
 
 #[derive(Debug, Clone)]
@@ -1022,10 +1022,11 @@ impl Dashboard {
             .height(Length::Fill)
             .padding(8);
 
-            return Element::new(content).map(move |message| Message::Pane(window, message));
+            Element::new(content)
+                .map(move |message| Message::Pane(window, message))
         } else {
-            return Element::new(center("No pane found for window"))
-                .map(move |message| Message::Pane(window, message));
+            Element::new(center("No pane found for window"))
+                .map(move |message| Message::Pane(window, message))
         }
     }
 
@@ -1325,6 +1326,87 @@ impl Dashboard {
                 DashboardError::Unknown("No pane found to update its state".to_string()),
             ))
         }
+    }
+
+    pub fn get_market_subscriptions<M>(
+        &self,
+        market_msg: impl Fn(data_providers::Event) -> M + Clone + Send + 'static
+    ) -> Subscription<M> 
+    where
+        M: 'static,
+    {
+        let mut market_subscriptions = Vec::with_capacity(
+            self.pane_streams.len() * 2 // worst case: both kline and depth per exchange
+        );
+    
+        self.pane_streams.iter().for_each(|(exchange, stream)| {
+            let (depth_count, kline_count) = stream.values()
+                .flat_map(|stream_types| stream_types.iter())
+                .fold((0, 0), |(depths, klines), stream_type| match stream_type {
+                    StreamType::DepthAndTrades { .. } => (depths + 1, klines),
+                    StreamType::Kline { .. } => (depths, klines + 1),
+                    StreamType::None => (depths, klines),
+                });
+    
+            if depth_count > 0 {
+                let mut depth_streams = Vec::with_capacity(depth_count);
+    
+                stream.values()
+                    .flat_map(|stream_types| stream_types.iter())
+                    .filter_map(|stream_type| match stream_type {
+                        StreamType::DepthAndTrades { ticker, .. } => {
+                            let config = StreamConfig::new(*ticker, *exchange);
+                            Some(match exchange {
+                                Exchange::BinanceSpot | Exchange::BinanceFutures => {
+                                    Subscription::run_with(
+                                        config,
+                                        move |cfg| binance::connect_market_stream(cfg.id)
+                                    ).map(market_msg.clone())
+                                }
+                                Exchange::BybitSpot | Exchange::BybitLinear => {
+                                    Subscription::run_with(
+                                        config,
+                                        move |cfg| bybit::connect_market_stream(cfg.id)
+                                    ).map(market_msg.clone())
+                                }
+                            })
+                        },
+                        _ => None,
+                    })
+                    .for_each(|stream| depth_streams.push(stream));
+    
+                market_subscriptions.push(Subscription::batch(depth_streams));
+            }
+    
+            if kline_count > 0 {
+                let kline_streams: Vec<_> = stream.values()
+                    .flat_map(|stream_types| stream_types.iter())
+                    .filter_map(|stream_type| match stream_type {
+                        StreamType::Kline { ticker, timeframe, .. } => Some((*ticker, *timeframe)),
+                        _ => None,
+                    })
+                    .collect();
+    
+                let config = StreamConfig::new(kline_streams, *exchange);
+
+                market_subscriptions.push(match exchange {
+                    Exchange::BinanceSpot | Exchange::BinanceFutures => {
+                        Subscription::run_with(
+                            config,
+                            move |cfg| binance::connect_kline_stream(cfg.id.clone(), cfg.market_type)
+                        ).map(market_msg.clone())
+                    }
+                    Exchange::BybitSpot | Exchange::BybitLinear => {
+                        Subscription::run_with(
+                            config,
+                            move |cfg| bybit::connect_kline_stream(cfg.id.clone(), cfg.market_type)
+                        ).map(market_msg.clone())
+                    }
+                });
+            }
+        });
+    
+        Subscription::batch(market_subscriptions)
     }
 
     fn get_all_diff_streams(

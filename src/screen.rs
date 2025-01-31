@@ -261,7 +261,7 @@ impl NotificationManager {
         self.notifications
             .get(window)
             .and_then(|window_map| window_map.get(pane))
-            .map_or(false, |notifications| !notifications.is_empty())
+            .is_some_and(|notifications| !notifications.is_empty())
     }
 
     /// Get all notifications for a window

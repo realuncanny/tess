@@ -601,7 +601,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                     }
                 };
 
-                let (price, color) = label.get_with_color(&palette);
+                let (price, color) = label.get_with_color(palette);
                 
                 let price_label = Label {
                     content: format!("{:.*}", self.decimals, price),
