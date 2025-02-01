@@ -36,10 +36,7 @@ use std::{collections::HashMap, vec, future::Future};
 fn main() {
     logger::setup(false, false).expect("Failed to initialize logger");
 
-    std::thread::spawn(|| {
-        let data_dir_path = std::path::Path::new("data/futures/um/daily/aggTrades");
-        layout::cleanup_old_data(data_dir_path)
-    });
+    std::thread::spawn(|| layout::cleanup_old_data());
 
     let saved_state: layout::SavedState = layout::load_saved_state("dashboard_state.json");
 

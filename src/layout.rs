@@ -16,7 +16,7 @@ use crate::{screen, style};
 use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::fs::File;
-use std::path::Path;
+use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum LayoutId {
@@ -548,15 +548,16 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
     }
 }
 
-pub fn write_json_to_file(json: &str, file_path: &str) -> std::io::Result<()> {
-    let path = Path::new(file_path);
+
+pub fn write_json_to_file(json: &str, file_name: &str) -> std::io::Result<()> {
+    let path = PathBuf::from(get_data_path(file_name));
     let mut file = File::create(path)?;
     file.write_all(json.as_bytes())?;
     Ok(())
 }
 
-pub fn read_from_file(file_path: &str) -> Result<SerializableState, Box<dyn std::error::Error>> {
-    let path = Path::new(file_path);
+pub fn read_from_file(file_name: &str) -> Result<SerializableState, Box<dyn std::error::Error>> {
+    let path = PathBuf::from(get_data_path(file_name));
     let mut file = File::open(path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;
@@ -564,7 +565,20 @@ pub fn read_from_file(file_path: &str) -> Result<SerializableState, Box<dyn std:
     Ok(serde_json::from_str(&contents)?)
 }
 
-pub fn cleanup_old_data(data_path: &std::path::Path) -> usize {
+pub fn get_data_path(path_name: &str) -> PathBuf {
+    if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
+        PathBuf::from(path)
+    } else {
+        let data_dir = dirs_next::data_dir().unwrap_or_else(|| PathBuf::from("."));
+        data_dir.join("flowsurface").join(path_name)
+    }
+}
+
+pub fn cleanup_old_data() -> usize {
+    let data_path = get_data_path(
+        "market_data/binance/data/futures/um/daily/aggTrades"
+    );
+
     if !data_path.exists() {
         log::warn!("Data path {:?} does not exist, skipping cleanup", data_path);
         return 0;

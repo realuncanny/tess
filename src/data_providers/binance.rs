@@ -11,6 +11,8 @@ use hyper_util::rt::TokioIo;
 use futures::{SinkExt, Stream};
 use iced_futures::stream;
 
+use crate::layout;
+
 use super::{
     setup_tcp_connection, setup_tls_connection, setup_websocket_connection, 
     str_f32_parse, deserialize_string_to_f32,
@@ -1006,22 +1008,33 @@ pub async fn get_hist_trades(
 ) -> Result<Vec<Trade>, StreamError> {    
     let (symbol, market_type) = ticker.get_string();
 
-    let base_path = match market_type {
+    let market_subpath = match market_type {
         MarketType::Spot => format!("data/spot/daily/aggTrades/{symbol}"),
         MarketType::LinearPerps => format!("data/futures/um/daily/aggTrades/{symbol}"),
     };
+
+    let zip_file_name = format!(
+        "{}-aggTrades-{}.zip",
+        symbol.to_uppercase(),
+        date.format("%Y-%m-%d"),
+    );
+
+    let base_path = layout::get_data_path(&format!(
+        "market_data/binance/{}",
+        market_subpath,
+    ));
 
     std::fs::create_dir_all(&base_path)
         .map_err(|e| StreamError::ParseError(format!("Failed to create directories: {e}")))?;
 
     let zip_path = format!(
-        "{}/{}-aggTrades-{}.zip",
-        base_path,
-        symbol.to_uppercase(), 
-        date.format("%Y-%m-%d"),
+        "{}/{}",
+        market_subpath,
+        zip_file_name,
     );
-    
-    if std::fs::metadata(&zip_path).is_ok() {
+    let base_zip_path = base_path.join(&zip_file_name);
+
+    if std::fs::metadata(&base_zip_path).is_ok() {
         log::info!("Using cached {}", zip_path);
     } else {
         let url = format!("https://data.binance.vision/{zip_path}");
@@ -1038,11 +1051,13 @@ pub async fn get_hist_trades(
 
         let body = resp.bytes().await.map_err(StreamError::FetchError)?;
         
-        std::fs::write(&zip_path, &body)
-            .map_err(|e| StreamError::ParseError(format!("Failed to write zip file: {e}")))?;
+        std::fs::write(&base_zip_path, &body)
+            .map_err(|e| StreamError::ParseError(
+                format!("Failed to write zip file: {e}, {base_zip_path:?}"))
+            )?;
     }
 
-    match std::fs::File::open(&zip_path) {
+    match std::fs::File::open(&base_zip_path) {
         Ok(file) => {
             let mut archive = zip::ZipArchive::new(file)
                 .map_err(|e| StreamError::ParseError(format!("Failed to unzip file: {e}")))?;

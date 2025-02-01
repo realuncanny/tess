@@ -1,8 +1,9 @@
 use chrono::Local;
 use std::{
-    fs::{self, File},
-    process,
+    fs::{self, File}, path::PathBuf, process
 };
+
+use crate::layout;
 
 const MAX_LOG_FILE_SIZE: u64 = 10_000_000; // 10 MB
 
@@ -29,25 +30,30 @@ pub fn setup(is_debug: bool, log_trace: bool) -> Result<(), fern::InitError> {
     if is_debug {
         logger = logger.chain(std::io::stdout());
     } else {
-        let log_file_path = "output.log";
-        let log_file = File::create(log_file_path)?;
+        let log_file_path = layout::get_data_path("output.log");
+
+        if let Some(parent) = log_file_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let log_file = File::create(&log_file_path)?;
         log_file.set_len(0)?;
+
+        let log_file = fern::log_file(&log_file_path)?;
+        logger = logger.chain(log_file);
 
         std::thread::spawn(move || {
             monitor_file_size(log_file_path, MAX_LOG_FILE_SIZE);
         });
-
-        let log_file = fern::log_file(log_file_path)?;
-        logger = logger.chain(log_file);
     }
 
     logger.apply()?;
     Ok(())
 }
 
-fn monitor_file_size(file_path: &str, max_size_bytes: u64) {
+fn monitor_file_size(file_path: PathBuf, max_size_bytes: u64) {
     loop {
-        match fs::metadata(file_path) {
+        match fs::metadata(&file_path) {
             Ok(metadata) => {
                 if metadata.len() > max_size_bytes {
                     eprintln!(
