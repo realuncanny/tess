@@ -650,12 +650,14 @@ impl<K: Ord, V> ContainsKey<K> for std::collections::BTreeMap<K, V> {
 
 fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Option<Task<Message>> {
     match handler.add_request(range) {
-        Ok(req_id) => Some(Task::done(Message::NewDataRange(req_id, range))),
+        Ok(req_id) => Some(Task::done(
+            Message::NewDataRange(req_id, range)
+        )),
         Err(e) => {
             match e {
-                ReqError::Overlaps => log::warn!("Request overlaps with existing request"),
-                ReqError::Failed(msg) => log::warn!("Request already failed: {}", msg),
-                ReqError::Completed => log::warn!("Request already completed"),
+                ReqError::Overlaps => log::debug!("Request overlaps with existing request"),
+                ReqError::Failed(msg) => log::debug!("Request already failed: {}", msg),
+                ReqError::Completed => log::debug!("Request already completed"),
             }
             None
         }

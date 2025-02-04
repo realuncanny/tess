@@ -36,7 +36,16 @@ impl RequestHandler {
         if let Some(r) = self.requests.values().find(|r| r.same_with(&request)) {
             return match &r.status {
                 RequestStatus::Failed(error_msg) => Err(ReqError::Failed(error_msg.clone())),
-                RequestStatus::Completed(_) => Err(ReqError::Completed),
+                RequestStatus::Completed(ts) => {
+                    // retry completed requests after a cooldown
+                    // to handle data source failures or outdated results gracefully       
+                    if chrono::Utc::now().timestamp_millis() as u64 - ts > 30_000 {
+                        self.requests.insert(id, request);
+                        Ok(id)
+                    } else {
+                        Err(ReqError::Completed)
+                    }
+                },
                 RequestStatus::Pending => Err(ReqError::Overlaps),
             };
         }
