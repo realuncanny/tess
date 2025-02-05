@@ -676,7 +676,11 @@ pub async fn fetch_ticksize(market_type: MarketType) -> Result<HashMap<Ticker, O
         MarketType::LinearPerps => "linear",
     };
 
-    let url = format!("https://api.bybit.com/v5/market/instruments-info?category={market}");
+    let url = format!(
+        "https://api.bybit.com/v5/market/instruments-info?category={}&limit=1000",
+        market,
+    );
+
     let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
     let text = response.text().await.map_err(StreamError::FetchError)?;
 
@@ -718,10 +722,13 @@ pub async fn fetch_ticksize(market_type: MarketType) -> Result<HashMap<Ticker, O
     Ok(ticker_info_map)
 }
 
+const PERP_FILTER_VOLUME: f32 = 12_000_000.0;
+const SPOT_FILTER_VOLUME: f32 = 4_000_000.0;
+
 pub async fn fetch_ticker_prices(market_type: MarketType) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
-    let market = match market_type {
-        MarketType::Spot => "spot",
-        MarketType::LinearPerps => "linear",
+    let (market, volume_threshold) = match market_type {
+        MarketType::Spot => ("spot", SPOT_FILTER_VOLUME),
+        MarketType::LinearPerps => ("linear", PERP_FILTER_VOLUME),
     };
 
     let url = format!("https://api.bybit.com/v5/market/tickers?category={market}");
@@ -770,7 +777,7 @@ pub async fn fetch_ticker_prices(market_type: MarketType) -> Result<HashMap<Tick
 
         let quote_volume = daily_volume * mark_price;
 
-        if quote_volume < 4_000_000.0 {
+        if quote_volume < volume_threshold {
             continue;
         }
 

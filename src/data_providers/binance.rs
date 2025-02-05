@@ -844,6 +844,9 @@ pub async fn fetch_ticksize(market_type: MarketType) -> Result<HashMap<Ticker, O
     Ok(ticker_info_map)
 }
 
+const PERP_FILTER_VOLUME: f32 = 32_000_000.0;
+const SPOT_FILTER_VOLUME: f32 = 9_000_000.0;
+
 pub async fn fetch_ticker_prices(market: MarketType) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
     let url = match market {
         MarketType::Spot => "https://api.binance.com/api/v3/ticker/24hr".to_string(),
@@ -860,8 +863,8 @@ pub async fn fetch_ticker_prices(market: MarketType) -> Result<HashMap<Ticker, T
     let re = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
 
     let volume_threshold = match market {
-        MarketType::Spot => 9_000_000.0,
-        MarketType::LinearPerps => 29_000_000.0,
+        MarketType::Spot => SPOT_FILTER_VOLUME,
+        MarketType::LinearPerps => PERP_FILTER_VOLUME,
     };
 
     for item in value {
