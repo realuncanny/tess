@@ -21,8 +21,7 @@ use screen::{
     Notification, UserTimezone
 };
 use data_providers::{
-    binance, bybit, Exchange, MarketType, StreamType, 
-    Ticker, TickerInfo, TickerStats,
+    binance, bybit, Exchange, StreamType, Ticker, TickerInfo, TickerStats,
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
@@ -146,7 +145,6 @@ struct State {
     present_mode: screen::PresentMode,
 }
 
-#[allow(dead_code)]
 impl State {
     fn new(
         saved_state: layout::SavedState,
@@ -156,34 +154,19 @@ impl State {
 
         let active_layout = saved_state.last_active_layout;
 
-        let mut tickers_info = HashMap::new();
-
         let exchange_fetch_tasks = {
             Exchange::MARKET_TYPES.iter()
-                .flat_map(|(exchange, market_type)| {
-                    tickers_info.insert(*exchange, HashMap::new());
-                    
-                    let ticksizes_task = match exchange {
+                .map(|(exchange, market_type)| {                    
+                    match exchange {
                         Exchange::BinanceFutures | Exchange::BinanceSpot => {
                             fetch_ticker_info(*exchange, binance::fetch_ticksize(*market_type))
                         }
                         Exchange::BybitLinear | Exchange::BybitSpot => {
                             fetch_ticker_info(*exchange, bybit::fetch_ticksize(*market_type))
                         }
-                    };
-
-                    let prices_task = match exchange {
-                        Exchange::BinanceFutures | Exchange::BinanceSpot => {
-                            fetch_ticker_prices(*exchange, binance::fetch_ticker_prices(*market_type))
-                        }
-                        Exchange::BybitLinear | Exchange::BybitSpot => {
-                            fetch_ticker_prices(*exchange, bybit::fetch_ticker_prices(*market_type))
-                        }
-                    };
-
-                    vec![ticksizes_task, prices_task]
+                    }
                 })
-                .collect::<Vec<_>>()
+                .collect::<Vec<Task<Message>>>()
         };
 
         (
@@ -194,7 +177,7 @@ impl State {
                 main_window: Window::new(main_window),
                 active_modal: SidebarModal::None,
                 notification: None,
-                tickers_info,
+                tickers_info: HashMap::new(),
                 show_tickers_dashboard: false,
                 sidebar_location: saved_state.sidebar,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
@@ -209,6 +192,7 @@ impl State {
                 .chain(Task::batch(vec![
                     Task::done(Message::LoadLayout(active_layout)),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
+                    Task::done(Message::FetchAndUpdateTickersTable),
                     Task::batch(exchange_fetch_tasks),
                 ])),
         )
@@ -435,29 +419,22 @@ impl State {
                 self.tickers_table.update_table(exchange, tickers_info);
             }
             Message::FetchAndUpdateTickersTable => {
-                let bybit_linear_fetch = fetch_ticker_prices(
-                    Exchange::BybitLinear,
-                    bybit::fetch_ticker_prices(MarketType::LinearPerps),
-                );
-                let binance_linear_fetch = fetch_ticker_prices(
-                    Exchange::BinanceFutures,
-                    binance::fetch_ticker_prices(MarketType::LinearPerps),
-                );
-                let binance_spot_fetch = fetch_ticker_prices(
-                    Exchange::BinanceSpot,
-                    binance::fetch_ticker_prices(MarketType::Spot),
-                );
-                let bybit_spot_fetch = fetch_ticker_prices(
-                    Exchange::BybitSpot,
-                    bybit::fetch_ticker_prices(MarketType::Spot),
-                );
+                let fetch_tasks = {
+                    Exchange::MARKET_TYPES.iter()
+                        .map(|(exchange, market_type)| {                    
+                            match exchange {
+                                Exchange::BinanceFutures | Exchange::BinanceSpot => {
+                                    fetch_ticker_prices(*exchange, binance::fetch_ticker_prices(*market_type))
+                                }
+                                Exchange::BybitLinear | Exchange::BybitSpot => {
+                                    fetch_ticker_prices(*exchange, bybit::fetch_ticker_prices(*market_type))
+                                }
+                            }
+                        })
+                        .collect::<Vec<Task<Message>>>()
+                };
 
-                return Task::batch(vec![
-                    bybit_linear_fetch, 
-                    binance_linear_fetch, 
-                    binance_spot_fetch,
-                    bybit_spot_fetch,
-                ]);
+                return Task::batch(fetch_tasks)
             }
             Message::TickersTable(message) => {
                 if let tickers_table::Message::TickerSelected(ticker, exchange, content) = message {
