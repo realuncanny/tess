@@ -535,6 +535,7 @@ impl Dashboard {
                                                 timeframe,
                                                 tick_size,
                                                 indicators,
+                                                state.settings.ticker_info,
                                             );
                                         }
                                         PaneContent::Footprint(chart, indicators) => {
@@ -547,6 +548,7 @@ impl Dashboard {
                                                 klines.clone(),
                                                 raw_trades,
                                                 indicators,
+                                                state.settings.ticker_info,
                                             );
                                         }
                                         _ => {}

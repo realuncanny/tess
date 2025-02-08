@@ -7,7 +7,7 @@ use iced::{mouse, Alignment, Element, Length, Point, Rectangle, Renderer, Size, 
 use iced::widget::{column, canvas::{self, Event, Geometry}};
 use ordered_float::OrderedFloat;
 
-use crate::data_providers::TickerInfo;
+use crate::data_providers::{MarketType, TickerInfo};
 use crate::layout::SerializableChartData;
 use crate::data_providers::{
     fetcher::{FetchRange, RequestHandler},
@@ -48,10 +48,9 @@ impl Chart for FootprintChart {
 
     fn view_indicator<I: Indicator>(
         &self, 
-        indicators: &[I], 
-        ticker_info: Option<TickerInfo>
+        indicators: &[I],
     ) -> Option<Element<Message>> {
-        self.view_indicators(indicators, ticker_info)
+        self.view_indicators(indicators)
     }
 
     fn get_visible_timerange(&self) -> (i64, i64) {
@@ -115,6 +114,7 @@ impl FootprintChart {
         klines_raw: Vec<Kline>,
         raw_trades: Vec<Trade>,
         enabled_indicators: &[FootprintIndicator],
+        ticker_info: Option<TickerInfo>,
     ) -> Self {
         let mut loading_chart = true;
         let mut data_points = BTreeMap::new();
@@ -184,6 +184,7 @@ impl FootprintChart {
                 crosshair: layout.crosshair,
                 indicators_split: layout.indicators_split,
                 loading_chart,
+                ticker_info,
                 ..Default::default()
             },
             data_points,
@@ -299,7 +300,9 @@ impl FootprintChart {
 
         for data in self.indicators.values() {
             if let IndicatorData::OpenInterest(_, _) = data {
-                if !self.fetching_oi {
+                if !self.fetching_oi && self.chart.timeframe >= Timeframe::M5.to_milliseconds() 
+                    && self.chart.ticker_info.is_some_and(|info| info.get_market_type() == MarketType::LinearPerps)
+                {
                     let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
 
                     if visible_earliest < oi_earliest {
@@ -654,7 +657,6 @@ impl FootprintChart {
     pub fn view_indicators<I: Indicator>(
         &self, 
         enabled: &[I], 
-        ticker_info: Option<TickerInfo>
     ) -> Option<Element<Message>> {
         let chart_state: &CommonChartData = self.get_common_data();
 
@@ -671,7 +673,7 @@ impl FootprintChart {
 
         for indicator in I::get_enabled(
             enabled, 
-            ticker_info.map(|info| info.get_market_type())
+            chart_state.ticker_info.map(|info| info.get_market_type())
         ) {
             if let Some(candlestick_indicator) = indicator
                 .as_any()
@@ -713,10 +715,9 @@ impl FootprintChart {
     pub fn view<'a, I: Indicator>(
         &'a self, 
         indicators: &'a [I], 
-        ticker_info: Option<TickerInfo>,
         timezone: &'a UserTimezone,
     ) -> Element<'a, Message> {
-        view_chart(self, indicators, ticker_info, timezone)
+        view_chart(self, indicators, timezone)
     }
 }
 

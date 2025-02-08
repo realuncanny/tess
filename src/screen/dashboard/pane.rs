@@ -23,6 +23,12 @@ pub enum PaneModal {
     None,
 }
 
+enum ExistingIndicators {
+    Heatmap(Vec<HeatmapIndicator>),
+    Footprint(Vec<FootprintIndicator>),
+    Candlestick(Vec<CandlestickIndicator>),
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
     PaneClicked(pane_grid::Pane),
@@ -171,24 +177,41 @@ impl PaneState {
         ticker_info: TickerInfo,
         content_str: &str, 
     ) -> Result<(), DashboardError> {
+        let (existing_indicators, existing_layout) = match (&self.content, content_str) {
+            (PaneContent::Heatmap(chart, indicators), "heatmap") => {
+                (Some(ExistingIndicators::Heatmap(indicators.clone())), Some(chart.get_chart_layout()))
+            },
+            (PaneContent::Footprint(chart, indicators), "footprint") => {
+                (Some(ExistingIndicators::Footprint(indicators.clone())), Some(chart.get_chart_layout()))
+            },
+            (PaneContent::Candlestick(chart, indicators), "candlestick") => {
+                (Some(ExistingIndicators::Candlestick(indicators.clone())), Some(chart.get_chart_layout()))
+            },
+            _ => (None, None)
+        };
+
         self.content = match content_str {
             "heatmap" => {
                 let tick_size = self.set_tickers_info(
                     Some(TickMultiplier(10)),
                     ticker_info,
                 );
-
-                let enabled_indicators = vec![HeatmapIndicator::Volume];
+                let enabled_indicators = match existing_indicators {
+                    Some(ExistingIndicators::Heatmap(indicators)) => indicators,
+                    _ => vec![HeatmapIndicator::Volume],
+                };
+                let layout = existing_layout.unwrap_or_else(|| SerializableChartData {
+                    crosshair: true,
+                    indicators_split: None,
+                });
 
                 PaneContent::Heatmap(
                     HeatmapChart::new(
-                        SerializableChartData {
-                            crosshair: true,
-                            indicators_split: None,
-                        },
+                        layout,
                         tick_size,
                         100,
                         &enabled_indicators,
+                        Some(ticker_info),
                     ),
                     enabled_indicators,
                 )
@@ -199,28 +222,26 @@ impl PaneState {
                     ticker_info,
                 );
                 let timeframe = self.set_timeframe(Timeframe::M5);
-                let enabled_indicators = {
-                    if ticker_info.get_market_type() == MarketType::LinearPerps {
-                        vec![
-                            FootprintIndicator::Volume,
-                            FootprintIndicator::OpenInterest,
-                        ]
-                    } else {
-                        vec![FootprintIndicator::Volume]
-                    }
+
+                let enabled_indicators = match existing_indicators {
+                    Some(ExistingIndicators::Footprint(indicators)) => indicators,
+                    _ => vec![FootprintIndicator::Volume, FootprintIndicator::OpenInterest],
                 };
+
+                let layout = existing_layout.unwrap_or_else(|| SerializableChartData {
+                    crosshair: true,
+                    indicators_split: Some(0.8),
+                });
 
                 PaneContent::Footprint(
                     FootprintChart::new(
-                        SerializableChartData {
-                            crosshair: true,
-                            indicators_split: Some(0.8),
-                        },
+                        layout,
                         timeframe,
                         tick_size,
                         vec![],
                         vec![],
                         &enabled_indicators,
+                        Some(ticker_info),
                     ),
                     enabled_indicators,
                 )
@@ -232,27 +253,24 @@ impl PaneState {
                 );
                 let timeframe = self.set_timeframe(Timeframe::M15);
 
-                let enabled_indicators = {
-                    if ticker_info.get_market_type() == MarketType::LinearPerps {
-                        vec![
-                            CandlestickIndicator::Volume,
-                            CandlestickIndicator::OpenInterest,
-                        ]
-                    } else {
-                        vec![CandlestickIndicator::Volume]
-                    }
+                let enabled_indicators = match existing_indicators {
+                    Some(ExistingIndicators::Candlestick(indicators)) => indicators,
+                    _ => vec![CandlestickIndicator::Volume, CandlestickIndicator::OpenInterest],
                 };
+
+                let layout = existing_layout.unwrap_or_else(|| SerializableChartData {
+                    crosshair: true,
+                    indicators_split: Some(0.8),
+                });
 
                 PaneContent::Candlestick(
                     CandlestickChart::new(
-                        SerializableChartData {
-                            crosshair: true,
-                            indicators_split: Some(0.8),
-                        },
+                        layout,
                         vec![],
                         timeframe,
                         tick_size,
                         &enabled_indicators,
+                        Some(ticker_info),
                     ),
                     enabled_indicators,
                 )
@@ -298,6 +316,7 @@ impl PaneState {
                 } else {
                     let tick_size = chart.get_tick_size();
                     let layout = chart.get_chart_layout();
+                    let ticker_info = self.settings.ticker_info.clone();
 
                     *chart = CandlestickChart::new(
                         layout,
@@ -305,6 +324,7 @@ impl PaneState {
                         timeframe, 
                         tick_size, 
                         indicators,
+                        ticker_info,
                     );
                 }
             }
@@ -314,6 +334,7 @@ impl PaneState {
                 } else {
                     let (raw_trades, tick_size) = (chart.get_raw_trades(), chart.get_tick_size());
                     let layout = chart.get_chart_layout();
+                    let ticker_info = self.settings.ticker_info.clone();
 
                     *chart = FootprintChart::new(
                         layout,
@@ -322,6 +343,7 @@ impl PaneState {
                         klines.clone(),
                         raw_trades,
                         indicators,
+                        ticker_info,
                     );
                 }
             }
@@ -545,8 +567,7 @@ impl ChartView for HeatmapChart {
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
     ) -> Element<'a, Message> {
-        let underlay = self
-            .view(indicators, state.settings.ticker_info, timezone)
+        let underlay = self.view(indicators, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
         let settings_view = || {
@@ -577,8 +598,7 @@ impl ChartView for FootprintChart {
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
     ) -> Element<'a, Message> {
-        let underlay = self
-            .view(indicators, state.settings.ticker_info, timezone)
+        let underlay = self.view(indicators, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
         let settings_view = || {
@@ -609,8 +629,7 @@ impl ChartView for CandlestickChart {
         notifications: Option<&'a Vec<screen::Notification>>,
         timezone: &'a UserTimezone,
     ) -> Element<'a, Message> {
-        let underlay = self
-            .view(indicators, state.settings.ticker_info, timezone)
+        let underlay = self.view(indicators, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
             
         let settings_view = || {

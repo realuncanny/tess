@@ -72,7 +72,6 @@ trait Chart: ChartConstants + canvas::Program<Message> {
     fn view_indicator<I: Indicator>(
         &self, 
         enabled: &[I], 
-        ticker_info: Option<TickerInfo>
     ) -> Option<Element<Message>>;
 
     fn get_visible_timerange(&self) -> (i64, i64);
@@ -309,12 +308,11 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) -> Task<Message> {
 fn view_chart<'a, T: Chart, I: Indicator>(
     chart: &'a T, 
     indicators: &'a [I], 
-    ticker_info: Option<TickerInfo>,
     timezone: &'a UserTimezone,
 ) -> Element<'a, Message> {
     let chart_state = chart.get_common_data();
 
-    if chart_state.loading_chart {
+    if chart_state.loading_chart || chart_state.ticker_info.is_none() {
         return center(text("Loading...").size(16)).into();
     }
 
@@ -391,7 +389,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
 
     let chart_content = match (chart_state.indicators_split, indicators.is_empty()) {
         (Some(split_at), false) => {
-            if let Some(indicator) = chart.view_indicator(indicators, ticker_info) {
+            if let Some(indicator) = chart.view_indicator(indicators) {
                 row![
                     HSplit::new(
                         main_chart,
@@ -459,6 +457,7 @@ pub struct CommonChartData {
     timeframe: u64,
     tick_size: f32,
     decimals: usize,
+    ticker_info: Option<TickerInfo>,
 
     indicators_split: Option<f32>,
 
@@ -487,6 +486,7 @@ impl Default for CommonChartData {
             indicators_split: None,
             already_fetching: false,
             loading_chart: true,
+            ticker_info: None,
         }
     }
 }

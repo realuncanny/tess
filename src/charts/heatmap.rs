@@ -44,9 +44,8 @@ impl Chart for HeatmapChart {
     fn view_indicator<I: Indicator>(
         &self, 
         indicators: &[I], 
-        ticker_info: Option<TickerInfo>
     ) -> Option<Element<Message>> {
-        self.view_indicators(indicators, ticker_info)
+        self.view_indicators(indicators)
     }
 
     fn get_visible_timerange(&self) -> (i64, i64) {
@@ -241,7 +240,8 @@ impl HeatmapChart {
         layout: SerializableChartData, 
         tick_size: f32, 
         aggr_time: i64, 
-        enabled_indicators: &[HeatmapIndicator]
+        enabled_indicators: &[HeatmapIndicator],
+        ticker_info: Option<TickerInfo>,
     ) -> Self {
         HeatmapChart {
             chart: CommonChartData {
@@ -252,6 +252,7 @@ impl HeatmapChart {
                 decimals: count_decimals(tick_size),
                 crosshair: layout.crosshair,
                 indicators_split: layout.indicators_split,
+                ticker_info,
                 ..Default::default()
             },
             indicators: {
@@ -480,7 +481,7 @@ impl HeatmapChart {
         }
     }
 
-    pub fn view_indicators<I: Indicator>(&self, _indis: &[I], _ticker_info: Option<TickerInfo>) -> Option<Element<Message>> {
+    pub fn view_indicators<I: Indicator>(&self, _indis: &[I]) -> Option<Element<Message>> {
         None
     }
 
@@ -491,10 +492,9 @@ impl HeatmapChart {
     pub fn view<'a, I: Indicator>(
         &'a self, 
         indicators: &'a [I], 
-        ticker_info: Option<TickerInfo>,
         timezone: &'a UserTimezone,
     ) -> Element<'a, Message> {
-        view_chart(self, indicators, ticker_info, timezone)
+        view_chart(self, indicators, timezone)
     }
 }
 
