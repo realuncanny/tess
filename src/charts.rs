@@ -461,7 +461,6 @@ pub struct CommonChartData {
 
     indicators_split: Option<f32>,
 
-    already_fetching: bool,
     loading_chart: bool,
 }
 
@@ -484,7 +483,6 @@ impl Default for CommonChartData {
             tick_size: 0.0,
             decimals: 0,
             indicators_split: None,
-            already_fetching: false,
             loading_chart: true,
             ticker_info: None,
         }
@@ -597,10 +595,6 @@ impl CommonChartData {
         latest: i64,
         data_points: &T
     ) -> Option<Vec<i64>> {
-        if self.already_fetching {
-            return None;
-        }
-    
         let interval = self.timeframe as i64;
         
         let mut time = earliest;

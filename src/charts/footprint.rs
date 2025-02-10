@@ -101,7 +101,6 @@ pub struct FootprintChart {
     data_points: BTreeMap<i64, (HashMap<OrderedFloat<f32>, (f32, f32)>, Kline)>,
     raw_trades: Vec<Trade>,
     indicators: HashMap<FootprintIndicator, IndicatorData>,
-    fetching_oi: bool,
     fetching_trades: bool,
     request_handler: RequestHandler,
 }
@@ -208,7 +207,6 @@ impl FootprintChart {
 
                 indicators
             },
-            fetching_oi: false,
             fetching_trades: false,
             request_handler: RequestHandler::new(),
         }
@@ -219,8 +217,6 @@ impl FootprintChart {
     }
 
     pub fn update_latest_kline(&mut self, kline: &Kline) -> Task<Message> {
-        let mut task = None;
-
         if let Some((_, kline_value)) = self.data_points.get_mut(&(kline.time as i64)) {
             kline_value.open = kline.open;
             kline_value.high = kline.high;
@@ -251,31 +247,20 @@ impl FootprintChart {
             }
         };
 
-        if !chart.already_fetching {
-            task = self.get_missing_data_task();
-        }
-
         self.render_start();
-        task.unwrap_or(Task::none())
+        self.get_missing_data_task().unwrap_or(Task::none())
     }
 
     fn get_missing_data_task(&mut self) -> Option<Task<Message>> {
-        let mut task = None;
-
         let (visible_earliest, visible_latest) = self.get_visible_timerange();
         let (kline_earliest, kline_latest) = self.get_kline_timerange();
-
         let earliest = visible_earliest - (visible_latest - visible_earliest);
-
+        
         if visible_earliest < kline_earliest {
-            let latest = kline_earliest;
-
-            if let Some(fetch_task) = request_fetch(
-                &mut self.request_handler, FetchRange::Kline(earliest, latest)
-            ) {
-                self.get_common_data_mut().already_fetching = true;
-                return Some(fetch_task);
-            }
+            return request_fetch(
+                &mut self.request_handler, 
+                FetchRange::Kline(earliest, kline_earliest)
+            );
         }
 
         if !self.fetching_trades {
@@ -300,57 +285,48 @@ impl FootprintChart {
 
         for data in self.indicators.values() {
             if let IndicatorData::OpenInterest(_, _) = data {
-                if !self.fetching_oi && self.chart.timeframe >= Timeframe::M5.to_milliseconds() 
+                if self.chart.timeframe >= Timeframe::M5.to_milliseconds() 
                     && self.chart.ticker_info.is_some_and(|info| info.get_market_type() == MarketType::LinearPerps)
                 {
                     let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
-
+    
                     if visible_earliest < oi_earliest {
-                        if let Some(fetch_task) = request_fetch(
-                            &mut self.request_handler, FetchRange::OpenInterest(earliest, oi_earliest)
-                        ) {
-                            self.fetching_oi = true;
-                            task = Some(fetch_task);
-                        }
-                    } else if oi_latest < kline_latest {
-                        if let Some(fetch_task) = request_fetch(
-                            &mut self.request_handler, FetchRange::OpenInterest(oi_latest, kline_latest)
-                        ) {
-                            self.fetching_oi = true;
-                            task = Some(fetch_task);
-                        }
+                        return request_fetch(
+                            &mut self.request_handler, 
+                            FetchRange::OpenInterest(earliest, oi_earliest)
+                        );
+                    } 
+                    
+                    if oi_latest < kline_latest {
+                        return request_fetch(
+                            &mut self.request_handler,
+                            FetchRange::OpenInterest(oi_latest, kline_latest)
+                        );
                     }
                 }
             }
-        };
-
-        if task.is_none() {
-            if let Some(missing_keys) = self.get_common_data()
-                .check_kline_integrity(kline_earliest, kline_latest, &self.data_points) {
-                    let (latest, earliest) = (
-                        missing_keys.iter()
-                            .max().unwrap_or(&visible_latest) + self.chart.timeframe as i64,
-                        missing_keys.iter()
-                            .min().unwrap_or(&visible_earliest) - self.chart.timeframe as i64,
-                    );
-        
-                    if let Some(fetch_task) = request_fetch(
-                        &mut self.request_handler, FetchRange::Kline(earliest, latest)
-                    ) {
-                        self.get_common_data_mut().already_fetching = true;
-                        task = Some(fetch_task);
-                    }
-                }
         }
 
-        task
+        if let Some(missing_keys) = self.get_common_data()
+            .check_kline_integrity(kline_earliest, kline_latest, &self.data_points) 
+        {
+            let latest = missing_keys.iter()
+                .max().unwrap_or(&visible_latest) + self.chart.timeframe as i64;
+            let earliest = missing_keys.iter()
+                .min().unwrap_or(&visible_earliest) - self.chart.timeframe as i64;
+    
+            return request_fetch(
+                &mut self.request_handler, 
+                FetchRange::Kline(earliest, latest)
+            );
+        }
+
+        None
     }
 
     pub fn reset_request_handler(&mut self) {
         self.request_handler = RequestHandler::new();
         self.fetching_trades = false;
-        self.fetching_oi = false;
-        self.chart.already_fetching = false;
     }
 
     pub fn get_raw_trades(&self) -> Vec<Trade> {
@@ -539,10 +515,7 @@ impl FootprintChart {
                 .mark_failed(req_id, "No data received".to_string());
         }
 
-        self.get_common_data_mut().already_fetching = false;
-
         self.chart.loading_chart = false;
-
         self.render_start();
     }
 
@@ -550,7 +523,6 @@ impl FootprintChart {
         if let Some(req_id) = req_id {
             if !oi_data.is_empty() {
                 self.request_handler.mark_completed(req_id);
-                self.fetching_oi = false;
             } else {
                 self.request_handler
                     .mark_failed(req_id, "No data received".to_string());
@@ -637,7 +609,6 @@ impl FootprintChart {
                         IndicatorData::Volume(Caches::default(), volume_data)
                     },
                     FootprintIndicator::OpenInterest => {
-                        self.fetching_oi = false;
                         IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
                     }
                 };
