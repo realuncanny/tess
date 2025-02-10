@@ -64,7 +64,7 @@ trait Chart: ChartConstants + canvas::Program<Message> {
     fn canvas_interaction(
         &self,
         interaction: &mut Interaction,
-        event: Event,
+        event: &iced::Event,
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>>;
@@ -80,7 +80,7 @@ trait Chart: ChartConstants + canvas::Program<Message> {
 fn canvas_interaction<T: Chart>(
     chart: &T,
     interaction: &mut Interaction,
-    event: Event,
+    event: &Event,
     bounds: Rectangle,
     cursor: mouse::Cursor,
 ) -> Option<canvas::Action<Message>> {
@@ -154,7 +154,7 @@ fn canvas_interaction<T: Chart>(
                     };
 
                     // max scaling case
-                    if (y > 0.0 && chart_state.scaling == T::MAX_SCALING)
+                    if (*y > 0.0 && chart_state.scaling == T::MAX_SCALING)
                         && (chart_state.cell_width < T::MAX_CELL_WIDTH)
                     {
                         return Some(
@@ -168,7 +168,7 @@ fn canvas_interaction<T: Chart>(
                     }
 
                     // min scaling case
-                    if (y < 0.0 && chart_state.scaling == T::MIN_SCALING)
+                    if (*y < 0.0 && chart_state.scaling == T::MIN_SCALING)
                         && (chart_state.cell_width > T::MIN_CELL_WIDTH)
                     {
                         return Some(
@@ -182,8 +182,8 @@ fn canvas_interaction<T: Chart>(
                     }
 
                     // normal scaling case
-                    if (y < 0.0 && chart_state.scaling > T::MIN_SCALING)
-                        || (y > 0.0 && chart_state.scaling < T::MAX_SCALING)
+                    if (*y < 0.0 && chart_state.scaling > T::MIN_SCALING)
+                        || (*y > 0.0 && chart_state.scaling < T::MAX_SCALING)
                     {
                         let old_scaling = chart_state.scaling;
                         let scaling = (chart_state.scaling * (1.0 + y / 30.0))
