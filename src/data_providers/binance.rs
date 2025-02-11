@@ -753,7 +753,7 @@ pub async fn fetch_klines(
             ));
         }     
     } else {
-        url.push_str(&format!("&limit={}", 200));
+        url.push_str("&limit=400");
     }
 
     let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
@@ -1179,15 +1179,11 @@ pub async fn fetch_historical_oi(
         let interval_ms = period.to_milliseconds() as i64;
         let num_intervals = ((end - adjusted_start) / interval_ms).min(500);
 
-        if num_intervals > 1 {
-            url.push_str(&format!(
-                "&startTime={adjusted_start}&endTime={end}&limit={num_intervals}"
-            ));
-        } else {
-            url.push_str("&limit=200");
-        }
+        url.push_str(&format!(
+            "&startTime={adjusted_start}&endTime={end}&limit={num_intervals}"
+        ));
     } else {
-        url.push_str("&limit=200");
+        url.push_str("&limit=400");
     }
 
     let response = reqwest::get(&url)
@@ -1210,7 +1206,7 @@ pub async fn fetch_historical_oi(
             StreamError::ParseError(format!("Failed to parse open interest: {e}"))
         })?;
 
-    let open_interest: Vec<OpenInterest> = binance_oi
+    let open_interest = binance_oi
         .iter()
         .map(|x| OpenInterest {
             time: x.time,

@@ -525,13 +525,9 @@ pub async fn fetch_historical_oi(
         let interval_ms = period.to_milliseconds() as i64;
         let num_intervals = ((end - start) / interval_ms).min(200);
 
-        if num_intervals > 1 {
-            url.push_str(&format!(
-                "&startTime={start}&endTime={end}&limit={num_intervals}"
-            ));
-        } else {
-            url.push_str("&limit=200");
-        }
+        url.push_str(&format!(
+            "&startTime={start}&endTime={end}&limit={num_intervals}"
+        ));
     } else {
         url.push_str("&limit=200");
     }
