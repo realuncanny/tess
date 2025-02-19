@@ -5,6 +5,7 @@ use iced::{
     Point, Rectangle, Renderer, Size, Task, Theme, Vector
 };
 use iced::widget::canvas::{self, Event, Geometry, Path};
+use serde::{Deserialize, Serialize};
 
 use crate::{data_providers::TickerInfo, layout::SerializableChartData, screen::UserTimezone};
 use crate::data_providers::{Depth, Trade};
@@ -231,8 +232,7 @@ pub struct HeatmapChart {
     data_points: Vec<(i64, Box<[GroupedTrade]>, (f32, f32))>,
     indicators: HashMap<HeatmapIndicator, IndicatorData>,
     orderbook: Orderbook,
-    trade_size_filter: f32,
-    order_size_filter: f32,
+    visual_config: Config,
 }
 
 impl HeatmapChart {
@@ -242,6 +242,7 @@ impl HeatmapChart {
         aggr_time: i64, 
         enabled_indicators: &[HeatmapIndicator],
         ticker_info: Option<TickerInfo>,
+        config: Option<Config>,
     ) -> Self {
         HeatmapChart {
             chart: CommonChartData {
@@ -273,8 +274,7 @@ impl HeatmapChart {
             },
             orderbook: Orderbook::new(tick_size, aggr_time),
             data_points: Vec::new(),
-            trade_size_filter: 0.0,
-            order_size_filter: 0.0,
+            visual_config: config.unwrap_or_default(),
         }
     }
 
@@ -373,16 +373,12 @@ impl HeatmapChart {
         self.render_start();
     }
 
-    pub fn set_size_filter(&mut self, size: f32, is_trade_filter: bool) {
-        if is_trade_filter {
-            self.trade_size_filter = size;
-        } else {
-            self.order_size_filter = size;
-        }
+    pub fn get_visual_config(&self) -> Config {
+        self.visual_config.clone()
     }
 
-    pub fn get_size_filters(&self) -> (f32, f32) {
-        (self.trade_size_filter, self.order_size_filter)
+    pub fn set_visual_config(&mut self, visual_config: Config) {
+        self.visual_config = visual_config;
     }
 
     pub fn get_chart_layout(&self) -> SerializableChartData {
@@ -463,7 +459,7 @@ impl HeatmapChart {
                 runs.iter()
                     .filter_map(|run| {
                         let visible_run = run.get_visible_runs(earliest, latest)?;
-                        if **price * visible_run.qty.0 > self.order_size_filter {
+                        if **price * visible_run.qty.0 > self.visual_config.order_size_filter {
                             Some(visible_run)
                         } else {
                             None
@@ -564,7 +560,7 @@ impl canvas::Program<Message> for HeatmapChart {
                         let y_position = chart.price_to_y(price.0);
 
                         runs.iter()
-                            .filter(|run| **price * run.qty.0 > self.order_size_filter)
+                            .filter(|run| **price * run.qty.0 > self.visual_config.order_size_filter)
                             .for_each(|run| {
                                 let start_x = chart.time_to_x(run.start_time.max(earliest));
                                 let end_x = chart.time_to_x(run.until_time.min(latest)).min(0.0);
@@ -660,14 +656,22 @@ impl canvas::Program<Message> for HeatmapChart {
                         trades.iter().for_each(|trade| {
                             let y_position = chart.price_to_y(trade.price);
 
-                            if trade.qty * trade.price > self.trade_size_filter {
+                            if trade.qty * trade.price > self.visual_config.trade_size_filter {
                                 let color = if trade.is_sell {
                                     palette.danger.base.color
                                 } else {
                                     palette.success.base.color
                                 };
 
-                                let radius = 1.0 + (trade.qty / max_trade_qty) * (28.0 - 1.0);
+                                let radius = {
+                                    if !self.visual_config.dynamic_sized_trades {
+                                        cell_height / 2.0
+                                    } else {
+                                        // normalize range
+                                        let scale_factor = (self.visual_config.trade_size_scale as f32) / 100.0;
+                                        1.0 + (trade.qty / max_trade_qty) * (28.0 - 1.0) * scale_factor
+                                    }
+                                };
 
                                 frame.fill(
                                     &Path::circle(Point::new(x_position, y_position), radius),
@@ -753,6 +757,25 @@ impl canvas::Program<Message> for HeatmapChart {
                 }
                 mouse::Interaction::default()
             }
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
+pub struct Config {
+    pub trade_size_filter: f32,
+    pub order_size_filter: f32,
+    pub dynamic_sized_trades: bool,
+    pub trade_size_scale: i32,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Config {
+            trade_size_filter: 0.0,
+            order_size_filter: 0.0,
+            dynamic_sized_trades: true,
+            trade_size_scale: 100,
         }
     }
 }

@@ -1,6 +1,6 @@
 use iced::{
     alignment::{Horizontal, Vertical}, padding, widget::{
-        button, center, column, container, pane_grid, row, scrollable, text, tooltip, Column, Slider
+        button, center, column, container, pane_grid, row, scrollable, text, tooltip,
     }, Alignment, Element, Length, Renderer, Task, Theme,
 };
 use serde::{Deserialize, Serialize};
@@ -9,10 +9,12 @@ use crate::{
     charts::{
         self, candlestick::CandlestickChart, footprint::FootprintChart, heatmap::HeatmapChart, 
         indicators::{CandlestickIndicator, FootprintIndicator, HeatmapIndicator, Indicator}, 
-        timeandsales::TimeAndSales
-    }, data_providers::{format_with_commas, Exchange, Kline, MarketType, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe}, layout::SerializableChartData, screen::{
-        self, create_button, modal::{pane_menu, pane_notification}, DashboardError, InfoType, Notification, UserTimezone,
-    }, style::{self, get_icon_text, Icon}, window::{self, Window}, StreamType
+        timeandsales::TimeAndSales, config::VisualConfig
+    }, data_providers::{Exchange, Kline, MarketType, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe}, 
+    layout::SerializableChartData, screen::{
+        self, create_button, modal::{pane_menu, pane_notification}, DashboardError, Notification, UserTimezone,
+    }, style::{self, get_icon_text, Icon}, window::{self, Window}, StreamType,
+    charts::config,
 };
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
@@ -44,7 +46,7 @@ pub enum Message {
     InitPaneContent(window::Id, String, Option<pane_grid::Pane>, Vec<StreamType>, TickerInfo),
     ReplacePane(pane_grid::Pane),
     ChartUserUpdate(pane_grid::Pane, charts::Message),
-    SliderChanged(pane_grid::Pane, f32, bool),
+    VisualConfigChanged(Option<pane_grid::Pane>, VisualConfig),
     ToggleIndicator(pane_grid::Pane, String),
     HideNotification(pane_grid::Pane, Notification),
     Popout,
@@ -82,7 +84,11 @@ impl PaneState {
     }
 
     /// sets the ticker info, tries to return multiplied tick size, otherwise returns the min tick size
-    pub fn set_tickers_info(&mut self, multiplier: Option<TickMultiplier>, ticker_info: TickerInfo) -> f32 {
+    pub fn set_tickers_info(
+        &mut self, 
+        multiplier: Option<TickMultiplier>, 
+        ticker_info: TickerInfo
+    ) -> f32 {
         self.settings.ticker_info = Some(ticker_info);
         
         if let Some(multiplier) = multiplier {
@@ -205,6 +211,9 @@ impl PaneState {
                     indicators_split: None,
                 });
 
+                let config = self.settings.visual_config
+                    .map_or(None, |cfg| cfg.heatmap());
+
                 PaneContent::Heatmap(
                     HeatmapChart::new(
                         layout,
@@ -212,6 +221,7 @@ impl PaneState {
                         100,
                         &enabled_indicators,
                         Some(ticker_info),
+                        config,
                     ),
                     enabled_indicators,
                 )
@@ -275,7 +285,12 @@ impl PaneState {
                     enabled_indicators,
                 )
             }
-            "time&sales" => PaneContent::TimeAndSales(TimeAndSales::new()),
+            "time&sales" => {
+                let config = self.settings.visual_config
+                    .map_or(None, |cfg| cfg.time_and_sales());
+
+                PaneContent::TimeAndSales(TimeAndSales::new(config))
+            },
             _ => {
                 log::error!("content not found: {}", content_str);
                 return Err(DashboardError::PaneSet("content not found: ".to_string() + content_str));
@@ -479,7 +494,7 @@ impl PaneState {
     }
 }
 
-/// Pane `view()` traits that includes a chart with a `Canvas`
+/// Pane `view()` traits that includes a chart with `Canvas`
 /// 
 /// e.g. panes for Heatmap, Footprint, Candlestick charts
 trait ChartView {
@@ -515,9 +530,9 @@ where
     let base = if let Some(notifications) = notifications {
         pane_notification(
             underlay, 
-            notification_modals(
-                pane,
-                notifications, 
+            screen::notification_modal(
+                notifications,
+                move |notification| Message::HideNotification(pane, notification),
             )
         )
     } else {
@@ -571,8 +586,10 @@ impl ChartView for HeatmapChart {
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
         let settings_view = || {
-            let (trade_size_filter, order_size_filter) = self.get_size_filters();
-            size_filter_view(Some(trade_size_filter), Some(order_size_filter), pane)
+            config::heatmap_cfg_view(
+                self.get_visual_config(),
+                pane,
+            )
         };
             
         handle_chart_view(
@@ -668,10 +685,12 @@ impl PanelView for TimeAndSales {
 
         match state.modal {
             PaneModal::Settings => {
-                let trade_size_filter = self.get_size_filter();
                 pane_menu(
                     underlay,
-                    size_filter_view(Some(trade_size_filter), None, pane),
+                    config::timesales_cfg_view(
+                        self.get_config(), 
+                        pane,
+                    ),
                     Message::ToggleModal(pane, PaneModal::None),
                     padding::right(12).left(12),
                     Alignment::End,
@@ -717,70 +736,6 @@ fn indicators_view<I: Indicator> (
         .padding(16)
         .style(style::chart_modal)
         .into()
-}
-
-fn size_filter_view<'a>(
-    trade_size_filter: Option<f32>,
-    order_size_filter: Option<f32>,
-    pane: pane_grid::Pane,
-) -> Element<'a, Message> {
-    container(
-        column![
-            text("Size Filtering").size(14),
-            if let Some(trade_filter) = trade_size_filter {
-                container(
-                    row![
-                        text("Trade size"),
-                        column![
-                            Slider::new(0.0..=50000.0, trade_filter, move |value| {
-                                Message::SliderChanged(pane, value, true)
-                            })
-                            .step(500.0),
-                            text(format!("${}", format_with_commas(trade_filter))).size(13),
-                        ]
-                        .spacing(2)
-                        .align_x(Alignment::Center),
-                    ]
-                    .align_y(Alignment::Center)
-                    .spacing(8)
-                    .padding(8),
-                )
-                .style(style::modal_container)
-            } else {
-                container(row![])
-            },
-            if let Some(order_filter) = order_size_filter {
-                container(
-                    row![
-                        text("Order size"),
-                        column![
-                            Slider::new(0.0..=500_000.0, order_filter, move |value| {
-                                Message::SliderChanged(pane, value, false)
-                            })
-                            .step(1000.0),
-                            text(format!("${}", format_with_commas(order_filter))).size(13),
-                        ]
-                        .spacing(2)
-                        .align_x(Alignment::Center),
-                    ]
-                    .align_y(Alignment::Center)
-                    .spacing(8)
-                    .padding(8),
-                )
-                .style(style::modal_container)
-            } else {
-                container(row![])
-            },
-        ]
-        .spacing(20)
-        .padding(16)
-        .align_x(Alignment::Center),
-    )
-    .width(Length::Shrink)
-    .padding(16)
-    .max_width(500)
-    .style(style::chart_modal)
-    .into()
 }
 
 fn stream_modifier_view<'a>(
@@ -883,37 +838,6 @@ fn blank_settings_view<'a>() -> Element<'a, Message> {
         .into()
 }
 
-fn notification_modals(
-    pane: pane_grid::Pane,
-    notifications: &[Notification],
-) -> Column<Message> {
-    let mut notifications_column = column![].align_x(Alignment::End).spacing(6);
-
-    for notification in notifications.iter().rev().take(5) {
-        let notification_str = match notification {
-            Notification::Error(error) => error.to_string(),
-            Notification::Warn(warn) => warn.to_string(),
-            Notification::Info(info) => match info {
-                InfoType::FetchingKlines => "Fetching klines...".to_string(),
-                InfoType::FetchingTrades(total_fetched) => format!(
-                    "Fetching trades...\n({} fetched)",
-                    total_fetched
-                ),
-                InfoType::FetchingOI => "Fetching open interest...".to_string(),
-            },
-        };
-
-        notifications_column = notifications_column
-            .push(
-                button(container(text(notification_str)).padding(6))
-                    .on_press(Message::HideNotification(pane, notification.clone())),
-            )
-            .padding(12);
-    }
-
-    notifications_column
-}
-
 // Main pane content views, underlays
 fn view_panel<'a, C: PanelView>(
     pane: pane_grid::Pane,
@@ -927,9 +851,9 @@ fn view_panel<'a, C: PanelView>(
     if let Some(notifications) = notifications {
         pane_notification(
             base, 
-            notification_modals(
-                pane,
-                notifications, 
+            screen::notification_modal(
+                notifications,
+                move |notification| Message::HideNotification(pane, notification),
             )
         )
     } else {
@@ -1096,12 +1020,24 @@ impl PaneContent {
             _ => {}
         }
     }
+
+    pub fn change_visual_config(&mut self, config: VisualConfig) {
+        match (self, config) {
+            (PaneContent::Heatmap(chart, _), VisualConfig::Heatmap(cfg)) => {
+                chart.set_visual_config(cfg);
+            }
+            (PaneContent::TimeAndSales(panel), VisualConfig::TimeAndSales(cfg)) => {
+                panel.set_config(cfg);
+            }
+            _ => {}
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
 pub struct PaneSettings {
     pub ticker_info: Option<TickerInfo>,
-    pub trade_size_filter: Option<f32>,
     pub tick_multiply: Option<TickMultiplier>,
     pub selected_timeframe: Option<Timeframe>,
+    pub visual_config: Option<VisualConfig>,
 }

@@ -11,14 +11,14 @@ use crate::{
         self, binance, bybit, fetcher::FetchRange, Depth, Exchange, Kline, OpenInterest, 
         StreamConfig, TickMultiplier, Ticker, TickerInfo, Timeframe, Trade
     },
-    screen::InfoType,
+    screen::{InfoType, notification_modal},
     style,
     window::{self, Window},
     StreamType,
 };
 
 use super::{
-    create_notis_column, modal::dashboard_notification, 
+    modal::dashboard_notification, 
     DashboardError, Notification,
     NotificationManager, UserTimezone,
 };
@@ -39,7 +39,6 @@ use iced::{
 pub enum Message {
     Pane(window::Id, pane::Message),
     SavePopoutSpecs(HashMap<window::Id, (Point, Size)>),
-    ResetLayout,
     ErrorOccurred(window::Id, Option<pane_grid::Pane>, DashboardError),
     ClearLastNotification(window::Id, pane_grid::Pane),
     ClearLastGlobalNotification,
@@ -223,17 +222,8 @@ impl Dashboard {
         ]))
     }
 
-    pub fn reset_layout(&mut self) -> Task<Message> {
-        Task::done(Message::ResetLayout)
-    }
-
     pub fn update(&mut self, message: Message, main_window: &Window) -> Task<Message> {
         match message {
-            Message::ResetLayout => {
-                self.panes = pane_grid::State::with_configuration(Self::default_pane_config());
-                self.focus = None;
-                (self.popout, self.pane_streams) = (HashMap::new(), HashMap::new());
-            }
             Message::SavePopoutSpecs(specs) => {
                 for (window_id, (position, size)) in specs {
                     if let Some((_, specs)) = self.popout.get_mut(&window_id) {
@@ -319,14 +309,19 @@ impl Dashboard {
                             main_window.id,
                         );
                     }
-                    pane::Message::SliderChanged(pane, value, is_trade_filter) => {
-                        return self.set_pane_size_filter(
-                            window,
-                            pane,
-                            value,
-                            is_trade_filter,
-                            main_window.id,
-                        );
+                    pane::Message::VisualConfigChanged(pane, cfg) => {
+                        if let Some(pane) = pane {
+                            if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
+                                state.settings.visual_config = Some(cfg);
+                                state.content.change_visual_config(cfg);
+                            }
+                        } else {
+                            self.iter_all_panes_mut(main_window.id)
+                                .for_each(|(_, _, state)| {
+                                    state.settings.visual_config = Some(cfg);
+                                    state.content.change_visual_config(cfg);
+                                });
+                        }
                     }
                     pane::Message::InitPaneContent(
                         window, 
@@ -982,9 +977,9 @@ impl Dashboard {
         if !self.notification_manager.global_notifications.is_empty() {
             dashboard_notification(
                 base,
-                create_notis_column(
+                notification_modal(
                     &self.notification_manager.global_notifications, 
-                    Message::ClearLastGlobalNotification,
+                    move |_| Message::ClearLastGlobalNotification,
                 ),
             )
         } else {
@@ -1119,42 +1114,6 @@ impl Dashboard {
         Err(DashboardError::Unknown(
             "Couldn't get the pane to change its timeframe".to_string(),
         ))
-    }
-
-    fn set_pane_size_filter(
-        &mut self,
-        window: window::Id,
-        pane: pane_grid::Pane,
-        new_size_filter: f32,
-        is_trade_filter: bool,
-        main_window: window::Id,
-    ) -> Task<Message> {
-        if let Some(pane_state) = self.get_mut_pane(main_window, window, pane) {
-            pane_state.settings.trade_size_filter = Some(new_size_filter);
-
-            match pane_state.content {
-                PaneContent::Heatmap(ref mut chart, _) => {
-                    chart.set_size_filter(new_size_filter, is_trade_filter);
-                }
-                PaneContent::TimeAndSales(ref mut chart) => {
-                    chart.set_size_filter(new_size_filter);
-                }
-                _ => {
-                    return Task::done(Message::ErrorOccurred(
-                        window,
-                        Some(pane),
-                        DashboardError::Unknown("No chart found to set size filter".to_string()),
-                    ));
-                }
-            }
-            Task::none()
-        } else {
-            Task::done(Message::ErrorOccurred(
-                window,
-                Some(pane),
-                DashboardError::Unknown("No pane found to set size filter".to_string()),
-            ))
-        }
     }
 
     pub fn init_pane_task(

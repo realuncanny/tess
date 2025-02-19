@@ -13,7 +13,7 @@ mod data_providers;
 
 use tooltip::tooltip;
 use tickers_table::TickersTable;
-use layout::{SerializableDashboard, Sidebar};
+use layout::{Layout, LayoutManager, SerializableDashboard, Sidebar};
 use style::{get_icon_text, Icon, ICON_BYTES};
 use screen::{
     create_button, dashboard::{self, pane, Dashboard}, handle_error, 
@@ -25,8 +25,8 @@ use data_providers::{
 };
 use window::{window_events, Window, WindowEvent};
 use iced::{
-    padding, widget::{button, column, container, pane_grid, pick_list, responsive, row, text, Space}, 
-    Alignment, Element, Length, Point, Size, Subscription, Task, Theme
+    widget::{button, center, column, container, pane_grid, pick_list, responsive, row, text, Space}, 
+    Alignment, Element, Length, Point, Size, Subscription, Task, Theme, padding,
 };
 use iced_futures::MaybeSend;
 use futures::TryFutureExt;
@@ -105,8 +105,7 @@ enum Message {
     SaveAndExit(HashMap<window::Id, (Point, Size)>),
 
     ToggleLayoutLock,
-    ResetCurrentLayout,
-    LayoutSelected(layout::LayoutId),
+    LayoutSelected(Layout),
     ThemeSelected(Theme),
     Dashboard(dashboard::Message),
     SetTickersInfo(Exchange, HashMap<Ticker, Option<TickerInfo>>),
@@ -118,13 +117,15 @@ enum Message {
     UpdateTickersTable(Exchange, HashMap<Ticker, TickerStats>),
     FetchAndUpdateTickersTable,
 
-    LoadLayout(layout::LayoutId),
+    LoadLayout(Layout),
     ToggleDialogModal(Option<(String, Box<Message>)>),
 
     PresentModeSelected(screen::PresentMode),
     ChangePresentMode(screen::PresentMode),
 
     ScaleFactorChanged(f64),
+
+    ManageLayouts(layout::Message),
 }
 
 struct State {
@@ -133,8 +134,7 @@ struct State {
     timezone: UserTimezone,
     layout_locked: bool,
     confirmation_dialog: Option<(String, Box<Message>)>,
-    layouts: HashMap<layout::LayoutId, Dashboard>,
-    active_layout: layout::LayoutId,
+    layouts: LayoutManager,
     active_modal: SidebarModal,
     sidebar_location: Sidebar,
     notification: Option<Notification>,
@@ -152,7 +152,7 @@ impl State {
     ) -> (Self, Task<Message>) {
         let (main_window, open_main_window) = window::open(window_settings);
 
-        let active_layout = saved_state.last_active_layout;
+        let active_layout = saved_state.layout_manager.active_layout.clone();
 
         let exchange_fetch_tasks = {
             Exchange::MARKET_TYPES.iter()
@@ -172,8 +172,7 @@ impl State {
         (
             Self {
                 theme: saved_state.selected_theme.theme,
-                layouts: saved_state.layouts,
-                active_layout,
+                layouts: saved_state.layout_manager,
                 main_window: Window::new(main_window),
                 active_modal: SidebarModal::None,
                 notification: None,
@@ -206,61 +205,68 @@ impl State {
             }
             Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
-                let dashboard = self.get_mut_dashboard(self.active_layout);
-
-                match event {
-                    data_providers::Event::Connected(exchange, _) => {
-                        log::info!("a stream connected to {exchange} WS");
+                if let Some(dashboard) = self.get_active_dashboard_mut() {
+                    match event {
+                        data_providers::Event::Connected(exchange, _) => {
+                            log::info!("a stream connected to {exchange} WS");
+                        }
+                        data_providers::Event::Disconnected(exchange, reason) => {
+                            log::info!("a stream disconnected from {exchange} WS: {reason:?}");
+                        }
+                        data_providers::Event::DepthReceived(
+                            stream,
+                            depth_update_t,
+                            depth,
+                            trades_buffer,
+                        ) => {
+                            return dashboard
+                                .update_depth_and_trades(
+                                    &stream,
+                                    depth_update_t,
+                                    depth,
+                                    trades_buffer,
+                                    main_window_id,
+                                )
+                                .map(Message::Dashboard);
+                        }
+                        data_providers::Event::KlineReceived(
+                            stream,
+                            kline, 
+                        ) => {
+                            return dashboard
+                                .update_latest_klines(
+                                    &stream,
+                                    &kline,
+                                    main_window_id,
+                                )
+                                .map(Message::Dashboard);
+                        }
                     }
-                    data_providers::Event::Disconnected(exchange, reason) => {
-                        log::info!("a stream disconnected from {exchange} WS: {reason:?}");
-                    }
-                    data_providers::Event::DepthReceived(
-                        stream,
-                        depth_update_t,
-                        depth,
-                        trades_buffer,
-                    ) => {
-                        return dashboard
-                            .update_depth_and_trades(
-                                &stream,
-                                depth_update_t,
-                                depth,
-                                trades_buffer,
-                                main_window_id,
-                            )
-                            .map(Message::Dashboard);
-                    }
-                    data_providers::Event::KlineReceived(
-                        stream,
-                        kline, 
-                    ) => {
-                        return dashboard
-                            .update_latest_klines(
-                                &stream,
-                                &kline,
-                                main_window_id,
-                            )
-                            .map(Message::Dashboard);
-                    }
-                }
+                }                
             }
             Message::ToggleLayoutLock => {
                 self.layout_locked = !self.layout_locked;
-                self.get_mut_dashboard(self.active_layout).focus = None;
+                if let Some(dashboard) = self.get_active_dashboard_mut() {
+                    dashboard.focus = None;
+                }
             }
             Message::WindowEvent(event) => match event {
                 WindowEvent::CloseRequested(window) => {
-                    if window != self.main_window.id {
-                        self.get_mut_dashboard(self.active_layout)
-                            .popout
-                            .remove(&window);
+                    let main_window = self.main_window.id;
 
+                    let dashboard = match self.get_active_dashboard_mut() {
+                        Some(dashboard) => dashboard,
+                        None => {
+                            return iced::exit(); 
+                        }
+                    };
+
+                    if window != main_window {
+                        dashboard.popout.remove(&window);
                         return window::close(window);
                     }
 
-                    let mut opened_windows: Vec<window::Id> = self
-                        .get_dashboard(self.active_layout)
+                    let mut opened_windows: Vec<window::Id> = dashboard
                         .popout
                         .keys()
                         .copied()
@@ -275,8 +281,9 @@ impl State {
                 }
             }
             Message::SaveAndExit(windows) => {
-                self.get_mut_dashboard(self.active_layout)
-                    .popout
+                let dashboard = self.get_active_dashboard_mut().expect("No active dashboard");
+
+                dashboard.popout
                     .iter_mut()
                     .for_each(|(id, (_, (pos, size)))| {
                         if let Some((new_pos, new_size)) = windows.get(id) {
@@ -285,30 +292,38 @@ impl State {
                         }
                     });
 
-                let mut layouts = HashMap::new();
+                let mut ser_layouts = Vec::new();
 
-                for (id, dashboard) in &self.layouts {
-                    let serialized_dashboard = SerializableDashboard::from(dashboard);
-                    layouts.insert(*id, serialized_dashboard);
+                for id in &self.layouts.layout_order {
+                    if let Some((layout, dashboard)) = self.layouts.layouts.get(id) {
+                        let serialized_dashboard = SerializableDashboard::from(dashboard);
+                        
+                        ser_layouts.push(
+                            layout::SerializableLayout {
+                                name: layout.name.clone(),
+                                dashboard: serialized_dashboard,
+                            }
+                        );
+                    }
                 }
+
+                let layouts = layout::SerializableLayouts {
+                    layouts: ser_layouts,
+                    active_layout: self.layouts.active_layout.name.clone(),
+                };
 
                 let favorited_tickers = self.tickers_table.get_favorited_tickers();
 
-                let size: Option<Size> = windows
+                let (size, position) = windows
                     .iter()
                     .find(|(id, _)| **id == self.main_window.id)
-                    .map(|(_, (_, size))| *size);
-
-                let position: Option<Point> = windows
-                    .iter()
-                    .find(|(id, _)| **id == self.main_window.id)
-                    .map(|(_, (position, _))| *position);
+                    .map(|(_, (position, size))| (*size, *position))
+                    .unzip();
 
                 let layout = layout::SerializableState::from_parts(
                     layouts,
                     self.theme.clone(),
                     favorited_tickers,
-                    self.active_layout,
                     size,
                     position,
                     self.timezone,
@@ -354,62 +369,44 @@ impl State {
             Message::ThemeSelected(theme) => {
                 self.theme = theme;
             }
-            Message::ResetCurrentLayout => {
-                let dashboard = self.get_mut_dashboard(self.active_layout);
-
-                let active_popout_keys = dashboard.popout.keys().copied().collect::<Vec<_>>();
-
-                let window_tasks = Task::batch(
-                    active_popout_keys
-                        .iter()
-                        .map(|&popout_id| window::close(popout_id))
-                        .collect::<Vec<_>>(),
-                )
-                .then(|_: Task<window::Id>| Task::none());
-
-                return window_tasks.chain(
-                    dashboard
-                        .reset_layout()
-                        .map(Message::Dashboard)
-                    );
-            }
             Message::LayoutSelected(new_layout_id) => {
-                let active_popout_keys = self
-                    .get_dashboard(self.active_layout)
-                    .popout
-                    .keys()
-                    .copied()
-                    .collect::<Vec<_>>();
+                if let Some(dashboard) = self.get_active_dashboard() {
+                    let active_popout_keys = dashboard
+                        .popout
+                        .keys()
+                        .copied()
+                        .collect::<Vec<_>>();
 
-                let window_tasks = Task::batch(
-                    active_popout_keys
-                        .iter()
-                        .map(|&popout_id| window::close(popout_id))
-                        .collect::<Vec<_>>(),
-                )
-                .then(|_: Task<window::Id>| Task::none());
+                    let window_tasks = Task::batch(
+                        active_popout_keys
+                            .iter()
+                            .map(|&popout_id| window::close(popout_id))
+                            .collect::<Vec<_>>(),
+                    )
+                    .then(|_: Task<window::Id>| Task::none());
 
-                return window::collect_window_specs(
-                    active_popout_keys,
-                    dashboard::Message::SavePopoutSpecs,
-                )
-                .map(Message::Dashboard)
-                .chain(window_tasks)
-                .chain(Task::done(Message::LoadLayout(new_layout_id)));
+                    return window::collect_window_specs(
+                        active_popout_keys,
+                        dashboard::Message::SavePopoutSpecs,
+                    )
+                    .map(Message::Dashboard)
+                    .chain(window_tasks)
+                    .chain(Task::done(Message::LoadLayout(new_layout_id)));
+                }
             }
-            Message::LoadLayout(layout_id) => {
-                self.active_layout = layout_id;
-
-                return self
-                    .get_mut_dashboard(layout_id)
-                    .load_layout()
-                    .map(Message::Dashboard);
+            Message::LoadLayout(layout) => {
+                self.layouts.active_layout = layout.clone();
+                if let Some(dashboard) = self.get_active_dashboard_mut() {
+                    dashboard.focus = None;
+                    return dashboard.load_layout()
+                        .map(Message::Dashboard);
+                }
             }
             Message::Dashboard(message) => {
-                if let Some(dashboard) = self.layouts.get_mut(&self.active_layout) {
-                    let command = dashboard.update(message, &self.main_window);
-
-                    return Task::batch(vec![command.map(Message::Dashboard)]);
+                let main_window = self.main_window;
+                if let Some(dashboard) = self.get_active_dashboard_mut() {
+                    return dashboard.update(message, &main_window)
+                        .map(Message::Dashboard);
                 }
             }
             Message::ToggleTickersDashboard => {
@@ -444,22 +441,22 @@ impl State {
                         info.get(&ticker).cloned().flatten()
                     });
 
-                    if let Some(ticker_info) = ticker_info {
-                        let task = self
-                            .get_mut_dashboard(self.active_layout)
-                            .init_pane_task(main_window_id, (ticker, ticker_info), exchange, &content);
+                    if let Some(dashboard) = self.get_active_dashboard_mut() {
+                        if let Some(ticker_info) = ticker_info {
+                            let task = dashboard
+                                .init_pane_task(main_window_id, (ticker, ticker_info), exchange, &content);
 
-                        return task.map(Message::Dashboard);
-                    } else {
-                        return Task::done(Message::ErrorOccurred(InternalError::Fetch(
-                            format!(
-                                "Couldn't find ticker info for {ticker} on {exchange}, try restarting the app"
-                            ),
-                        )));
+                            return task.map(Message::Dashboard);
+                        } else {
+                            return Task::done(Message::ErrorOccurred(InternalError::Fetch(
+                                format!(
+                                    "Couldn't find ticker info for {ticker} on {exchange}, try restarting the app"
+                                ),
+                            )));
+                        }
                     }
                 } else {
-                    return self.tickers_table
-                        .update(message)
+                    return self.tickers_table.update(message)
                         .map(Message::TickersTable);
                 }
             }
@@ -470,7 +467,7 @@ impl State {
                 self.sidebar_location = pos;
             }
             Message::ToggleTradeFetch(checked) => {
-                self.layouts.values_mut().for_each(|dashboard| {
+                self.layouts.iter_dashboards_mut().for_each(|dashboard| {
                     dashboard.toggle_trade_fetch(checked, &self.main_window);
                 });
                     
@@ -498,12 +495,36 @@ impl State {
             Message::ScaleFactorChanged(value) => {
                 self.scale_factor = layout::ScaleFactor::from(value);
             }
+            Message::ManageLayouts(msg) => {
+                if let layout::Message::SelectActive(layout) = msg {
+                    return Task::done(Message::LayoutSelected(layout));
+                } else {
+                    return self.layouts.update(msg)
+                        .map(Message::ManageLayouts);
+                }
+            }
         }
         Task::none()
     }
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
-        let dashboard = self.get_dashboard(self.active_layout);
+        let dashboard = match self.get_active_dashboard() {
+            Some(dashboard) => dashboard,
+            None => {
+                return center(
+                    column![
+                        text("No dashboard available").size(20),
+                        button("Add new dashboard")
+                            .on_press(Message::ManageLayouts(
+                                layout::Message::AddLayout)
+                            )
+                    ]
+                    .align_x(Alignment::Center)
+                    .spacing(8)
+                )
+                .into();
+            }    
+        };
 
         if id != self.main_window.id {
             container(
@@ -825,26 +846,6 @@ impl State {
                     }
                 }
                 SidebarModal::Layout => {
-                    let layout_picklist = pick_list(
-                        &layout::LayoutId::ALL[..],
-                        Some(self.active_layout),
-                        move |layout: layout::LayoutId| Message::LayoutSelected(layout),
-                    );
-                    let reset_layout_button = tooltip(
-                        button(text("Reset").align_x(Alignment::Center))
-                            .width(iced::Length::Fill)
-                            .on_press(Message::ResetCurrentLayout),
-                        Some("Reset current layout"),
-                        tooltip::Position::Top,
-                    );
-                    let info_text = tooltip(
-                        button(text("i")).style(move |theme, status| {
-                            style::button_transparent(theme, status, false)
-                        }),
-                        Some("Layouts and settings won't be saved if app exited abruptly"),
-                        tooltip::Position::Top,
-                    );
-    
                     // Pane management
                     let reset_pane_button = tooltip(
                         button(text("Reset").align_x(Alignment::Center))
@@ -877,6 +878,7 @@ impl State {
                         Some("Split selected pane horizontally"),
                         tooltip::Position::Top,
                     );
+
                     let manage_layout_modal = {
                         container(
                             column![
@@ -892,7 +894,7 @@ impl State {
                                 .spacing(8),
                                 column![
                                     text("Layouts").size(14),
-                                    row![info_text, layout_picklist, reset_layout_button,].spacing(8),
+                                    self.layouts.view().map(Message::ManageLayouts),
                                 ]
                                 .align_x(Alignment::Center)
                                 .spacing(8),
@@ -959,16 +961,23 @@ impl State {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let exchange_streams = self.get_dashboard(self.active_layout)
+        let window_events = window_events().map(Message::WindowEvent);
+
+        let dashboard = match self.get_active_dashboard() {
+            Some(dashboard) => dashboard,
+            None => {
+                return window_events;
+            }
+        }; 
+
+        let exchange_streams = dashboard
             .get_market_subscriptions(Message::MarketWsEvent);
         
         let tickers_table_fetch = iced::time::every(std::time::Duration::from_secs(
             if self.show_tickers_dashboard { 25 } else { 300 },
         ))
         .map(|_| Message::FetchAndUpdateTickersTable);
-
-        let window_events = window_events().map(Message::WindowEvent);
-
+        
         Subscription::batch(vec![
             exchange_streams,
             tickers_table_fetch,
@@ -976,12 +985,12 @@ impl State {
         ])
     }
 
-    fn get_mut_dashboard(&mut self, layout_id: layout::LayoutId) -> &mut Dashboard {
-        self.layouts.get_mut(&layout_id).expect("No active layout")
+    fn get_active_dashboard(&self) -> Option<&Dashboard> {
+        self.layouts.get_active_dashboard()
     }
 
-    fn get_dashboard(&self, layout_id: layout::LayoutId) -> &Dashboard {
-        self.layouts.get(&layout_id).expect("No active layout")
+    fn get_active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
+        self.layouts.get_active_dashboard_mut()
     }
 }
 
