@@ -206,13 +206,13 @@ impl PaneState {
                     Some(ExistingIndicators::Heatmap(indicators)) => indicators,
                     _ => vec![HeatmapIndicator::Volume],
                 };
-                let layout = existing_layout.unwrap_or_else(|| SerializableChartData {
+                let layout = existing_layout.unwrap_or(SerializableChartData {
                     crosshair: true,
                     indicators_split: None,
                 });
 
                 let config = self.settings.visual_config
-                    .map_or(None, |cfg| cfg.heatmap());
+                    .and_then(|cfg| cfg.heatmap());
 
                 PaneContent::Heatmap(
                     HeatmapChart::new(
@@ -238,7 +238,7 @@ impl PaneState {
                     _ => vec![FootprintIndicator::Volume, FootprintIndicator::OpenInterest],
                 };
 
-                let layout = existing_layout.unwrap_or_else(|| SerializableChartData {
+                let layout = existing_layout.unwrap_or(SerializableChartData {
                     crosshair: true,
                     indicators_split: Some(0.8),
                 });
@@ -268,7 +268,7 @@ impl PaneState {
                     _ => vec![CandlestickIndicator::Volume, CandlestickIndicator::OpenInterest],
                 };
 
-                let layout = existing_layout.unwrap_or_else(|| SerializableChartData {
+                let layout = existing_layout.unwrap_or(SerializableChartData {
                     crosshair: true,
                     indicators_split: Some(0.8),
                 });
@@ -287,7 +287,7 @@ impl PaneState {
             }
             "time&sales" => {
                 let config = self.settings.visual_config
-                    .map_or(None, |cfg| cfg.time_and_sales());
+                    .and_then(|cfg| cfg.time_and_sales());
 
                 PaneContent::TimeAndSales(TimeAndSales::new(config))
             },
@@ -331,7 +331,7 @@ impl PaneState {
                 } else {
                     let tick_size = chart.get_tick_size();
                     let layout = chart.get_chart_layout();
-                    let ticker_info = self.settings.ticker_info.clone();
+                    let ticker_info = self.settings.ticker_info;
 
                     *chart = CandlestickChart::new(
                         layout,
@@ -349,7 +349,7 @@ impl PaneState {
                 } else {
                     let (raw_trades, tick_size) = (chart.get_raw_trades(), chart.get_tick_size());
                     let layout = chart.get_chart_layout();
-                    let ticker_info = self.settings.ticker_info.clone();
+                    let ticker_info = self.settings.ticker_info;
 
                     *chart = FootprintChart::new(
                         layout,

@@ -39,7 +39,7 @@ impl Chart for HeatmapChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        canvas_interaction(self, interaction, &event, bounds, cursor)
+        canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
     fn view_indicator<I: Indicator>(
@@ -280,7 +280,6 @@ impl HeatmapChart {
 
     pub fn insert_datapoint(&mut self, trades_buffer: &[Trade], depth_update: i64, depth: &Depth) {
         let chart = &mut self.chart;
-        chart.loading_chart = false;
 
         if self.data_points.len() > 2400 {
             self.data_points.drain(0..400);
@@ -374,7 +373,7 @@ impl HeatmapChart {
     }
 
     pub fn get_visual_config(&self) -> Config {
-        self.visual_config.clone()
+        self.visual_config
     }
 
     pub fn set_visual_config(&mut self, visual_config: Config) {

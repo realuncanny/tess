@@ -313,7 +313,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
 ) -> Element<'a, Message> {
     let chart_state = chart.get_common_data();
 
-    if chart_state.loading_chart || chart_state.ticker_info.is_none() {
+    if chart_state.ticker_info.is_none() {
         return center(text("Loading...").size(16)).into();
     }
 
@@ -461,8 +461,6 @@ pub struct CommonChartData {
     ticker_info: Option<TickerInfo>,
 
     indicators_split: Option<f32>,
-
-    loading_chart: bool,
 }
 
 impl Default for CommonChartData {
@@ -484,7 +482,6 @@ impl Default for CommonChartData {
             tick_size: 0.0,
             decimals: 0,
             indicators_split: None,
-            loading_chart: true,
             ticker_info: None,
         }
     }

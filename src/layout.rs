@@ -345,7 +345,7 @@ impl LayoutManager {
             .spacing(4);
 
         for id in &self.layout_order {
-            if let Some((layout, _)) = self.layouts.get(&id) {
+            if let Some((layout, _)) = self.layouts.get(id) {
                 let mut layout_row = row![]
                     .padding(4)
                     .height(iced::Length::Fixed(34.0));
@@ -354,7 +354,7 @@ impl LayoutManager {
                     let color_column = container(column![])
                         .height(iced::Length::Fill)
                         .width(iced::Length::Fixed(2.0))
-                        .style(move |theme| style::layout_card_bar(theme));
+                        .style(style::layout_card_bar);
 
                     layout_row = layout_row
                         .push(container(color_column)
@@ -381,7 +381,7 @@ impl LayoutManager {
                         if *id == layout.id {
                             let input_box = text_input(
                                 "New layout name",
-                                &name,
+                                name,
                             )
                             .on_input(|new_name| {
                                 Message::Renaming(new_name.clone())
@@ -482,7 +482,7 @@ impl LayoutManager {
                 ),
                 Some("Can't delete active layout"),
                 tooltip::Position::Right,
-            ).into()
+            )
         }
     }
     
@@ -527,7 +527,7 @@ fn create_layout_button<'a>(
         text(layout.name.clone())
     )
     .width(iced::Length::Fill)
-    .style(move |theme, status| style::button_layout_name(theme, status));
+    .style(style::button_layout_name);
 
     if let Some(msg) = on_press {
         layout_btn = layout_btn.on_press(msg);
@@ -970,7 +970,7 @@ fn configuration(pane: SerializablePane) -> Configuration<PaneState> {
                     .multiply_with_min_tick_size(ticker_info);
 
                 let config = settings.visual_config
-                    .map_or(None, |cfg| cfg.heatmap());
+                    .and_then(|cfg| cfg.heatmap());
 
                 Configuration::Pane(PaneState::from_config(
                     PaneContent::Heatmap(
@@ -997,7 +997,7 @@ fn configuration(pane: SerializablePane) -> Configuration<PaneState> {
             settings,
         } => {
             let config = settings.visual_config
-                .map_or(None, |cfg| cfg.time_and_sales());
+                .and_then(|cfg| cfg.time_and_sales());
 
             Configuration::Pane(PaneState::from_config(
                 PaneContent::TimeAndSales(TimeAndSales::new(config)),
@@ -1094,14 +1094,14 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
 }
 
 pub fn write_json_to_file(json: &str, file_name: &str) -> std::io::Result<()> {
-    let path = PathBuf::from(get_data_path(file_name));
+    let path = get_data_path(file_name);
     let mut file = File::create(path)?;
     file.write_all(json.as_bytes())?;
     Ok(())
 }
 
 pub fn read_from_file(file_name: &str) -> Result<SerializableState, Box<dyn std::error::Error>> {
-    let path = PathBuf::from(get_data_path(file_name));
+    let path = get_data_path(file_name);
     let mut file = File::open(path)?;
     let mut contents = String::new();
     file.read_to_string(&mut contents)?;

@@ -110,7 +110,6 @@ impl CandlestickChart {
         enabled_indicators: &[CandlestickIndicator],
         ticker_info: Option<TickerInfo>,
     ) -> CandlestickChart {
-        let mut loading_chart = true;
         let mut data_points = BTreeMap::new();
         let mut volume_data = BTreeMap::new();
 
@@ -130,10 +129,6 @@ impl CandlestickChart {
             latest_x = latest_x.max(*time);
         });
 
-        if !data_points.is_empty() {
-            loading_chart = false;
-        }
-
         let y_ticks = (scale_high - scale_low) / tick_size;
 
         CandlestickChart {
@@ -148,7 +143,6 @@ impl CandlestickChart {
                 crosshair: layout.crosshair,
                 indicators_split: layout.indicators_split,
                 decimals: count_decimals(tick_size),
-                loading_chart,
                 ticker_info,
                 ..Default::default()
             },
@@ -174,10 +168,6 @@ impl CandlestickChart {
             },
             request_handler: RequestHandler::new(),
         }
-    }
-
-    pub fn set_loading_state(&mut self, loading: bool) {
-        self.chart.loading_chart = loading;
     }
 
     pub fn get_tick_size(&self) -> f32 {
@@ -292,7 +282,6 @@ impl CandlestickChart {
                 .mark_failed(req_id, "No data received".to_string());
         }
 
-        self.chart.loading_chart = false;
         self.render_start();
     }
 
@@ -343,10 +332,6 @@ impl CandlestickChart {
 
     fn render_start(&mut self) {
         let chart_state = &mut self.chart;
-
-        if chart_state.loading_chart {
-            return;
-        }
 
         if chart_state.autoscale {
             chart_state.translation = Vector::new(
@@ -408,10 +393,6 @@ impl CandlestickChart {
         enabled: &[I],
     ) -> Option<Element<Message>> {
         let chart_state = self.get_common_data();
-
-        if chart_state.loading_chart {
-            return None;
-        }
 
         let visible_region = chart_state.visible_region(chart_state.bounds.size());
 

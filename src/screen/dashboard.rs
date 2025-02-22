@@ -1098,13 +1098,11 @@ impl Dashboard {
                     *timeframe = new_timeframe;
                 }
 
-                match &mut pane_state.content {
-                    PaneContent::Candlestick(chart, _) => {
-                        chart.set_loading_state(true);
+                match &pane_state.content {
+                    PaneContent::Candlestick(_, _) => {
                         return Ok(stream_type);
                     }
-                    PaneContent::Footprint(chart, _) => {
-                        chart.set_loading_state(true);
+                    PaneContent::Footprint(_, _) => {
                         return Ok(stream_type);
                     }
                     _ => {}

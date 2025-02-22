@@ -33,7 +33,7 @@ impl TimeAndSales {
     }
 
     pub fn get_config(&self) -> Config {
-        self.config.clone()
+        self.config
     }
 
     pub fn set_config(&mut self, cfg: Config) {
