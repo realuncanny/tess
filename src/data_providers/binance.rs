@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use sonic_rs::{to_object_iter_unchecked, FastStr};
 use fastwebsockets::{FragmentCollector, OpCode};
+use std::sync::atomic::{AtomicU8, Ordering};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 
@@ -275,6 +276,16 @@ async fn try_resync(
     *already_fetching = false;
 }
 
+static DEPTH_LATENCY_MODE: AtomicU8 = AtomicU8::new(1);
+
+pub fn set_low_latency_mode(enabled: bool) {
+    DEPTH_LATENCY_MODE.store(if enabled { 1 } else { 0 }, Ordering::SeqCst);
+}
+
+pub fn get_low_latency_mode() -> bool {
+    DEPTH_LATENCY_MODE.load(Ordering::SeqCst) == 1
+}
+
 #[allow(unused_assignments)]
 pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
     stream::channel(100, move |mut output| async move {
@@ -288,7 +299,12 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
         };
     
         let stream_1 = format!("{}@aggTrade", symbol_str.to_lowercase());
-        let stream_2 = format!("{}@depth@100ms", symbol_str.to_lowercase());
+        let stream_2 = format!("{}@depth@{}ms", 
+            symbol_str.to_lowercase(),
+            if get_low_latency_mode() { 0 } else { 100 }
+        );
+
+        dbg!(&stream_2);
 
         let mut orderbook: LocalDepthCache = LocalDepthCache::new();
         let mut trades_buffer: Vec<Trade> = Vec::new();
