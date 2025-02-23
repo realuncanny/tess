@@ -218,7 +218,6 @@ impl PaneState {
                     HeatmapChart::new(
                         layout,
                         tick_size,
-                        100,
                         &enabled_indicators,
                         Some(ticker_info),
                         config,

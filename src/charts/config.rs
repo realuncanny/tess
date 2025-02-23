@@ -7,9 +7,8 @@ use super::{heatmap, timeandsales};
 
 use iced::{
     widget::{
-        button, column, container, pane_grid, row, text, Slider, Text
-    }, 
-    Alignment, Element, Length
+        button, column, container, pane_grid, row, scrollable, text, Slider, Space, Text
+    }, Alignment, Element, Length
 };
 use serde::{Deserialize, Serialize};
 
@@ -97,7 +96,7 @@ pub fn heatmap_cfg_view<'a>(
         )
     };
 
-    container(column![
+    let content = column![
         column![
             text("Size Filtering").size(14),
             trade_size_slider,
@@ -133,8 +132,40 @@ pub fn heatmap_cfg_view<'a>(
         .padding(16)
         .width(Length::Fill)
         .align_x(Alignment::Start),
-        sync_all_button(VisualConfig::Heatmap(cfg)),
-    ].spacing(8))
+        column![
+            text("Time aggregation").size(14),
+            iced::widget::pick_list(
+                heatmap::AggrInterval::ALL,
+                Some(cfg.aggregation),
+                move |value| Message::VisualConfigChanged(
+                    Some(pane),
+                    VisualConfig::Heatmap(heatmap::Config {
+                        aggregation: value,
+                        ..cfg
+                    }),
+                ),
+            )
+        ]
+        .spacing(20)
+        .padding(16)
+        .width(Length::Fill)
+        .align_x(Alignment::Start),
+        row![
+            Space::with_width(Length::Fill),
+            sync_all_button(VisualConfig::Heatmap(cfg)),
+        ].width(Length::Fill)
+    ]
+    .spacing(8);
+
+    container( 
+        scrollable::Scrollable::with_direction(
+            content,
+            scrollable::Direction::Vertical(
+                scrollable::Scrollbar::new().width(8).scroller_width(6),
+            )
+        )
+        .style(style::scroll_bar)
+    )
     .width(Length::Shrink)
     .padding(16)
     .max_width(500)

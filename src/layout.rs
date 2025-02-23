@@ -977,7 +977,6 @@ fn configuration(pane: SerializablePane) -> Configuration<PaneState> {
                         HeatmapChart::new(
                             layout,
                             tick_size,
-                            100,
                             &indicators,
                             settings.ticker_info,
                             config,

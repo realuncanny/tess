@@ -239,11 +239,15 @@ impl HeatmapChart {
     pub fn new(
         layout: SerializableChartData, 
         tick_size: f32, 
-        aggr_time: i64, 
         enabled_indicators: &[HeatmapIndicator],
         ticker_info: Option<TickerInfo>,
         config: Option<Config>,
     ) -> Self {
+        let aggr_time = match config {
+            Some(config) => config.aggregation.get_ms(),
+            None => 100,
+        };
+
         HeatmapChart {
             chart: CommonChartData {
                 cell_width: Self::DEFAULT_CELL_WIDTH,
@@ -377,7 +381,18 @@ impl HeatmapChart {
     }
 
     pub fn set_visual_config(&mut self, visual_config: Config) {
+        let old_aggr_interval = self.visual_config.aggregation;
+
         self.visual_config = visual_config;
+
+        if old_aggr_interval != visual_config.aggregation {
+            let aggr_time = visual_config.aggregation.get_ms();
+
+            self.chart.timeframe = aggr_time as u64;
+
+            self.data_points.clear();
+            self.orderbook = Orderbook::new(self.chart.tick_size, aggr_time);
+        }
     }
 
     pub fn get_chart_layout(&self) -> SerializableChartData {
@@ -760,12 +775,59 @@ impl canvas::Program<Message> for HeatmapChart {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default)]
+pub enum AggrInterval {
+    TenMs,
+    FiftyMs,
+    #[default]
+    HundredMs,
+    TwoHundredMs,
+    FiveHundredMs,
+    OneSec,
+}
+
+impl AggrInterval {
+    pub const ALL: [AggrInterval; 6] = [
+        AggrInterval::TenMs,
+        AggrInterval::FiftyMs,
+        AggrInterval::HundredMs,
+        AggrInterval::TwoHundredMs,
+        AggrInterval::FiveHundredMs,
+        AggrInterval::OneSec,
+    ];
+
+    pub fn get_ms(&self) -> i64 {
+        match self {
+            AggrInterval::TenMs => 10,
+            AggrInterval::FiftyMs => 50,
+            AggrInterval::HundredMs => 100,
+            AggrInterval::TwoHundredMs => 200,
+            AggrInterval::FiveHundredMs => 500,
+            AggrInterval::OneSec => 1000,
+        }
+    }
+}
+
+impl ToString for AggrInterval {
+    fn to_string(&self) -> String {
+        match self {
+            AggrInterval::TenMs => "10ms".to_string(),
+            AggrInterval::FiftyMs => "50ms".to_string(),
+            AggrInterval::HundredMs => "100ms".to_string(),
+            AggrInterval::TwoHundredMs => "200ms".to_string(),
+            AggrInterval::FiveHundredMs => "500ms".to_string(),
+            AggrInterval::OneSec => "1s".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Config {
     pub trade_size_filter: f32,
     pub order_size_filter: f32,
     pub dynamic_sized_trades: bool,
     pub trade_size_scale: i32,
+    pub aggregation: AggrInterval,
 }
 
 impl Default for Config {
@@ -775,6 +837,7 @@ impl Default for Config {
             order_size_filter: 0.0,
             dynamic_sized_trades: true,
             trade_size_scale: 100,
+            aggregation: AggrInterval::default(),
         }
     }
 }
