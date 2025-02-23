@@ -54,6 +54,15 @@ pub struct SerializableLayouts {
     pub active_layout: String,
 }
 
+impl Default for SerializableLayouts {
+    fn default() -> Self {
+        Self {
+            layouts: vec![SerializableLayout::default()],
+            active_layout: "Layout 1".to_string(),
+        }
+    }
+}
+
 #[derive(Eq, Hash, Debug, Clone, PartialEq)]
 pub struct Layout {
     pub id: Uuid,
@@ -679,7 +688,8 @@ impl<'de> Deserialize<'de> for SerializableTheme {
     }
 }
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Default, Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct SerializableState {
     pub layout_manager: SerializableLayouts,
     pub selected_theme: SerializableTheme,
@@ -721,6 +731,7 @@ impl SerializableState {
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(default)]
 pub struct SerializableDashboard {
     pub pane: SerializablePane,
     pub popout: Vec<(SerializablePane, (f32, f32), (f32, f32))>,

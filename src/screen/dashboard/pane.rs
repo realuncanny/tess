@@ -1034,6 +1034,7 @@ impl PaneContent {
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
+#[serde(default)]
 pub struct PaneSettings {
     pub ticker_info: Option<TickerInfo>,
     pub tick_multiply: Option<TickMultiplier>,

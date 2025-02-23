@@ -822,6 +822,7 @@ impl ToString for AggrInterval {
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(default)]
 pub struct Config {
     pub trade_size_filter: f32,
     pub order_size_filter: f32,
