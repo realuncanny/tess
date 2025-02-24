@@ -587,6 +587,7 @@ pub struct SavedState {
     pub sidebar: Sidebar,
     pub present_mode: screen::PresentMode,
     pub scale_factor: ScaleFactor,
+    pub low_latency_mode: bool,
 }
 
 impl Default for SavedState {
@@ -601,6 +602,7 @@ impl Default for SavedState {
             sidebar: Sidebar::default(),
             present_mode: screen::PresentMode::default(),
             scale_factor: ScaleFactor::default(),
+            low_latency_mode: false,
         }
     }
 }
@@ -700,6 +702,7 @@ pub struct SerializableState {
     pub sidebar: Sidebar,
     pub present_mode: screen::PresentMode,
     pub scale_factor: ScaleFactor,
+    pub low_latency_mode: bool,
 }
 
 impl SerializableState {
@@ -713,6 +716,7 @@ impl SerializableState {
         sidebar: Sidebar,
         present_mode: screen::PresentMode,
         scale_factor: ScaleFactor,
+        low_latency_mode: bool,
     ) -> Self {
         SerializableState {
             layout_manager,
@@ -726,6 +730,7 @@ impl SerializableState {
             sidebar,
             present_mode,
             scale_factor,
+            low_latency_mode,
         }
     }
 }
@@ -1090,6 +1095,7 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                 sidebar: state.sidebar,
                 present_mode: state.present_mode,
                 scale_factor: state.scale_factor,
+                low_latency_mode: state.low_latency_mode,
             }
         }
         Err(e) => {

@@ -1,5 +1,5 @@
 use crate::{
-    data_providers::format_with_commas, 
+    data_providers::{format_with_commas, AggrInterval, Exchange}, 
     screen::dashboard::pane::Message, 
     style, tooltip
 };
@@ -35,6 +35,7 @@ impl VisualConfig {
 }
 
 pub fn heatmap_cfg_view<'a>(
+    exchange: Option<Exchange>,
     cfg: heatmap::Config,
     pane: pane_grid::Pane,
 ) -> Element<'a, Message> {
@@ -132,24 +133,28 @@ pub fn heatmap_cfg_view<'a>(
         .padding(16)
         .width(Length::Fill)
         .align_x(Alignment::Start),
-        column![
-            text("Time aggregation").size(14),
-            iced::widget::pick_list(
-                heatmap::AggrInterval::ALL,
-                Some(cfg.aggregation),
-                move |value| Message::VisualConfigChanged(
-                    Some(pane),
-                    VisualConfig::Heatmap(heatmap::Config {
-                        aggregation: value,
-                        ..cfg
-                    }),
-                ),
-            )
-        ]
-        .spacing(20)
-        .padding(16)
-        .width(Length::Fill)
-        .align_x(Alignment::Start),
+        if let Some(exc) = exchange {
+            column![
+                text("Time aggregation").size(14),
+                iced::widget::pick_list(
+                    AggrInterval::get_supported_intervals(&exc),
+                    Some(cfg.aggregation),
+                    move |value| Message::VisualConfigChanged(
+                        Some(pane),
+                        VisualConfig::Heatmap(heatmap::Config {
+                            aggregation: value,
+                            ..cfg
+                        }),
+                    ),
+                )
+            ]
+            .spacing(20)
+            .padding(16)
+            .width(Length::Fill)
+            .align_x(Alignment::Start)
+        } else {
+            column![]
+        },
         row![
             Space::with_width(Length::Fill),
             sync_all_button(VisualConfig::Heatmap(cfg)),

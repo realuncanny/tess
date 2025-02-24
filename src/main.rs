@@ -100,6 +100,7 @@ enum Message {
 
     MarketWsEvent(data_providers::Event),
     ToggleTradeFetch(bool),
+    ToggleLatencyMode(bool),
 
     WindowEvent(WindowEvent),
     SaveAndExit(HashMap<window::Id, (Point, Size)>),
@@ -168,6 +169,8 @@ impl State {
                 })
                 .collect::<Vec<Task<Message>>>()
         };
+
+        binance::set_low_latency_mode(saved_state.low_latency_mode);
 
         (
             Self {
@@ -330,6 +333,7 @@ impl State {
                     self.sidebar_location,
                     self.present_mode,
                     self.scale_factor,
+                    binance::is_low_latency(),
                 );
 
                 match serde_json::to_string(&layout) {
@@ -471,6 +475,13 @@ impl State {
                     dashboard.toggle_trade_fetch(checked, &self.main_window);
                 });
                     
+                if checked {
+                    self.confirmation_dialog = None;
+                }
+            }
+            Message::ToggleLatencyMode(checked) => {
+                binance::set_low_latency_mode(checked);
+
                 if checked {
                     self.confirmation_dialog = None;
                 }
@@ -737,6 +748,32 @@ impl State {
                             )
                         };
 
+                        let latency_mode_checkbox = {
+                            let is_active = binance::is_low_latency();
+                    
+                            let checkbox = iced::widget::checkbox("Low latency API (Binance)", is_active)
+                                .on_toggle(|checked| {
+                                        if checked {
+                                            Message::ToggleDialogModal(
+                                                Some((
+                                                    "Binance connector will use unstable '@depth@0ms' end instead of '@depth@100ms'. It is not supported officially by Binance. \nRequires restart."
+                                                    .to_string(),
+                                                    Box::new(Message::ToggleLatencyMode(true)),
+                                                )),
+                                            )
+                                        } else {
+                                            Message::ToggleLatencyMode(false)
+                                        }
+                                    }
+                                );
+                    
+                            tooltip(
+                                checkbox,
+                                Some("Try to connect to low latency APIs for faster depth & trade updates"),
+                                tooltip::Position::Top,
+                            )
+                        };
+
                         let present_mode_picklist = pick_list(
                             screen::PresentMode::ALL,
                             Some(self.present_mode),
@@ -805,6 +842,7 @@ impl State {
                                 column![
                                     text("Experimental").size(14),
                                     trade_fetch_checkbox,
+                                    latency_mode_checkbox,
                                     present_mode_picklist,
                                 ].spacing(8),
                             ]

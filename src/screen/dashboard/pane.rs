@@ -491,6 +491,21 @@ impl PaneState {
             .iter()
             .any(|existing| existing == stream)
     }
+
+    pub fn get_exchange(&self) -> Option<Exchange> {
+        for stream in &self.stream {
+            match stream {
+                StreamType::DepthAndTrades { exchange, .. } => {
+                    return Some(*exchange);
+                }
+                StreamType::Kline { exchange, .. } => {
+                    return Some(*exchange);
+                }
+                _ => {}
+            }
+        }
+        None
+    }
 }
 
 /// Pane `view()` traits that includes a chart with `Canvas`
@@ -586,7 +601,8 @@ impl ChartView for HeatmapChart {
 
         let settings_view = || {
             config::heatmap_cfg_view(
-                self.get_visual_config(),
+                state.get_exchange(),
+                self.get_visual_config(), 
                 pane,
             )
         };

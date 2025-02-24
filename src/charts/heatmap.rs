@@ -7,7 +7,7 @@ use iced::{
 use iced::widget::canvas::{self, Event, Geometry, Path};
 use serde::{Deserialize, Serialize};
 
-use crate::{data_providers::TickerInfo, layout::SerializableChartData, screen::UserTimezone};
+use crate::{data_providers::{AggrInterval, TickerInfo}, layout::SerializableChartData, screen::UserTimezone};
 use crate::data_providers::{Depth, Trade};
 
 use super::{indicators::{HeatmapIndicator, Indicator}, scales::PriceInfoLabel};
@@ -771,52 +771,6 @@ impl canvas::Program<Message> for HeatmapChart {
                 }
                 mouse::Interaction::default()
             }
-        }
-    }
-}
-
-#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default)]
-pub enum AggrInterval {
-    TenMs,
-    FiftyMs,
-    #[default]
-    HundredMs,
-    TwoHundredMs,
-    FiveHundredMs,
-    OneSec,
-}
-
-impl AggrInterval {
-    pub const ALL: [AggrInterval; 6] = [
-        AggrInterval::TenMs,
-        AggrInterval::FiftyMs,
-        AggrInterval::HundredMs,
-        AggrInterval::TwoHundredMs,
-        AggrInterval::FiveHundredMs,
-        AggrInterval::OneSec,
-    ];
-
-    pub fn get_ms(&self) -> i64 {
-        match self {
-            AggrInterval::TenMs => 10,
-            AggrInterval::FiftyMs => 50,
-            AggrInterval::HundredMs => 100,
-            AggrInterval::TwoHundredMs => 200,
-            AggrInterval::FiveHundredMs => 500,
-            AggrInterval::OneSec => 1000,
-        }
-    }
-}
-
-impl ToString for AggrInterval {
-    fn to_string(&self) -> String {
-        match self {
-            AggrInterval::TenMs => "10ms".to_string(),
-            AggrInterval::FiftyMs => "50ms".to_string(),
-            AggrInterval::HundredMs => "100ms".to_string(),
-            AggrInterval::TwoHundredMs => "200ms".to_string(),
-            AggrInterval::FiveHundredMs => "500ms".to_string(),
-            AggrInterval::OneSec => "1s".to_string(),
         }
     }
 }

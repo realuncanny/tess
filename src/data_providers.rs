@@ -94,6 +94,71 @@ impl<'de> Deserialize<'de> for Order {
     }
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize, Default)]
+pub enum AggrInterval {
+    FiftyMs,
+    #[default]
+    HundredMs,
+    TwoHundredMs,
+    FiveHundredMs,
+    OneSec,
+}
+
+impl AggrInterval {
+    pub fn get_supported_intervals(exchange: &Exchange) -> &'static [AggrInterval] {
+        let allow_low_intervals = binance::is_low_latency();
+
+        match (exchange, allow_low_intervals) {
+            (Exchange::BinanceFutures | Exchange::BinanceSpot, true) => &[
+                AggrInterval::FiftyMs,
+                AggrInterval::HundredMs,
+                AggrInterval::TwoHundredMs,
+                AggrInterval::FiveHundredMs,
+                AggrInterval::OneSec,
+            ],
+            (Exchange::BinanceFutures | Exchange::BinanceSpot, false) => &[
+                AggrInterval::HundredMs,
+                AggrInterval::TwoHundredMs,
+                AggrInterval::FiveHundredMs,
+                AggrInterval::OneSec,
+            ],
+            (Exchange::BybitLinear, _) => &[
+                AggrInterval::HundredMs,
+                AggrInterval::TwoHundredMs,
+                AggrInterval::FiveHundredMs,
+                AggrInterval::OneSec,
+            ],
+            (Exchange::BybitSpot, _) => &[
+                AggrInterval::TwoHundredMs,
+                AggrInterval::FiveHundredMs,
+                AggrInterval::OneSec,
+            ],
+        }
+    }
+
+    pub fn get_ms(&self) -> i64 {
+        match self {
+            AggrInterval::FiftyMs => 50,
+            AggrInterval::HundredMs => 100,
+            AggrInterval::TwoHundredMs => 200,
+            AggrInterval::FiveHundredMs => 500,
+            AggrInterval::OneSec => 1000,
+        }
+    }
+}
+
+impl ToString for AggrInterval {
+    fn to_string(&self) -> String {
+        match self {
+            AggrInterval::FiftyMs => "50ms".to_string(),
+            AggrInterval::HundredMs => "100ms".to_string(),
+            AggrInterval::TwoHundredMs => "200ms".to_string(),
+            AggrInterval::FiveHundredMs => "500ms".to_string(),
+            AggrInterval::OneSec => "1s".to_string(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct Depth {
     pub bids: BTreeMap<OrderedFloat<f32>, f32>,
