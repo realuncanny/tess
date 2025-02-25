@@ -32,25 +32,25 @@ use iced_futures::MaybeSend;
 use futures::TryFutureExt;
 use std::{collections::HashMap, vec, future::Future};
 
+
 fn main() {
     logger::setup(false, false).expect("Failed to initialize logger");
 
+    let saved_state = layout::load_saved_state("dashboard_state.json");
+
+    if let Err(e) = set_present_mode(&saved_state.present_mode) {
+        log::warn!("Failed to set ICED_PRESENT_MODE: {}", e);
+    }
+    
     std::thread::spawn(layout::cleanup_old_data);
 
-    let saved_state: layout::SavedState = layout::load_saved_state("dashboard_state.json");
-
-    std::env::set_var(
-        "ICED_PRESENT_MODE", 
-        saved_state.present_mode.get_env_name(),
-    );
-
-    let window_size = saved_state.window_size.unwrap_or((1600.0, 900.0));
-    let window_position = saved_state.window_position;
+    let main_window_size = saved_state.window_size
+        .unwrap_or((1600.0, 900.0));
 
     let window_settings = window::Settings {
-        size: iced::Size::new(window_size.0, window_size.1),
+        size: iced::Size::new(main_window_size.0, main_window_size.1),
         position: {
-            if let Some(position) = window_position {
+            if let Some(position) = saved_state.window_position {
                 iced::window::Position::Specific(Point {
                     x: position.0,
                     y: position.1,
@@ -1039,4 +1039,13 @@ where
             Err(err) => Message::ErrorOccurred(InternalError::Fetch(err)),
         },
     )
+}
+
+fn set_present_mode(present_mode: &screen::PresentMode) -> Result<(), std::env::VarError> {
+    if std::env::var("ICED_PRESENT_MODE").is_err() {
+        unsafe {
+            std::env::set_var("ICED_PRESENT_MODE", present_mode.get_env_name());
+        }
+    }
+    Ok(())
 }
