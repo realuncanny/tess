@@ -68,7 +68,7 @@ impl From<Icon> for char {
 pub fn get_icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
     text(char::from(icon).to_string())
         .font(ICON_FONT)
-        .size(size)
+        .size(iced::Pixels(size.into()))
 }
 
 pub fn custom_theme() -> Custom {
@@ -95,7 +95,7 @@ pub fn branding_text(theme: &Theme) -> iced::widget::text::Style {
                 .secondary
                 .weak
                 .color
-                .scale_alpha(if palette.is_dark { 0.1 } else { 0.8 })
+                .scale_alpha(if palette.is_dark { 0.1 } else { 0.6 })
         ),
     }
 }
@@ -105,10 +105,10 @@ pub fn tooltip(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: Some(palette.background.weak.color.into()),
+        background: Some(palette.background.weakest.color.into()),
         border: Border {
             width: 1.0,
-            color: palette.secondary.weak.color,
+            color: palette.background.weak.color,
             radius: 4.0.into(),
         },
         ..Default::default()
@@ -130,7 +130,7 @@ pub fn button_confirm(
             background: None,
             text_color: palette.success.base.color,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -139,7 +139,7 @@ pub fn button_confirm(
             text_color: palette.success.weak.color,
             background: None,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -148,7 +148,7 @@ pub fn button_confirm(
             background: None,
             text_color: palette.success.strong.color,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -161,7 +161,7 @@ pub fn button_confirm(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -183,7 +183,7 @@ pub fn button_cancel(
             background: None,
             text_color: palette.danger.base.color,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -192,7 +192,7 @@ pub fn button_cancel(
             text_color: palette.danger.weak.color,
             background: None,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -201,7 +201,7 @@ pub fn button_cancel(
             background: None,
             text_color: palette.danger.strong.color,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -214,7 +214,7 @@ pub fn button_cancel(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -270,7 +270,7 @@ pub fn button_transparent(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -286,7 +286,7 @@ pub fn button_transparent(
                     .into(),
             ),
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -299,7 +299,7 @@ pub fn button_transparent(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -312,7 +312,7 @@ pub fn button_transparent(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -363,7 +363,7 @@ pub fn button_modifier(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -379,7 +379,7 @@ pub fn button_modifier(
                     .into(),
             ),
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -392,7 +392,7 @@ pub fn button_modifier(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -405,7 +405,7 @@ pub fn button_modifier(
             },
             text_color: palette.background.base.text,
             border: Border {
-                radius: 3.0.into(),
+                radius: 2.0.into(),
                 ..Default::default()
             },
             ..Default::default()
@@ -437,22 +437,22 @@ pub fn pane_grid(theme: &Theme) -> widget::pane_grid::Style {
     }
 }
 
-pub fn title_bar(theme: &Theme) -> Style {
+pub fn pane_title_bar(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
         background: {
             if palette.is_dark {
-                Some(palette.background.weak.color.scale_alpha(0.1).into())
+                Some(palette.background.weak.color.scale_alpha(0.2).into())
             } else {
-                Some(palette.background.strong.color.scale_alpha(0.1).into())
+                Some(palette.background.strong.color.scale_alpha(0.2).into())
             }
         },
         ..Default::default()
     }
 }
 
-pub fn pane_primary(theme: &Theme, is_focused: bool) -> Style {
+pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
     let palette = theme.extended_palette();
 
     Style {
@@ -460,34 +460,21 @@ pub fn pane_primary(theme: &Theme, is_focused: bool) -> Style {
         background: Some(
             palette
                 .background
-                .weak
+                .weakest
                 .color
-                .scale_alpha(if palette.is_dark { 0.1 } else { 0.6 })
                 .into(),
         ),
         border: {
             if is_focused {
                 Border {
                     width: 1.0,
-                    color: {
-                        if palette.is_dark {
-                            palette.background.strong.color.scale_alpha(0.4)
-                        } else {
-                            palette.background.strong.color.scale_alpha(0.8)
-                        }
-                    },
+                    color: palette.background.strong.color,
                     radius: 4.0.into(),
                 }
             } else {
                 Border {
                     width: 1.0,
-                    color: {
-                        if palette.is_dark {
-                            palette.background.weak.color.scale_alpha(0.2)
-                        } else {
-                            palette.background.strong.color.scale_alpha(0.2)
-                        }
-                    },
+                    color: palette.background.base.color,
                     radius: 2.0.into(),
                 }
             }
@@ -511,8 +498,8 @@ pub fn chart_modal(theme: &Theme) -> Style {
         ),
         border: Border {
             width: 1.0,
-            color: palette.secondary.weak.color,
-            radius: 6.0.into(),
+            color: palette.background.weak.color,
+            radius: 4.0.into(),
         },
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
@@ -563,19 +550,13 @@ pub fn dashboard_modal(theme: &Theme) -> Style {
 pub fn modal_container(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
-    let color = if palette.is_dark {
-        palette.background.weak.color.scale_alpha(0.6)
-    } else {
-        palette.background.strong.color.scale_alpha(0.6)
-    };
-
     Style {
         text_color: Some(palette.background.base.text),
-        background: Some(color.into()),
+        background: Some(palette.background.weakest.color.into()),
         border: Border {
             width: 1.0,
-            color,
-            radius: 6.0.into(),
+            color: palette.background.weak.color,
+            radius: 4.0.into(),
         },
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
@@ -591,34 +572,12 @@ pub fn modal_container(theme: &Theme) -> Style {
     }
 }
 
-pub fn sorter_container(theme: &Theme) -> Style {
+pub fn layout_card_bar(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
-    let color = if palette.is_dark {
-        palette.background.weak.color.scale_alpha(0.4)
-    } else {
-        palette.background.strong.color.scale_alpha(0.4)
-    };
-
     Style {
-        text_color: Some(palette.background.base.text),
-        background: Some(color.into()),
-        border: Border {
-            width: 1.0,
-            color,
-            radius: 3.0.into(),
-        },
-        shadow: Shadow {
-            offset: iced::Vector { x: 0.0, y: 0.0 },
-            blur_radius: 2.0,
-            color: Color::BLACK.scale_alpha(
-                if palette.is_dark {
-                    0.8
-                } else {
-                    0.2
-                }
-            ),
-        },
+        background: Some(palette.background.strongest.color.into()),
+        ..Default::default()
     }
 }
 
@@ -702,10 +661,23 @@ pub fn search_input(
     }
 }
 
-pub fn ticker_card(theme: &Theme, _color_alpha: f32) -> Style {
+pub fn sorter_container(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
-    let color_alpha = if palette.is_dark { 0.2 } else { 0.8 };
+    Style {
+        text_color: Some(palette.background.base.text),
+        background: Some(palette.background.weakest.color.into()),
+        border: Border {
+            width: 1.0,
+            color: palette.background.weak.color,
+            radius: 3.0.into(),
+        },
+        ..Default::default()
+    }
+}
+
+pub fn ticker_card(theme: &Theme) -> Style {
+    let palette = theme.extended_palette();
 
     Style {
         background: Some(
@@ -713,7 +685,6 @@ pub fn ticker_card(theme: &Theme, _color_alpha: f32) -> Style {
                 .background
                 .weak
                 .color
-                .scale_alpha(color_alpha)
                 .into(),
         ),
         border: Border {
@@ -725,15 +696,44 @@ pub fn ticker_card(theme: &Theme, _color_alpha: f32) -> Style {
     }
 }
 
-pub fn layout_card_bar(theme: &Theme) -> Style {
+pub fn ticker_card_button(theme: &Theme, status: Status) -> iced::widget::button::Style {
     let palette = theme.extended_palette();
 
-    Style {
-        background: Some(palette.primary.strong.color.into()),
-        ..Default::default()
+    match status {
+        Status::Hovered => iced::widget::button::Style {
+            text_color: palette.background.base.text,
+            background: Some(palette.background.weak.color.into()),
+            border: Border {
+                radius: 4.0.into(),
+                width: 1.0,
+                color: palette.background.weak.color,
+            },
+            ..Default::default()
+        },
+        Status::Pressed => iced::widget::button::Style {
+            text_color: palette.background.base.text,
+            background: Some(palette.background.weak.color.into()),
+            border: Border {
+                radius: 2.0.into(),
+                width: 1.0,
+                color: palette.background.weak.color,
+            },
+            ..Default::default()
+        },
+        _ => iced::widget::button::Style {
+            text_color: palette.background.base.text,
+            background: Some(palette.background.weakest.color.into()),
+            border: Border {
+                radius: 2.0.into(),
+                width: 1.0,
+                color: palette.background.weak.color,
+            },
+            ..Default::default()
+        },
     }
 }
 
+// the bar that lights up depending on the price change 
 pub fn ticker_card_bar(theme: &Theme, color_alpha: f32) -> Style {
     let palette = theme.extended_palette();
 
@@ -758,64 +758,35 @@ pub fn ticker_card_bar(theme: &Theme, color_alpha: f32) -> Style {
     }
 }
 
-pub fn ticker_card_button(theme: &Theme, status: Status) -> iced::widget::button::Style {
-    let palette = theme.extended_palette();
-
-    match status {
-        Status::Hovered => iced::widget::button::Style {
-            text_color: palette.background.base.text,
-            background: Some(palette.background.weak.color.scale_alpha(0.1).into()),
-            border: Border {
-                radius: 4.0.into(),
-                width: 1.0,
-                color: {
-                    if palette.is_dark {
-                        palette.background.strong.color.scale_alpha(0.4)
-                    } else {
-                        palette.background.strong.color.scale_alpha(0.8)
-                    }
-                },
-            },
-            ..Default::default()
-        },
-        _ => iced::widget::button::Style {
-            text_color: palette.background.base.text,
-            ..Default::default()
-        },
-    }
-}
-
 // Scrollable
 pub fn scroll_bar(theme: &Theme, status: widget::scrollable::Status) -> widget::scrollable::Style {
     let palette = theme.extended_palette();
 
-    let light_factor = if palette.is_dark { 1.0 } else { 4.0 };
-
     let (rail_bg, scroller_bg) = match status {
-        widget::scrollable::Status::Dragged { .. } 
-        | widget::scrollable::Status::Hovered { .. } => {
+        widget::scrollable::Status::Hovered { .. } 
+        | widget::scrollable::Status::Dragged { .. } => {
             (
-                palette.background.weak.color.scale_alpha(0.2 * light_factor),
-                palette.secondary.weak.color.scale_alpha(0.8 * light_factor),
+                palette.background.weakest.color,
+                palette.background.weak.color,
             )
         },
         _ => (
-            palette.background.weak.color.scale_alpha(0.1 * light_factor),
-            palette.secondary.weak.color.scale_alpha(0.4 * light_factor),
+            palette.background.base.color,
+            palette.background.weakest.color,
         ),
     };
 
     let rail = Rail {
         background: Some(iced::Background::Color(rail_bg)),
         border: Border {
-            radius: 4.0.into(),
+            radius: 2.0.into(),
             width: 1.0,
             color: Color::TRANSPARENT,
         },
         scroller: Scroller {
             color: scroller_bg,
             border: Border {
-                radius: 4.0.into(),
+                radius: 2.0.into(),
                 width: 0.0,
                 color: Color::TRANSPARENT,
             },
@@ -824,14 +795,7 @@ pub fn scroll_bar(theme: &Theme, status: widget::scrollable::Status) -> widget::
 
     widget::scrollable::Style {
         container: container::Style {
-            text_color: None,
-            background: None,
-            border: Border {
-                radius: 4.0.into(),
-                width: 1.0,
-                color: Color::TRANSPARENT,
-            },
-            shadow: Shadow::default(),
+            ..Default::default()
         },
         vertical_rail: rail,
         horizontal_rail: rail,
@@ -844,13 +808,7 @@ pub fn split_ruler(theme: &Theme) -> iced::widget::rule::Style {
     let palette = theme.extended_palette();
 
     iced::widget::rule::Style {
-        color: {
-            if palette.is_dark {
-                palette.background.weak.color.scale_alpha(0.2)
-            } else {
-                palette.background.strong.color.scale_alpha(0.2)
-            }
-        },
+        color: palette.background.strong.color.scale_alpha(0.4),
         width: 1,
         radius: iced::border::Radius::default(),
         fill_mode: iced::widget::rule::FillMode::Full,

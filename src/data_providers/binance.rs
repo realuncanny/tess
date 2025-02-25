@@ -277,7 +277,7 @@ async fn try_resync(
 
 #[allow(unused_assignments)]
 pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
-    stream::channel(100, move |mut output| async move {
+    stream::channel(100, async move |mut output| {
         let mut state = State::Disconnected;
 
         let (symbol_str, market) = ticker.get_string();
@@ -512,7 +512,7 @@ pub fn connect_kline_stream(
     streams: Vec<(Ticker, Timeframe)>,
     market: MarketType,
 ) -> impl Stream<Item = super::Event> {
-    stream::channel(100, move |mut output| async move {
+    stream::channel(100, async move |mut output| {
         let mut state = State::Disconnected;
 
         let exchange = match market {

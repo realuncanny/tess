@@ -340,7 +340,6 @@ impl LayoutManager {
         };
 
         let mut layouts_column = column_drag::Column::new()
-            .deadband_zone(4.0)
             .on_drag(Message::Reorder)
             .spacing(4);
 
@@ -460,7 +459,6 @@ impl LayoutManager {
                 scrollable::Scrollbar::new().width(8).scroller_width(6),
             )
         )
-        .style(style::scroll_bar)
         .into()
     }
 

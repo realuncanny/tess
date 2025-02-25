@@ -544,11 +544,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
             frame.fill_rectangle(
                 Point::new(0.0, 0.0),
                 Size::new(1.0, bounds.height),
-                if palette.is_dark {
-                    palette.background.weak.color.scale_alpha(0.4)
-                } else {
-                    palette.background.strong.color.scale_alpha(0.4)
-                },
+                palette.background.strong.color.scale_alpha(0.4),
             );
 
             let highest = self.y_to_price(region.y);

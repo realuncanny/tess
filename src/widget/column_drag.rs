@@ -55,7 +55,7 @@ pub enum DragEvent {
     },
 }
 
-const DRAG_DEADBAND_DISTANCE: f32 = 5.0;
+const DRAG_DEADBAND_DISTANCE: f32 = 8.0;
 
 #[allow(missing_debug_implementations)]
 pub struct Column<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
@@ -412,7 +412,7 @@ where
                 match *action {
                     Action::Picking { index, origin } => {
                         if let Some(cursor_position) = cursor.position() {
-                            if cursor_position.distance(origin)
+                            if (cursor_position.y - origin.y).abs()
                                 > self.deadband_zone
                             {
                                 // Start dragging

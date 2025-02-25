@@ -472,7 +472,7 @@ impl PaneState {
             PaneContent::TimeAndSales(content) => 
                 view_panel(id, self, content, notifications, timezone),
         })
-        .style(move |theme| style::pane_primary(theme, is_focused));
+        .style(move |theme| style::pane_background(theme, is_focused));
 
         let title_bar = pane_grid::TitleBar::new(stream_info_element)
             .controls(view_controls(
@@ -482,7 +482,7 @@ impl PaneState {
                 window != main_window.id,
                 is_chart,
             ))
-            .style(style::title_bar);
+            .style(style::pane_title_bar);
 
         content.title_bar(title_bar)
     }

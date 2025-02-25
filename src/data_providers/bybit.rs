@@ -261,7 +261,7 @@ async fn try_connect(
 }
 
 pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
-    stream::channel(100, move |mut output| async move {
+    stream::channel(100, async move |mut output| {
         let mut state: State = State::Disconnected;
 
         let (symbol_str, market_type) = ticker.get_string();
@@ -390,7 +390,7 @@ pub fn connect_kline_stream(
     streams: Vec<(Ticker, Timeframe)>, 
     market_type: MarketType
 ) -> impl Stream<Item = Event> {
-    stream::channel(100, move |mut output| async move {
+    stream::channel(100, async move |mut output| {
         let mut state = State::Disconnected;
 
         let exchange = match market_type {

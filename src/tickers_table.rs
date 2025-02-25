@@ -243,7 +243,7 @@ impl TickersTable {
                 create_ticker_card(&exchange, ticker, display_data)
             },
         )
-        .style(move |theme| style::ticker_card(theme, display_data.card_color_alpha))
+        .style(style::ticker_card)
     }
 
     fn is_container_visible(&self, index: usize, bounds: Size) -> bool {
