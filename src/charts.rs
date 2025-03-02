@@ -295,7 +295,16 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) -> Task<Message> {
             }
         }
         Message::BoundsChanged(bounds) => {
+            // calculate how center shifted
+            let old_center_x = chart_state.bounds.width / 2.0;
+            let new_center_x = bounds.width / 2.0;
+            let center_delta_x = (new_center_x - old_center_x) / chart_state.scaling;
+            
             chart_state.bounds = *bounds;
+            
+            if !chart_state.autoscale {
+                chart_state.translation.x += center_delta_x;
+            }
         }
         Message::SplitDragged(split) => {
             chart_state.indicators_split = Some(*split);
