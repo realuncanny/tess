@@ -1,5 +1,6 @@
 use std::{collections::HashMap, fmt};
 
+use chrono::DateTime;
 use iced::{
     widget::{button, column, container, pane_grid, text, Column}, window, Alignment, Element, Task, Theme
 };
@@ -34,6 +35,60 @@ pub enum UserTimezone {
     #[default]
     Utc,
     Local,
+}
+
+impl UserTimezone {
+    /// Converts UTC timestamp to the appropriate timezone and formats it according to timeframe
+    pub fn format_timestamp(&self, timestamp: i64, timeframe: u64) -> String {
+        if let Some(datetime) = DateTime::from_timestamp(timestamp, 0) {
+            match self {
+                UserTimezone::Local => {
+                    let time_with_zone = datetime.with_timezone(&chrono::Local);
+                    Self::format_by_timeframe(time_with_zone, timeframe)
+                },
+                UserTimezone::Utc => {
+                    let time_with_zone = datetime.with_timezone(&chrono::Utc);
+                    Self::format_by_timeframe(time_with_zone, timeframe)
+                }
+            }
+        } else {
+            String::new()
+        }
+    }
+    
+    /// Formats a DateTime with appropriate format based on timeframe
+    fn format_by_timeframe<Tz: chrono::TimeZone>(datetime: DateTime<Tz>, timeframe: u64) -> String 
+    where
+        Tz::Offset: std::fmt::Display,
+    {
+        if timeframe < 10000 {
+            datetime.format("%M:%S").to_string()
+        } else if datetime.format("%H:%M").to_string() == "00:00" {
+            datetime.format("%-d").to_string()
+        } else {
+            datetime.format("%H:%M").to_string()
+        }
+    }
+    
+    /// Formats a DateTime with detailed format for crosshair display
+    pub fn format_crosshair_timestamp(&self, timestamp_millis: i64, timeframe: u64) -> String {
+        if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
+            if timeframe < 10000 {
+                return datetime.format("%M:%S:%3f").to_string().replace('.', "");
+            }
+            
+            match self {
+                UserTimezone::Local => {
+                    datetime.with_timezone(&chrono::Local).format("%a %b %-d  %H:%M").to_string()
+                },
+                UserTimezone::Utc => {
+                    datetime.with_timezone(&chrono::Utc).format("%a %b %-d  %H:%M").to_string()
+                }
+            }
+        } else {
+            String::new()
+        }
+    }
 }
 
 impl fmt::Display for UserTimezone {

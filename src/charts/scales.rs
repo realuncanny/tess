@@ -294,51 +294,30 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                     0.0
                 };
 
-                if x_position >= 0.0 && x_position <= f64::from(bounds.width) {
-                    if let Some(time_as_datetime) = DateTime::from_timestamp((time / 1000) as i64, 0) {
-                        let text_content = match self.timezone {
-                            UserTimezone::Local => {
-                                let time_with_zone = time_as_datetime.with_timezone(&chrono::Local);
+                if x_position > 0.0 && x_position <= f64::from(bounds.width) {
+                    let text_content = self.timezone
+                        .format_timestamp(
+                            (time / 1000) as i64, 
+                            self.timeframe
+                        );
 
-                                if self.timeframe < 10000 {
-                                    time_with_zone.format("%M:%S").to_string()
-                                } else if time_with_zone.format("%H:%M").to_string() == "00:00" {
-                                    time_with_zone.format("%-d").to_string()
-                                } else {
-                                    time_with_zone.format("%H:%M").to_string()
-                                }
-                            }
-                            UserTimezone::Utc => {
-                                let time_with_zone = time_as_datetime.with_timezone(&chrono::Utc);
+                    let content_width = text_content.len() as f32 * (text_size / 3.0);
 
-                                if self.timeframe < 10000 {
-                                    time_with_zone.format("%M:%S").to_string()
-                                } else if time_with_zone.format("%H:%M").to_string() == "00:00" {
-                                    time_with_zone.format("%-d").to_string()
-                                } else {
-                                    time_with_zone.format("%H:%M").to_string()
-                                }
-                            }
-                        };
+                    let rect = Rectangle {
+                        x: (x_position as f32) - content_width,
+                        y: 4.0,
+                        width: 2.0 * content_width,
+                        height: bounds.height - 8.0,
+                    };
 
-                        let content_width = text_content.len() as f32 * (text_size / 3.0);
+                    let label = Label {
+                        content: text_content,
+                        background_color: None,
+                        text_color: palette.background.base.text,
+                        text_size: 12.0,
+                    };
 
-                        let rect = Rectangle {
-                            x: (x_position as f32) - content_width,
-                            y: 4.0,
-                            width: 2.0 * content_width,
-                            height: bounds.height - 8.0,
-                        };
-
-                        let label = Label {
-                            content: text_content,
-                            background_color: None,
-                            text_color: palette.background.base.text,
-                            text_size: 12.0,
-                        };
-
-                        all_labels.push(AxisLabel::X(rect, label));
-                    }
+                    all_labels.push(AxisLabel::X(rect, label));
                 }
                 time += time_step;
             }
@@ -357,35 +336,17 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                             let rounded_timestamp = (crosshair_time.timestamp_millis() as f64
                                 / (self.timeframe as f64)).round() as u64 * self.timeframe;
 
-                            if let Some(rounded_time) =
-                                DateTime::from_timestamp_millis(rounded_timestamp as i64)
-                            {
-                                let snap_ratio = (rounded_timestamp as f64
-                                    - earliest_in_millis as f64)
-                                    / (latest_in_millis as f64 - earliest_in_millis as f64);
-
-                                (snap_ratio, {
-                                    if self.timeframe < 10000 {
-                                        rounded_time
-                                            .format("%M:%S:%3f")
-                                            .to_string()
-                                            .replace('.', "")
-                                    } else {
-                                        match self.timezone {
-                                            UserTimezone::Local => rounded_time
-                                                .with_timezone(&chrono::Local)
-                                                .format("%a %b %-d  %H:%M")
-                                                .to_string(),
-                                            UserTimezone::Utc => rounded_time
-                                                .with_timezone(&chrono::Utc)
-                                                .format("%a %b %-d  %H:%M")
-                                                .to_string(),
-                                        }
-                                    }
-                                })
-                            } else {
-                                (0.0, String::new())
-                            }
+                            let snap_ratio = (rounded_timestamp as f64 - earliest_in_millis as f64)
+                                / (latest_in_millis as f64 - earliest_in_millis as f64);
+                            
+                            (
+                                snap_ratio, 
+                                self.timezone
+                                    .format_crosshair_timestamp(
+                                        rounded_timestamp as i64, 
+                                        self.timeframe
+                                    ),
+                            )
                         } else {
                             (0.0, String::new())
                         }
