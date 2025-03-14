@@ -426,7 +426,7 @@ impl State {
                     let ticker_info = self
                         .tickers_info
                         .get(&exchange)
-                        .and_then(|info| info.get(&ticker).cloned().flatten());
+                        .and_then(|info| info.get(&ticker).copied().flatten());
 
                     if let Some(dashboard) = self.get_active_dashboard_mut() {
                         if let Some(ticker_info) = ticker_info {
@@ -514,15 +514,7 @@ impl State {
             }
         };
 
-        if id != self.main_window.id {
-            container(
-                dashboard
-                    .view_window(id, &self.main_window, self.layout_locked, &self.timezone)
-                    .map(Message::Dashboard),
-            )
-            .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
-            .into()
-        } else {
+        if id == self.main_window.id {
             let tooltip_position = if self.sidebar_location == Sidebar::Left {
                 tooltip::Position::Right
             } else {
@@ -879,6 +871,14 @@ impl State {
                 }
                 SidebarModal::None => base.into(),
             }
+        } else {
+            container(
+                dashboard
+                    .view_window(id, &self.main_window, self.layout_locked, &self.timezone)
+                    .map(Message::Dashboard),
+            )
+            .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
+            .into()
         }
     }
 

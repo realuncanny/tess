@@ -143,7 +143,7 @@ impl Orderbook {
         let mut current_price = None;
         let mut current_qty = 0.0;
 
-        side.iter().for_each(|(price, qty)| {
+        for (price, qty) in side {
             let rounded_price = round_price(price.into_inner());
 
             if Some(rounded_price) == current_price {
@@ -155,7 +155,7 @@ impl Orderbook {
                 current_price = Some(rounded_price);
                 current_qty = *qty;
             }
-        });
+        }
 
         if let Some(price) = current_price {
             self.update_price_level(time, price, current_qty, is_bid);
@@ -305,7 +305,7 @@ impl HeatmapChart {
 
             let mut grouped_trades: Vec<GroupedTrade> = Vec::with_capacity(trades_buffer.len());
 
-            trades_buffer.iter().for_each(|trade| {
+            for trade in trades_buffer {
                 if trade.is_sell {
                     sell_volume += trade.qty;
                 } else {
@@ -319,13 +319,13 @@ impl HeatmapChart {
                 };
 
                 match grouped_trades.binary_search_by(|probe| {
-                    if probe.is_sell != trade.is_sell {
-                        probe.is_sell.cmp(&trade.is_sell)
-                    } else {
+                    if probe.is_sell == trade.is_sell {
                         probe
                             .price
                             .partial_cmp(&grouped_price)
                             .unwrap_or(Ordering::Equal)
+                    } else {
+                        probe.is_sell.cmp(&trade.is_sell)
                     }
                 }) {
                     Ok(index) => grouped_trades[index].qty += trade.qty,
@@ -338,7 +338,7 @@ impl HeatmapChart {
                         },
                     ),
                 }
-            });
+            }
 
             self.timeseries.push((
                 rounded_depth_update,
@@ -361,10 +361,10 @@ impl HeatmapChart {
 
         chart.last_price = Some(PriceInfoLabel::Neutral(mid_price));
 
-        if !(chart.translation.x * chart.scaling > chart.bounds.width / 2.0) {
-            chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size)
-        } else {
+        if chart.translation.x * chart.scaling > chart.bounds.width / 2.0 {
             chart.translation.x += chart.cell_width;
+        } else {
+            chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size);
         }
 
         self.render_start();
@@ -670,15 +670,15 @@ impl canvas::Program<Message> for HeatmapChart {
                                 };
 
                                 let radius = {
-                                    if !self.visual_config.dynamic_sized_trades {
-                                        cell_height / 2.0
-                                    } else {
+                                    if self.visual_config.dynamic_sized_trades {
                                         // normalize range
                                         let scale_factor =
                                             (self.visual_config.trade_size_scale as f32) / 100.0;
                                         1.0 + (trade.qty / max_trade_qty)
                                             * (28.0 - 1.0)
                                             * scale_factor
+                                    } else {
+                                        cell_height / 2.0
                                     }
                                 };
 

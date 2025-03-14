@@ -235,7 +235,7 @@ async fn try_resync(
             let _ = output
                 .send(Event::Disconnected(
                     exchange,
-                    format!("Depth fetch failed: {}", e),
+                    format!("Depth fetch failed: {e}"),
                 ))
                 .await;
         }
@@ -304,7 +304,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                 let _ = output
                                     .send(Event::Disconnected(
                                         exchange,
-                                        format!("Depth fetch failed: {}", e),
+                                        format!("Depth fetch failed: {e}"),
                                     ))
                                     .await;
                             }
@@ -312,7 +312,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                 let _ = output
                                     .send(Event::Disconnected(
                                         exchange,
-                                        format!("Channel error: {}", e),
+                                        format!("Channel error: {e}"),
                                     ))
                                     .await;
                             }
@@ -851,8 +851,8 @@ pub async fn fetch_ticksize(
             ticker_info_map.insert(
                 Ticker::new(symbol_str, market_type),
                 Some(TickerInfo {
-                    min_ticksize,
                     ticker,
+                    min_ticksize,
                 }),
             );
         } else {
@@ -992,7 +992,7 @@ pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trad
 
     let mut url = format!("{base_url}?symbol={symbol_str}&limit=1000",);
 
-    url.push_str(&format!("&startTime={}", from));
+    url.push_str(&format!("&startTime={from}"));
 
     let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
 
@@ -1042,12 +1042,12 @@ pub async fn get_hist_trades(
         date.format("%Y-%m-%d"),
     );
 
-    let base_path = layout::get_data_path(&format!("market_data/binance/{}", market_subpath,));
+    let base_path = layout::get_data_path(&format!("market_data/binance/{market_subpath}",));
 
     std::fs::create_dir_all(&base_path)
         .map_err(|e| StreamError::ParseError(format!("Failed to create directories: {e}")))?;
 
-    let zip_path = format!("{}/{}", market_subpath, zip_file_name,);
+    let zip_path = format!("{market_subpath}/{zip_file_name}",);
     let base_zip_path = base_path.join(&zip_file_name);
 
     if std::fs::metadata(&base_zip_path).is_ok() {
@@ -1158,15 +1158,14 @@ pub async fn fetch_historical_oi(
         Timeframe::H2 => "2h",
         Timeframe::H4 => "4h",
         _ => {
-            let err_msg = format!("Unsupported timeframe for open interest: {}", period);
+            let err_msg = format!("Unsupported timeframe for open interest: {period}");
             log::error!("{}", err_msg);
             return Err(StreamError::UnknownError(err_msg));
         }
     };
 
     let mut url = format!(
-        "https://fapi.binance.com/futures/data/openInterestHist?symbol={}&period={}",
-        ticker_str, period_str,
+        "https://fapi.binance.com/futures/data/openInterestHist?symbol={ticker_str}&period={period_str}",
     );
 
     if let Some((start, end)) = range {
@@ -1179,8 +1178,7 @@ pub async fn fetch_historical_oi(
 
         if end < thirty_days_ago {
             let err_msg = format!(
-                "Requested end time {} is before available data (30 days is the API limit)",
-                end
+                "Requested end time {end} is before available data (30 days is the API limit)"
             );
             log::error!("{}", err_msg);
             return Err(StreamError::UnknownError(err_msg));

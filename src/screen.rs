@@ -56,7 +56,7 @@ impl UserTimezone {
         }
     }
 
-    /// Formats a DateTime with appropriate format based on timeframe
+    /// Formats a `DateTime` with appropriate format based on timeframe
     fn format_by_timeframe<Tz: chrono::TimeZone>(datetime: DateTime<Tz>, timeframe: u64) -> String
     where
         Tz::Offset: std::fmt::Display,
@@ -70,7 +70,7 @@ impl UserTimezone {
         }
     }
 
-    /// Formats a DateTime with detailed format for crosshair display
+    /// Formats a `DateTime` with detailed format for crosshair display
     pub fn format_crosshair_timestamp(&self, timestamp_millis: i64, timeframe: u64) -> String {
         if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
             if timeframe < 10000 {
@@ -353,7 +353,7 @@ where
             Notification::Info(info) => match info {
                 InfoType::FetchingKlines => "Fetching klines...".to_string(),
                 InfoType::FetchingTrades(total_fetched) => {
-                    format!("Fetching trades...\n({} fetched)", total_fetched)
+                    format!("Fetching trades...\n({total_fetched} fetched)")
                 }
                 InfoType::FetchingOI => "Fetching open interest...".to_string(),
             },

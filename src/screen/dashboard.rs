@@ -668,7 +668,7 @@ impl Dashboard {
                         &trades,
                         false,
                     ) {
-                        Ok(_) => {
+                        Ok(()) => {
                             return Task::done(Message::FetchTrades(
                                 window_id,
                                 pane,
@@ -696,7 +696,7 @@ impl Dashboard {
 
                     match self.insert_fetched_trades(main_window.id, window_id, pane, &trades, true)
                     {
-                        Ok(_) => {}
+                        Ok(()) => {}
                         Err(err) => {
                             return Task::done(Message::ErrorOccurred(window_id, Some(pane), err));
                         }
@@ -996,15 +996,15 @@ impl Dashboard {
         let pane_grid: Element<_> = pane_grid.into();
         let base = container(pane_grid.map(move |message| Message::Pane(main_window.id, message)));
 
-        if !self.notification_manager.global_notifications.is_empty() {
+        if self.notification_manager.global_notifications.is_empty() {
+            base.into()
+        } else {
             dashboard_notification(
                 base,
                 notification_modal(&self.notification_manager.global_notifications, move |_| {
                     Message::ClearLastGlobalNotification
                 }),
             )
-        } else {
-            base.into()
         }
     }
 

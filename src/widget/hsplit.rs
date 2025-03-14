@@ -143,12 +143,11 @@ impl<Message> Widget<Message, Theme, Renderer> for HSplit<'_, Message> {
         let state = tree.state.downcast_mut::<State>();
         let bounds = layout.bounds();
 
-        let dragger_bounds = match layout.children().nth(1) {
-            Some(dragger) => dragger.bounds().expand(4.0),
-            None => {
-                log::error!("Failed to find dragger bounds in HSplit layout");
-                return;
-            }
+        let dragger_bounds = if let Some(dragger) = layout.children().nth(1) {
+            dragger.bounds().expand(4.0)
+        } else {
+            log::error!("Failed to find dragger bounds in HSplit layout");
+            return;
         };
 
         if let Event::Mouse(event) = event {

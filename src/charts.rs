@@ -517,9 +517,9 @@ pub enum ChartBasis {
     /// Time-based aggregation where each datapoint represents a fixed time interval.
     ///
     /// The u64 value represents milliseconds. Common values include:
-    /// - 60_000 (1 minute)
-    /// - 300_000 (5 minutes)
-    /// - 3_600_000 (1 hour)
+    /// - `60_000` (1 minute)
+    /// - `300_000` (5 minutes)
+    /// - `3_600_000` (1 hour)
     Time(u64),
 
     /// Trade-based aggregation where each datapoint represents a fixed number of trades.
@@ -547,9 +547,9 @@ impl std::fmt::Display for ChartBasis {
                 3_600_000 => write!(f, "1h"),
                 7_200_000 => write!(f, "2h"),
                 14_400_000 => write!(f, "4h"),
-                _ => write!(f, "{}ms", millis),
+                _ => write!(f, "{millis}ms"),
             },
-            ChartBasis::Tick(count) => write!(f, "{}T", count),
+            ChartBasis::Tick(count) => write!(f, "{count}T"),
         }
     }
 }
@@ -562,22 +562,18 @@ enum ChartData {
 impl ChartData {
     pub fn get_latest_price_range_y_midpoint(&self, chart_state: &CommonChartData) -> f32 {
         match self {
-            ChartData::TimeBased(timeseries) => timeseries
-                .get_latest_kline()
-                .map(|kline| {
+            ChartData::TimeBased(timeseries) => {
+                timeseries.get_latest_kline().map_or(0.0, |kline| {
                     let y_low = chart_state.price_to_y(kline.low);
                     let y_high = chart_state.price_to_y(kline.high);
                     -(y_low + y_high) / 2.0
                 })
-                .unwrap_or(0.0),
-            ChartData::TickBased(tick_aggr) => tick_aggr
-                .get_latest_dp()
-                .map(|(dp, _)| {
-                    let y_low = chart_state.price_to_y(dp.low_price);
-                    let y_high = chart_state.price_to_y(dp.high_price);
-                    -(y_low + y_high) / 2.0
-                })
-                .unwrap_or(0.0),
+            }
+            ChartData::TickBased(tick_aggr) => tick_aggr.get_latest_dp().map_or(0.0, |(dp, _)| {
+                let y_low = chart_state.price_to_y(dp.low_price);
+                let y_high = chart_state.price_to_y(dp.high_price);
+                -(y_low + y_high) / 2.0
+            }),
         }
     }
 }

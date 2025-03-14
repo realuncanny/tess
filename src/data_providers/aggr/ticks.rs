@@ -141,12 +141,10 @@ impl TickAccumulation {
             } else {
                 *buy_qty += trade.qty;
             }
+        } else if trade.is_sell {
+            self.trades.insert(price_level, (0.0, trade.qty));
         } else {
-            if trade.is_sell {
-                self.trades.insert(price_level, (0.0, trade.qty));
-            } else {
-                self.trades.insert(price_level, (trade.qty, 0.0));
-            }
+            self.trades.insert(price_level, (trade.qty, 0.0));
         }
     }
 

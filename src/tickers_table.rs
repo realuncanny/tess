@@ -123,7 +123,7 @@ impl TickersTable {
                         b.2.daily_volume
                             .partial_cmp(&a.2.daily_volume)
                             .unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    });
             }
             SortOptions::VolumeAsc => {
                 self.combined_tickers
@@ -131,7 +131,7 @@ impl TickersTable {
                         a.2.daily_volume
                             .partial_cmp(&b.2.daily_volume)
                             .unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    });
             }
             SortOptions::ChangeDesc => {
                 self.combined_tickers
@@ -139,7 +139,7 @@ impl TickersTable {
                         b.2.daily_price_chg
                             .partial_cmp(&a.2.daily_price_chg)
                             .unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    });
             }
             SortOptions::ChangeAsc => {
                 self.combined_tickers
@@ -147,21 +147,21 @@ impl TickersTable {
                         a.2.daily_price_chg
                             .partial_cmp(&b.2.daily_price_chg)
                             .unwrap_or(std::cmp::Ordering::Equal)
-                    })
+                    });
             }
         }
     }
 
     fn change_sort_option(&mut self, option: SortOptions) {
-        if self.selected_sort_option != option {
-            self.selected_sort_option = option;
-        } else {
+        if self.selected_sort_option == option {
             self.selected_sort_option = match self.selected_sort_option {
                 SortOptions::VolumeDesc => SortOptions::VolumeAsc,
                 SortOptions::VolumeAsc => SortOptions::VolumeDesc,
                 SortOptions::ChangeDesc => SortOptions::ChangeAsc,
                 SortOptions::ChangeAsc => SortOptions::ChangeDesc,
             };
+        } else {
+            self.selected_sort_option = option;
         }
 
         self.update_combined_tickers();
@@ -283,10 +283,10 @@ impl TickersTable {
                 self.scroll_offset = viewport.absolute_offset();
             }
             Message::SetMarketFilter(market) => {
-                if self.selected_market != market {
-                    self.selected_market = market;
-                } else {
+                if self.selected_market == market {
                     self.selected_market = None;
+                } else {
+                    self.selected_market = market;
                 }
             }
             _ => {}

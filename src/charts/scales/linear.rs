@@ -55,7 +55,7 @@ pub fn generate_labels(
         let rounded = (highest / tick_size).round() * tick_size;
         let label = Label {
             content: if let Some(decimals) = decimals {
-                format!("{:.*}", decimals, rounded)
+                format!("{rounded:.decimals$}")
             } else {
                 abbr_large_numbers(rounded)
             },
@@ -83,7 +83,7 @@ pub fn generate_labels(
         let label = Label {
             content: {
                 if let Some(decimals) = decimals {
-                    format!("{:.*}", decimals, value)
+                    format!("{value:.decimals$}")
                 } else {
                     abbr_large_numbers(value)
                 }

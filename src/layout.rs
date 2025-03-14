@@ -113,7 +113,7 @@ impl LayoutManager {
     fn generate_unique_layout_name(&self) -> String {
         let mut counter = 1;
         loop {
-            let candidate = format!("Layout {}", counter);
+            let candidate = format!("Layout {counter}");
             if !self
                 .layouts
                 .values()
@@ -134,7 +134,7 @@ impl LayoutManager {
             .values()
             .any(|(layout, _)| layout.id != current_id && layout.name == final_name)
         {
-            final_name = format!("{} ({})", proposed_name, counter);
+            final_name = format!("{proposed_name} ({counter})");
             counter += 1;
         }
 
@@ -292,7 +292,7 @@ impl LayoutManager {
         Task::none()
     }
 
-    pub fn view<'a>(&'a self) -> Element<'a, Message> {
+    pub fn view(&self) -> Element<'_, Message> {
         let mut content = column![].spacing(8);
 
         let edit_btn = {
@@ -388,10 +388,10 @@ impl LayoutManager {
                     _ => {
                         layout_row = layout_row.push(layout_btn(
                             layout,
-                            if self.active_layout.id != layout.id {
-                                Some(Message::SelectActive(layout.clone()))
-                            } else {
+                            if self.active_layout.id == layout.id {
                                 None
+                            } else {
+                                Some(Message::SelectActive(layout.clone()))
                             },
                         ));
                     }
@@ -413,7 +413,7 @@ impl LayoutManager {
                         .on_press(Message::AddLayout),
                 )
                 .style(style::chart_modal),
-            )
+            );
         };
 
         scrollable::Scrollable::with_direction(
@@ -426,17 +426,7 @@ impl LayoutManager {
     }
 
     fn create_delete_button<'a>(&self, layout_id: Uuid) -> Element<'a, Message> {
-        if self.active_layout.id != layout_id {
-            create_icon_button(
-                style::Icon::TrashBin,
-                12,
-                |theme, status| style::button_layout_name(theme, *status),
-                Some(Message::ToggleEditMode(Editing::ConfirmingDelete(
-                    layout_id,
-                ))),
-            )
-            .into()
-        } else {
+        if self.active_layout.id == layout_id {
             tooltip(
                 create_icon_button(
                     style::Icon::TrashBin,
@@ -447,6 +437,16 @@ impl LayoutManager {
                 Some("Can't delete active layout"),
                 tooltip::Position::Right,
             )
+        } else {
+            create_icon_button(
+                style::Icon::TrashBin,
+                12,
+                |theme, status| style::button_layout_name(theme, *status),
+                Some(Message::ToggleEditMode(Editing::ConfirmingDelete(
+                    layout_id,
+                ))),
+            )
+            .into()
         }
     }
 

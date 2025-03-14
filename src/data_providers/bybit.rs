@@ -503,15 +503,14 @@ pub async fn fetch_historical_oi(
         Timeframe::H2 => "2h",
         Timeframe::H4 => "4h",
         _ => {
-            let err_msg = format!("Unsupported timeframe for open interest: {}", period);
+            let err_msg = format!("Unsupported timeframe for open interest: {period}");
             log::error!("{}", err_msg);
             return Err(StreamError::UnknownError(err_msg));
         }
     };
 
     let mut url = format!(
-        "https://api.bybit.com/v5/market/open-interest?category=linear&symbol={}&intervalTime={}",
-        ticker_str, period_str,
+        "https://api.bybit.com/v5/market/open-interest?category=linear&symbol={ticker_str}&intervalTime={period_str}",
     );
 
     if let Some((start, end)) = range {
@@ -675,10 +674,8 @@ pub async fn fetch_ticksize(
         MarketType::LinearPerps => "linear",
     };
 
-    let url = format!(
-        "https://api.bybit.com/v5/market/instruments-info?category={}&limit=1000",
-        market,
-    );
+    let url =
+        format!("https://api.bybit.com/v5/market/instruments-info?category={market}&limit=1000",);
 
     let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
     let text = response.text().await.map_err(StreamError::FetchError)?;
@@ -718,8 +715,8 @@ pub async fn fetch_ticksize(
         ticker_info_map.insert(
             ticker,
             Some(TickerInfo {
-                min_ticksize,
                 ticker,
+                min_ticksize,
             }),
         );
     }

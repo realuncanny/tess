@@ -1042,12 +1042,11 @@ impl PaneContent {
     pub fn toggle_indicator(&mut self, indicator_str: String) {
         match self {
             PaneContent::Heatmap(chart, indicators) => {
-                let indicator = match indicator_str.as_str() {
-                    "Volume" => HeatmapIndicator::Volume,
-                    _ => {
-                        log::error!("indicator not found: {}", indicator_str);
-                        return;
-                    }
+                let indicator = if indicator_str.as_str() == "Volume" {
+                    HeatmapIndicator::Volume
+                } else {
+                    log::error!("indicator not found: {}", indicator_str);
+                    return;
                 };
 
                 if indicators.contains(&indicator) {

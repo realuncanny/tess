@@ -211,7 +211,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
                     frame.stroke(
                         &Path::line(points[0], points[1]),
                         Stroke::with_color(stroke, palette.secondary.strong.color),
-                    )
+                    );
                 }
             }
 

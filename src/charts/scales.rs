@@ -233,7 +233,7 @@ impl AxisLabelsX<'_> {
                 continue;
             }
 
-            let offset = (-cell_index as i64) as usize;
+            let offset = i64::from(-cell_index) as usize;
             if offset > last_index {
                 continue;
             }
@@ -341,7 +341,7 @@ impl AxisLabelsX<'_> {
                 }
 
                 let last_index = self.interval_keys.len() - 1;
-                let offset = (-cell_index as i64) as usize;
+                let offset = i64::from(-cell_index) as usize;
                 if offset > last_index {
                     return None;
                 }
@@ -363,7 +363,7 @@ impl AxisLabelsX<'_> {
                 let x_max = self.x_to_interval(region.x + region.width);
 
                 let crosshair_millis =
-                    x_min as f64 + crosshair_ratio as f64 * (x_max as f64 - x_min as f64);
+                    x_min as f64 + f64::from(crosshair_ratio) * (x_max as f64 - x_min as f64);
 
                 let crosshair_time = DateTime::from_timestamp_millis(crosshair_millis as i64)?;
                 let rounded_timestamp =

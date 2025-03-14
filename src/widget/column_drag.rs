@@ -274,7 +274,7 @@ where
     }
 }
 
-impl<'a, Message, Renderer> Default for Column<'a, Message, Theme, Renderer>
+impl<Message, Renderer> Default for Column<'_, Message, Theme, Renderer>
 where
     Renderer: renderer::Renderer,
     Theme: Catalog,
@@ -294,8 +294,8 @@ where
     }
 }
 
-impl<'a, Message, Theme, Renderer> Widget<Message, Theme, Renderer>
-    for Column<'a, Message, Theme, Renderer>
+impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
+    for Column<'_, Message, Theme, Renderer>
 where
     Renderer: renderer::Renderer,
     Theme: Catalog,
@@ -462,7 +462,7 @@ where
             .for_each(|((child, tree), layout)| {
                 child.as_widget_mut().update(
                     tree, event, layout, cursor, renderer, clipboard, shell, viewport,
-                )
+                );
             });
     }
 

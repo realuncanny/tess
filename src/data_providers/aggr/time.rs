@@ -91,7 +91,7 @@ impl From<u64> for Timeframe {
             3_600_000 => Timeframe::H1,
             7_200_000 => Timeframe::H2,
             14_400_000 => Timeframe::H4,
-            _ => panic!("Invalid timeframe: {}", milliseconds),
+            _ => panic!("Invalid timeframe: {milliseconds}"),
         }
     }
 }
@@ -155,8 +155,7 @@ impl TimeSeries {
         self.data_points
             .values()
             .last()
-            .map(|dp| dp.kline.close)
-            .unwrap_or(0.0)
+            .map_or(0.0, |dp| dp.kline.close)
     }
 
     pub fn get_latest_timestamp(&self) -> Option<u64> {

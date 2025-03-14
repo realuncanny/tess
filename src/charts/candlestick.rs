@@ -358,11 +358,11 @@ impl CandlestickChart {
                     data.extend(volume_data.clone());
                 };
 
-                if !klines_raw.is_empty() {
-                    self.request_handler.mark_completed(req_id);
-                } else {
+                if klines_raw.is_empty() {
                     self.request_handler
                         .mark_failed(req_id, "No data received".to_string());
+                } else {
+                    self.request_handler.mark_completed(req_id);
                 }
             }
             ChartData::TickBased(_) => {}
@@ -373,11 +373,11 @@ impl CandlestickChart {
 
     pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
         if let Some(req_id) = req_id {
-            if !oi_data.is_empty() {
-                self.request_handler.mark_completed(req_id);
-            } else {
+            if oi_data.is_empty() {
                 self.request_handler
                     .mark_failed(req_id, "No data received".to_string());
+            } else {
+                self.request_handler.mark_completed(req_id);
             }
         }
 

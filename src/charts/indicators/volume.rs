@@ -162,7 +162,21 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                         |(timestamp, (buy_volume, sell_volume))| {
                             let x_position = chart_state.interval_to_x(*timestamp);
 
-                            if *buy_volume != -1.0 {
+                            if *buy_volume == -1.0 {
+                                let bar_height = (sell_volume / max_volume)
+                                    * (bounds.height / chart_state.scaling);
+
+                                let bar_width = chart_state.cell_width * 0.9;
+
+                                frame.fill_rectangle(
+                                    Point::new(
+                                        x_position - (bar_width / 2.0),
+                                        (bounds.height / chart_state.scaling) - bar_height,
+                                    ),
+                                    Size::new(bar_width, bar_height),
+                                    palette.secondary.strong.color,
+                                );
+                            } else {
                                 let buy_bar_height = (buy_volume / max_volume)
                                     * (bounds.height / chart_state.scaling);
                                 let sell_bar_height = (sell_volume / max_volume)
@@ -186,20 +200,6 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                                     ),
                                     Size::new(bar_width, buy_bar_height),
                                     palette.success.base.color,
-                                );
-                            } else {
-                                let bar_height = (sell_volume / max_volume)
-                                    * (bounds.height / chart_state.scaling);
-
-                                let bar_width = chart_state.cell_width * 0.9;
-
-                                frame.fill_rectangle(
-                                    Point::new(
-                                        x_position - (bar_width / 2.0),
-                                        (bounds.height / chart_state.scaling) - bar_height,
-                                    ),
-                                    Size::new(bar_width, bar_height),
-                                    palette.secondary.strong.color,
                                 );
                             }
                         },
@@ -331,16 +331,16 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                     } {
                         let mut tooltip_bg_height = 28.0;
 
-                        let tooltip_text: String = if *buy_v != -1.0 {
+                        let tooltip_text: String = if *buy_v == -1.0 {
+                            tooltip_bg_height = 14.0;
+
+                            format!("Volume: {}", format_with_commas(*sell_v),)
+                        } else {
                             format!(
                                 "Buy Volume: {}\nSell Volume: {}",
                                 format_with_commas(*buy_v),
                                 format_with_commas(*sell_v),
                             )
-                        } else {
-                            tooltip_bg_height = 14.0;
-
-                            format!("Volume: {}", format_with_commas(*sell_v),)
                         };
 
                         let text = canvas::Text {
