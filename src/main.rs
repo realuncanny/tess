@@ -1,36 +1,40 @@
 #![windows_subsystem = "windows"]
 
+mod aggr;
 mod charts;
-mod data_providers;
+mod fetcher;
 mod layout;
 mod logger;
 mod screen;
 mod style;
-mod tickers_table;
-mod tooltip;
 mod widget;
 mod window;
 
-use data_providers::{Exchange, StreamType, Ticker, TickerInfo, TickerStats, binance, bybit};
-use futures::TryFutureExt;
+use crate::widget::tooltip;
+use exchanges::{
+    Ticker, TickerInfo, TickerStats,
+    adapter::{Event as ExchangeEvent, Exchange, StreamError, StreamType, binance, bybit},
+};
 use iced::{
     Alignment, Element, Length, Point, Size, Subscription, Task, Theme, padding,
     widget::{
         Space, button, center, column, container, pane_grid, pick_list, responsive, row, text,
+        tooltip::Position as TooltipPosition,
     },
 };
-use iced_futures::MaybeSend;
+use iced_futures::{MaybeSend, futures::TryFutureExt};
 use layout::{Layout, LayoutManager, SerializableDashboard, Sidebar};
 use screen::{
     Notification, UserTimezone, create_button,
-    dashboard::{self, Dashboard, pane},
+    dashboard::{
+        self, Dashboard, pane,
+        tickers_table::{self, TickersTable},
+    },
     handle_error,
     modal::{confirmation_modal, dashboard_modal},
 };
 use std::{collections::HashMap, future::Future, vec};
 use style::{ICON_BYTES, Icon, get_icon_text};
-use tickers_table::TickersTable;
-use tooltip::tooltip;
 use window::{Window, WindowEvent, window_events};
 
 fn main() {
@@ -97,7 +101,7 @@ enum Message {
 
     ToggleModal(SidebarModal),
 
-    MarketWsEvent(data_providers::Event),
+    MarketWsEvent(ExchangeEvent),
     ToggleTradeFetch(bool),
 
     WindowEvent(WindowEvent),
@@ -208,13 +212,13 @@ impl State {
                 let main_window_id = self.main_window.id;
                 if let Some(dashboard) = self.get_active_dashboard_mut() {
                     match event {
-                        data_providers::Event::Connected(exchange, _) => {
+                        ExchangeEvent::Connected(exchange, _) => {
                             log::info!("a stream connected to {exchange} WS");
                         }
-                        data_providers::Event::Disconnected(exchange, reason) => {
+                        ExchangeEvent::Disconnected(exchange, reason) => {
                             log::info!("a stream disconnected from {exchange} WS: {reason:?}");
                         }
-                        data_providers::Event::DepthReceived(
+                        ExchangeEvent::DepthReceived(
                             stream,
                             depth_update_t,
                             depth,
@@ -230,7 +234,7 @@ impl State {
                                 )
                                 .map(Message::Dashboard);
                         }
-                        data_providers::Event::KlineReceived(stream, kline) => {
+                        ExchangeEvent::KlineReceived(stream, kline) => {
                             return dashboard
                                 .update_latest_klines(&stream, &kline, main_window_id)
                                 .map(Message::Dashboard);
@@ -516,9 +520,9 @@ impl State {
 
         if id == self.main_window.id {
             let tooltip_position = if self.sidebar_location == Sidebar::Left {
-                tooltip::Position::Right
+                TooltipPosition::Right
             } else {
-                tooltip::Position::Left
+                TooltipPosition::Left
             };
 
             let sidebar = {
@@ -691,7 +695,7 @@ impl State {
                             tooltip(
                                 checkbox,
                                 Some("Try to fetch trades for footprint charts"),
-                                tooltip::Position::Top,
+                                TooltipPosition::Top,
                             )
                         };
 
@@ -807,7 +811,7 @@ impl State {
                                 }),
                             ))),
                         Some("Reset selected pane"),
-                        tooltip::Position::Top,
+                        TooltipPosition::Top,
                     );
                     let split_pane_button = tooltip(
                         button(text("Split").align_x(Alignment::Center))
@@ -824,7 +828,7 @@ impl State {
                                 ),
                             ))),
                         Some("Split selected pane horizontally"),
-                        tooltip::Position::Top,
+                        TooltipPosition::Top,
                     );
 
                     let manage_layout_modal = {
@@ -955,12 +959,8 @@ enum SidebarModal {
 
 fn fetch_ticker_info<F>(exchange: Exchange, fetch_fn: F) -> Task<Message>
 where
-    F: Future<
-            Output = Result<
-                HashMap<Ticker, Option<data_providers::TickerInfo>>,
-                data_providers::StreamError,
-            >,
-        > + MaybeSend
+    F: Future<Output = Result<HashMap<Ticker, Option<TickerInfo>>, StreamError>>
+        + MaybeSend
         + 'static,
 {
     Task::perform(
@@ -974,9 +974,7 @@ where
 
 fn fetch_ticker_prices<F>(exchange: Exchange, fetch_fn: F) -> Task<Message>
 where
-    F: Future<Output = Result<HashMap<Ticker, TickerStats>, data_providers::StreamError>>
-        + MaybeSend
-        + 'static,
+    F: Future<Output = Result<HashMap<Ticker, TickerStats>, StreamError>> + MaybeSend + 'static,
 {
     Task::perform(
         fetch_fn.map_err(|err| format!("{err}")),

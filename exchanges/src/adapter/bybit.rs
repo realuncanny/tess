@@ -9,14 +9,20 @@ use fastwebsockets::{FragmentCollector, Frame, OpCode};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 
-use futures::{SinkExt, Stream};
-use iced_futures::stream;
+use iced_futures::{
+    futures::{SinkExt, Stream, channel::mpsc},
+    stream,
+};
 
 use super::{
-    Connection, Event, Exchange, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State,
-    StreamError, StreamType, Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache,
-    de_string_to_f32, de_string_to_u64, setup_tcp_connection, setup_tls_connection,
-    setup_websocket_connection,
+    super::{
+        Exchange, Kline, MarketType, OpenInterest, StreamType, Ticker, TickerInfo, TickerStats,
+        Timeframe, Trade,
+        connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
+        de_string_to_f32, de_string_to_u64,
+        depth::{LocalDepthCache, Order, TempLocalDepth},
+    },
+    Connection, Event, StreamError,
 };
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -215,7 +221,7 @@ async fn connect(
 async fn try_connect(
     streams: &Value,
     market_type: MarketType,
-    output: &mut futures::channel::mpsc::Sender<Event>,
+    output: &mut mpsc::Sender<Event>,
 ) -> State {
     let exchange = match market_type {
         MarketType::Spot => Exchange::BybitSpot,
@@ -308,7 +314,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                         }
                                     }
                                     StreamData::Depth(de_depth, data_type, time) => {
-                                        let depth_update = VecLocalDepthCache {
+                                        let depth_update = TempLocalDepth {
                                             last_update_id: de_depth.update_id,
                                             time,
                                             bids: de_depth

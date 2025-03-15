@@ -10,16 +10,11 @@ use iced::widget::{
 };
 use iced::{Element, Length, Point, Rectangle, Renderer, Size, Task, Theme, Vector, mouse};
 
-use crate::data_providers::aggr::ticks::TickAggr;
-use crate::data_providers::aggr::time::TimeSeries;
-use crate::data_providers::{
-    Kline, OpenInterest as OIData,
-    aggr::time::Timeframe,
-    fetcher::{FetchRange, RequestHandler},
-};
-use crate::data_providers::{MarketType, TickerInfo, Trade};
+use crate::aggr::{ticks::TickAggr, time::TimeSeries};
+use crate::fetcher::{FetchRange, RequestHandler};
 use crate::layout::SerializableChartData;
 use crate::screen::UserTimezone;
+use exchanges::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade, adapter::MarketType};
 
 use super::indicators::{self, CandlestickIndicator, Indicator};
 use super::scales::PriceInfoLabel;

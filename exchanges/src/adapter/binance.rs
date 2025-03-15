@@ -1,23 +1,28 @@
 use csv::ReaderBuilder;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, io::BufReader};
+use std::{collections::HashMap, io::BufReader, path::PathBuf};
 
 use fastwebsockets::{FragmentCollector, OpCode};
 use hyper::upgrade::Upgraded;
 use hyper_util::rt::TokioIo;
 use sonic_rs::{FastStr, to_object_iter_unchecked};
 
-use futures::{SinkExt, Stream};
-use iced_futures::stream;
-
-use crate::layout;
+use iced_futures::{
+    futures::{SinkExt, Stream, channel::mpsc},
+    stream,
+};
 
 use super::{
-    Connection, Event, Exchange, Kline, LocalDepthCache, MarketType, OpenInterest, Order, State,
-    StreamError, StreamType, Ticker, TickerInfo, TickerStats, Timeframe, Trade, VecLocalDepthCache,
-    de_string_to_f32, setup_tcp_connection, setup_tls_connection, setup_websocket_connection,
-    str_f32_parse,
+    super::{
+        Exchange, Kline, MarketType, OpenInterest, StreamType, Ticker, TickerInfo, TickerStats,
+        Timeframe, Trade,
+        connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
+        de_string_to_f32,
+        depth::{LocalDepthCache, Order, TempLocalDepth},
+        str_f32_parse,
+    },
+    Connection, Event, StreamError,
 };
 
 #[derive(Debug, Deserialize, Clone)]
@@ -216,7 +221,7 @@ async fn try_resync(
     ticker: Ticker,
     orderbook: &mut LocalDepthCache,
     state: &mut State,
-    output: &mut futures::channel::mpsc::Sender<Event>,
+    output: &mut mpsc::Sender<Event>,
     already_fetching: &mut bool,
 ) {
     let (tx, rx) = tokio::sync::oneshot::channel();
@@ -503,7 +508,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 pub fn connect_kline_stream(
     streams: Vec<(Ticker, Timeframe)>,
     market: MarketType,
-) -> impl Stream<Item = super::Event> {
+) -> impl Stream<Item = Event> {
     stream::channel(100, async move |mut output| {
         let mut state = State::Disconnected;
 
@@ -607,9 +612,9 @@ pub fn connect_kline_stream(
     })
 }
 
-fn new_depth_cache(depth: &SonicDepth) -> VecLocalDepthCache {
+fn new_depth_cache(depth: &SonicDepth) -> TempLocalDepth {
     match depth {
-        SonicDepth::Spot(de) => VecLocalDepthCache {
+        SonicDepth::Spot(de) => TempLocalDepth {
             last_update_id: de.final_id,
             time: de.time,
             bids: de
@@ -629,7 +634,7 @@ fn new_depth_cache(depth: &SonicDepth) -> VecLocalDepthCache {
                 })
                 .collect(),
         },
-        SonicDepth::LinearPerp(de) => VecLocalDepthCache {
+        SonicDepth::LinearPerp(de) => TempLocalDepth {
             last_update_id: de.final_id,
             time: de.time,
             bids: de
@@ -652,7 +657,7 @@ fn new_depth_cache(depth: &SonicDepth) -> VecLocalDepthCache {
     }
 }
 
-async fn fetch_depth(ticker: &Ticker) -> Result<VecLocalDepthCache, StreamError> {
+async fn fetch_depth(ticker: &Ticker) -> Result<TempLocalDepth, StreamError> {
     let (symbol_str, market_type) = ticker.get_string();
 
     let base_url = match market_type {
@@ -674,7 +679,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<VecLocalDepthCache, StreamError>
             let fetched_depth: FetchedSpotDepth =
                 serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
 
-            let depth: VecLocalDepthCache = VecLocalDepthCache {
+            let depth = TempLocalDepth {
                 last_update_id: fetched_depth.update_id,
                 time: chrono::Utc::now().timestamp_millis() as u64,
                 bids: fetched_depth.bids,
@@ -687,7 +692,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<VecLocalDepthCache, StreamError>
             let fetched_depth: FetchedPerpDepth =
                 serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
 
-            let depth: VecLocalDepthCache = VecLocalDepthCache {
+            let depth = TempLocalDepth {
                 last_update_id: fetched_depth.update_id,
                 time: fetched_depth.time,
                 bids: fetched_depth.bids,
@@ -956,7 +961,11 @@ async fn handle_rate_limit(headers: &hyper::HeaderMap, max_limit: f32) -> Result
     Ok(())
 }
 
-pub async fn fetch_trades(ticker: Ticker, from_time: u64) -> Result<Vec<Trade>, StreamError> {
+pub async fn fetch_trades(
+    ticker: Ticker,
+    from_time: u64,
+    data_path: PathBuf,
+) -> Result<Vec<Trade>, StreamError> {
     let today_midnight = chrono::Utc::now()
         .date_naive()
         .and_hms_opt(0, 0, 0)
@@ -971,7 +980,7 @@ pub async fn fetch_trades(ticker: Ticker, from_time: u64) -> Result<Vec<Trade>, 
         .ok_or_else(|| StreamError::ParseError("Invalid timestamp".into()))?
         .date_naive();
 
-    match get_hist_trades(ticker, from_date).await {
+    match get_hist_trades(ticker, from_date, data_path).await {
         Ok(trades) => Ok(trades),
         Err(e) => {
             log::warn!(
@@ -1028,6 +1037,7 @@ pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trad
 pub async fn get_hist_trades(
     ticker: Ticker,
     date: chrono::NaiveDate,
+    base_path: PathBuf,
 ) -> Result<Vec<Trade>, StreamError> {
     let (symbol, market_type) = ticker.get_string();
 
@@ -1042,7 +1052,7 @@ pub async fn get_hist_trades(
         date.format("%Y-%m-%d"),
     );
 
-    let base_path = layout::get_data_path(&format!("market_data/binance/{market_subpath}",));
+    let base_path = base_path.join(&market_subpath);
 
     std::fs::create_dir_all(&base_path)
         .map_err(|e| StreamError::ParseError(format!("Failed to create directories: {e}")))?;

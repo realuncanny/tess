@@ -13,15 +13,13 @@ use iced::{
 };
 use ordered_float::OrderedFloat;
 
-use crate::data_providers::aggr::time::Timeframe;
-use crate::data_providers::{
-    Kline, OpenInterest as OIData, Trade,
+use crate::layout::SerializableChartData;
+use crate::screen::UserTimezone;
+use crate::{
     aggr::{ticks::TickAggr, time::TimeSeries},
     fetcher::{FetchRange, RequestHandler},
 };
-use crate::data_providers::{MarketType, TickerInfo};
-use crate::layout::SerializableChartData;
-use crate::screen::UserTimezone;
+use exchanges::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade, adapter::MarketType};
 
 use super::indicators::{self, FootprintIndicator, Indicator};
 use super::scales::PriceInfoLabel;
