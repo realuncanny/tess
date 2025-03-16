@@ -1,5 +1,5 @@
 use super::{format_with_commas, heatmap, timeandsales};
-use crate::{screen::dashboard::pane::Message, style, tooltip};
+use crate::{screen::dashboard::pane::Message, style, tooltip, widget::scrollable_content};
 
 use iced::{
     Alignment, Element, Length,
@@ -91,7 +91,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
         )
     };
 
-    container(
+    container(scrollable_content(
         column![
             column![
                 text("Size Filtering").size(14),
@@ -128,7 +128,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
             sync_all_button(VisualConfig::Heatmap(cfg)),
         ]
         .spacing(8),
-    )
+    ))
     .width(Length::Shrink)
     .padding(16)
     .max_width(500)
@@ -160,7 +160,7 @@ pub fn timesales_cfg_view<'a>(
         )
     };
 
-    container(
+    container(scrollable_content(
         column![
             column![text("Size Filtering").size(14), trade_size_slider,]
                 .spacing(20)
@@ -169,7 +169,7 @@ pub fn timesales_cfg_view<'a>(
             sync_all_button(VisualConfig::TimeAndSales(cfg)),
         ]
         .spacing(8),
-    )
+    ))
     .width(Length::Shrink)
     .padding(16)
     .max_width(500)
