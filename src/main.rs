@@ -10,7 +10,7 @@ mod style;
 mod widget;
 mod window;
 
-use crate::widget::tooltip;
+use crate::widget::{confirm_dialog, tooltip};
 use exchanges::{
     Ticker, TickerInfo, TickerStats,
     adapter::{Event as ExchangeEvent, Exchange, StreamError, StreamType, binance, bybit},
@@ -135,13 +135,11 @@ struct State {
     theme: Theme,
     main_window: Window,
     timezone: UserTimezone,
-    layout_locked: bool,
-    confirmation_dialog: Option<(String, Box<Message>)>,
+    confirm_dialog: Option<(String, Box<Message>)>,
     layouts: LayoutManager,
     active_modal: SidebarModal,
     sidebar_location: Sidebar,
     notification: Option<Notification>,
-    show_tickers_dashboard: bool,
     scale_factor: layout::ScaleFactor,
     tickers_table: TickersTable,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
@@ -179,11 +177,9 @@ impl State {
                 active_modal: SidebarModal::None,
                 notification: None,
                 tickers_info: HashMap::new(),
-                show_tickers_dashboard: false,
                 sidebar_location: saved_state.sidebar,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
-                confirmation_dialog: None,
-                layout_locked: false,
+                confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
                 present_mode: saved_state.present_mode,
@@ -243,7 +239,7 @@ impl State {
                 }
             }
             Message::ToggleLayoutLock => {
-                self.layout_locked = !self.layout_locked;
+                self.layouts.toggle_layout_lock();
                 if let Some(dashboard) = self.get_active_dashboard_mut() {
                     dashboard.focus = None;
                 }
@@ -397,7 +393,7 @@ impl State {
                 }
             }
             Message::ToggleTickersDashboard => {
-                self.show_tickers_dashboard = !self.show_tickers_dashboard;
+                self.tickers_table.toggle_table();
             }
             Message::UpdateTickersTable(exchange, tickers_info) => {
                 self.tickers_table.update_table(exchange, tickers_info);
@@ -469,11 +465,11 @@ impl State {
                 });
 
                 if checked {
-                    self.confirmation_dialog = None;
+                    self.confirm_dialog = None;
                 }
             }
             Message::ToggleDialogModal(dialog) => {
-                self.confirmation_dialog = dialog;
+                self.confirm_dialog = dialog;
             }
             Message::PresentModeSelected(mode) => {
                 if mode != self.present_mode {
@@ -485,7 +481,7 @@ impl State {
             }
             Message::ChangePresentMode(mode) => {
                 self.present_mode = mode;
-                self.confirmation_dialog = None;
+                self.confirm_dialog = None;
             }
             Message::ScaleFactorChanged(value) => {
                 self.scale_factor = layout::ScaleFactor::from(value);
@@ -530,7 +526,7 @@ impl State {
                     let layout_lock_button = {
                         create_button(
                             get_icon_text(
-                                if self.layout_locked {
+                                if self.layouts.is_layout_locked() {
                                     Icon::Locked
                                 } else {
                                     Icon::Unlocked
@@ -586,7 +582,7 @@ impl State {
                         )
                     };
                     let ticker_search_button = {
-                        let is_active = self.show_tickers_dashboard;
+                        let is_active = self.tickers_table.is_open();
 
                         create_button(
                             get_icon_text(Icon::Search, 14)
@@ -613,7 +609,7 @@ impl State {
                 };
 
                 let tickers_table = {
-                    if self.show_tickers_dashboard {
+                    if self.tickers_table.is_open() {
                         column![responsive(move |size| {
                             self.tickers_table.view(size).map(Message::TickersTable)
                         })]
@@ -635,7 +631,11 @@ impl State {
             };
 
             let dashboard_view = dashboard
-                .view(&self.main_window, self.layout_locked, &self.timezone)
+                .view(
+                    &self.main_window,
+                    self.layouts.is_layout_locked(),
+                    &self.timezone,
+                )
                 .map(Message::Dashboard);
 
             let base = column![
@@ -785,8 +785,12 @@ impl State {
                         align_x,
                     );
 
-                    if let Some((dialog, message)) = &self.confirmation_dialog {
-                        let dialog_content = self.confirm_dialog(dialog, *message.to_owned());
+                    if let Some((dialog, on_confirm)) = &self.confirm_dialog {
+                        let dialog_content = confirm_dialog(
+                            dialog,
+                            *on_confirm.to_owned(),
+                            Message::ToggleDialogModal(None),
+                        );
 
                         confirmation_modal(
                             base_content,
@@ -878,33 +882,17 @@ impl State {
         } else {
             container(
                 dashboard
-                    .view_window(id, &self.main_window, self.layout_locked, &self.timezone)
+                    .view_window(
+                        id,
+                        &self.main_window,
+                        self.layouts.is_layout_locked(),
+                        &self.timezone,
+                    )
                     .map(Message::Dashboard),
             )
             .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
             .into()
         }
-    }
-
-    fn confirm_dialog<'a>(&'a self, dialog: &'a str, on_confirm: Message) -> Element<'a, Message> {
-        let dialog_content = container(
-            column![
-                text(dialog).size(14),
-                row![
-                    button(text("Cancel"))
-                        .style(|theme, status| style::button_transparent(theme, status, false))
-                        .on_press(Message::ToggleDialogModal(None)),
-                    button(text("Confirm")).on_press(on_confirm),
-                ]
-                .spacing(8),
-            ]
-            .align_x(Alignment::Center)
-            .spacing(16),
-        )
-        .padding(24)
-        .style(style::dashboard_modal);
-
-        dialog_content.into()
     }
 
     fn theme(&self, _window: window::Id) -> Theme {
@@ -928,7 +916,11 @@ impl State {
         let exchange_streams = dashboard.get_market_subscriptions(Message::MarketWsEvent);
 
         let tickers_table_fetch = iced::time::every(std::time::Duration::from_secs(
-            if self.show_tickers_dashboard { 25 } else { 300 },
+            if self.tickers_table.is_open() {
+                25
+            } else {
+                300
+            },
         ))
         .map(|_| Message::FetchAndUpdateTickersTable);
 

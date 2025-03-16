@@ -6,10 +6,7 @@ pub use pane::{PaneContent, PaneSettings, PaneState};
 use crate::{
     StreamType,
     aggr::TickMultiplier,
-    charts::{
-        ChartBasis, Message as ChartMessage, candlestick::CandlestickChart,
-        footprint::FootprintChart,
-    },
+    charts::{self, ChartBasis, candlestick::CandlestickChart, footprint::FootprintChart},
     fetcher::FetchRange,
     layout::get_data_path,
     screen::{InfoType, notification_modal},
@@ -67,7 +64,7 @@ pub enum Message {
         window::Id,
     ),
     DistributeFetchedKlines(StreamType, Result<Vec<Kline>, String>),
-    ChartMessage(pane_grid::Pane, window::Id, ChartMessage),
+    ChartEvent(pane_grid::Pane, window::Id, charts::Message),
 
     // Batched trade fetching
     FetchTrades(window::Id, pane_grid::Pane, u64, u64, StreamType),
@@ -85,12 +82,6 @@ pub struct Dashboard {
 
 impl Default for Dashboard {
     fn default() -> Self {
-        Self::empty()
-    }
-}
-
-impl Dashboard {
-    fn empty() -> Self {
         Self {
             panes: pane_grid::State::with_configuration(Self::default_pane_config()),
             focus: None,
@@ -100,7 +91,9 @@ impl Dashboard {
             trade_fetch_enabled: false,
         }
     }
+}
 
+impl Dashboard {
     fn default_pane_config() -> Configuration<PaneState> {
         Configuration::Split {
             axis: pane_grid::Axis::Vertical,
@@ -714,8 +707,8 @@ impl Dashboard {
             Message::RefreshStreams => {
                 self.pane_streams = self.get_all_diff_streams(main_window.id);
             }
-            Message::ChartMessage(pane, window, message) => {
-                if let ChartMessage::NewDataRange(req_id, fetch) = message {
+            Message::ChartEvent(pane, window, message) => {
+                if let charts::Message::NewDataRange(req_id, fetch) = message {
                     match fetch {
                         FetchRange::Kline(from, to) => {
                             let kline_stream = self
@@ -1224,12 +1217,12 @@ impl Dashboard {
                         PaneContent::Candlestick(chart, _) => tasks.push(
                             chart
                                 .update_latest_kline(kline)
-                                .map(move |message| Message::ChartMessage(pane, window, message)),
+                                .map(move |message| Message::ChartEvent(pane, window, message)),
                         ),
                         PaneContent::Footprint(chart, _) => tasks.push(
                             chart
                                 .update_latest_kline(kline)
-                                .map(move |message| Message::ChartMessage(pane, window, message)),
+                                .map(move |message| Message::ChartEvent(pane, window, message)),
                         ),
                         _ => {}
                     }
@@ -1291,20 +1284,20 @@ impl Dashboard {
         &mut self,
         pane: pane_grid::Pane,
         window: window::Id,
-        chart_message: &ChartMessage,
+        message: &charts::Message,
         main_window: window::Id,
     ) -> Task<Message> {
         if let Some(pane_state) = self.get_mut_pane(main_window, window, pane) {
             match pane_state.content {
                 PaneContent::Heatmap(ref mut chart, _) => chart
-                    .update(chart_message)
-                    .map(move |message| Message::ChartMessage(pane, window, message)),
+                    .update(message)
+                    .map(move |msg| Message::ChartEvent(pane, window, msg)),
                 PaneContent::Footprint(ref mut chart, _) => chart
-                    .update(chart_message)
-                    .map(move |message| Message::ChartMessage(pane, window, message)),
+                    .update(message)
+                    .map(move |msg| Message::ChartEvent(pane, window, msg)),
                 PaneContent::Candlestick(ref mut chart, _) => chart
-                    .update(chart_message)
-                    .map(move |message| Message::ChartMessage(pane, window, message)),
+                    .update(message)
+                    .map(move |msg| Message::ChartEvent(pane, window, msg)),
                 _ => Task::done(Message::ErrorOccurred(
                     window,
                     Some(pane),

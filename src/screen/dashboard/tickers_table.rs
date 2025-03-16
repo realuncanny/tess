@@ -66,6 +66,7 @@ pub struct TickersTable {
     selected_market: Option<MarketType>,
     expand_ticker_card: Option<(Ticker, Exchange)>,
     scroll_offset: AbsoluteOffset,
+    is_show: bool,
 }
 
 impl TickersTable {
@@ -82,6 +83,7 @@ impl TickersTable {
             expand_ticker_card: None,
             scroll_offset: AbsoluteOffset::default(),
             selected_market: None,
+            is_show: false,
         }
     }
 
@@ -258,6 +260,14 @@ impl TickersTable {
         (item_bottom >= (self.scroll_offset.y - (2.0 * ticker_container_height)))
             && (item_top
                 <= (self.scroll_offset.y + bounds.height + (2.0 * ticker_container_height)))
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.is_show
+    }
+
+    pub fn toggle_table(&mut self) {
+        self.is_show = !self.is_show;
     }
 
     pub fn update(&mut self, message: Message) -> Task<Message> {
