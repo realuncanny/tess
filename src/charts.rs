@@ -853,33 +853,58 @@ pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
 }
 
 pub fn format_with_commas(num: f32) -> String {
-    let s = format!("{num:.0}");
+    let abs_num = num.abs();
+    let is_negative = num < 0.0;
 
-    // Handle special case for small numbers
-    if s.len() <= 4 && s.starts_with('-') {
-        return s; // Return as-is if it's a small negative number
-    }
-
-    let mut result = String::with_capacity(s.len() + (s.len() - 1) / 3);
-    let (sign, digits) = if s.starts_with('-') {
-        ("-", &s[1..]) // Split into sign and digits
+    let decimals = if abs_num >= 100.0 {
+        0
+    } else if abs_num >= 10.0 {
+        1
+    } else if abs_num >= 1.0 {
+        2
     } else {
-        ("", &s[..])
+        3
     };
 
-    let mut i = digits.len();
-    while i > 0 {
-        if !result.is_empty() {
-            result.insert(0, ',');
-        }
-        let start = if i >= 3 { i - 3 } else { 0 };
-        result.insert_str(0, &digits[start..i]);
-        i = start;
+    if abs_num < 1000.0 {
+        return format!(
+            "{}{:.*}",
+            if is_negative { "-" } else { "" },
+            decimals,
+            abs_num
+        );
     }
 
-    // Add sign at the start if negative
-    if !sign.is_empty() {
-        result.insert_str(0, sign);
+    let s = format!("{:.*}", decimals, abs_num);
+
+    let (integer_part, decimal_part) = match s.find('.') {
+        Some(pos) => (&s[..pos], Some(&s[pos..])),
+        None => (s.as_str(), None),
+    };
+
+    let num_commas = (integer_part.len() - 1) / 3;
+    let decimal_len = decimal_part.map_or(0, |d| d.len());
+    let capacity =
+        (if is_negative { 1 } else { 0 }) + integer_part.len() + num_commas + decimal_len;
+
+    let mut result = String::with_capacity(capacity);
+
+    if is_negative {
+        result.push('-');
+    }
+
+    let digits_len = integer_part.len();
+    for (i, ch) in integer_part.chars().enumerate() {
+        result.push(ch);
+
+        let pos_from_right = digits_len - i - 1;
+        if i < digits_len - 1 && pos_from_right % 3 == 0 {
+            result.push(',');
+        }
+    }
+
+    if let Some(decimal) = decimal_part {
+        result.push_str(decimal);
     }
 
     result

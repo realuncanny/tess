@@ -270,7 +270,7 @@ impl CandlestickChart {
                 let timeframe = timeseries.interval.to_milliseconds();
 
                 let (visible_earliest, visible_latest) = self.get_visible_timerange();
-                let (kline_earliest, kline_latest) = self.get_kline_timerange();
+                let (kline_earliest, kline_latest) = timeseries.get_kline_timerange();
                 let earliest = visible_earliest - (visible_latest - visible_earliest);
 
                 // priority 1, basic kline data fetch
@@ -305,7 +305,7 @@ impl CandlestickChart {
                             if oi_latest < kline_latest {
                                 if let Some(task) = request_fetch(
                                     &mut self.request_handler,
-                                    FetchRange::OpenInterest(oi_latest, kline_latest),
+                                    FetchRange::OpenInterest(oi_latest.max(earliest), kline_latest),
                                 ) {
                                     return Some(task);
                                 }
@@ -330,7 +330,9 @@ impl CandlestickChart {
                     }
                 }
             }
-            ChartData::TickBased(_) => {}
+            ChartData::TickBased(_) => {
+                // TODO: implement trade fetch to build missing tick klines
+            }
         }
 
         None
@@ -427,16 +429,6 @@ impl CandlestickChart {
 
     pub fn get_raw_trades(&self) -> Vec<Trade> {
         self.raw_trades.clone()
-    }
-
-    fn get_kline_timerange(&self) -> (u64, u64) {
-        match &self.data_source {
-            ChartData::TimeBased(source) => source.get_kline_timerange(),
-            ChartData::TickBased(_) => {
-                // TODO: implement
-                (0, 0)
-            }
-        }
     }
 
     fn get_oi_timerange(&self, latest_kline: u64) -> (u64, u64) {
