@@ -25,16 +25,16 @@ use iced::{
 use iced_futures::{MaybeSend, futures::TryFutureExt};
 use layout::{Layout, LayoutManager, SerializableDashboard, Sidebar};
 use screen::{
-    Notification, UserTimezone, create_button,
+    UserTimezone, create_button,
     dashboard::{
         self, Dashboard, pane,
         tickers_table::{self, TickersTable},
     },
-    handle_error,
     modal::{confirmation_modal, dashboard_modal},
 };
 use std::{collections::HashMap, future::Future, vec};
 use style::{ICON_BYTES, Icon, get_icon_text};
+use widget::notification::Toast;
 use window::{Window, WindowEvent, window_events};
 
 fn main() {
@@ -96,7 +96,6 @@ fn main() {
 
 #[derive(Debug, Clone)]
 enum Message {
-    Notification(Notification),
     ErrorOccurred(InternalError),
 
     ToggleModal(SidebarModal),
@@ -110,7 +109,8 @@ enum Message {
     ToggleLayoutLock,
     LayoutSelected(Layout),
     ThemeSelected(Theme),
-    Dashboard(dashboard::Message),
+    ActiveDashboard(dashboard::Message),
+    Dashboard(uuid::Uuid, dashboard::Message),
     SetTickersInfo(Exchange, HashMap<Ticker, Option<TickerInfo>>),
     SetTimezone(UserTimezone),
     SidebarPosition(layout::Sidebar),
@@ -129,6 +129,9 @@ enum Message {
     ScaleFactorChanged(f64),
 
     ManageLayouts(layout::Message),
+
+    AddNotification(Toast),
+    DeleteNotification(usize),
 }
 
 struct State {
@@ -139,11 +142,11 @@ struct State {
     layouts: LayoutManager,
     active_modal: SidebarModal,
     sidebar_location: Sidebar,
-    notification: Option<Notification>,
     scale_factor: layout::ScaleFactor,
     tickers_table: TickersTable,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     present_mode: screen::PresentMode,
+    notifications: Vec<Toast>,
 }
 
 impl State {
@@ -175,7 +178,6 @@ impl State {
                 layouts: saved_state.layout_manager,
                 main_window: Window::new(main_window),
                 active_modal: SidebarModal::None,
-                notification: None,
                 tickers_info: HashMap::new(),
                 sidebar_location: saved_state.sidebar,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
@@ -183,6 +185,7 @@ impl State {
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
                 present_mode: saved_state.present_mode,
+                notifications: Vec::new(),
             },
             open_main_window
                 .then(|_| Task::none())
@@ -228,12 +231,12 @@ impl State {
                                     trades_buffer,
                                     main_window_id,
                                 )
-                                .map(Message::Dashboard);
+                                .map(Message::ActiveDashboard);
                         }
                         ExchangeEvent::KlineReceived(stream, kline) => {
                             return dashboard
                                 .update_latest_klines(&stream, &kline, main_window_id)
-                                .map(Message::Dashboard);
+                                .map(Message::ActiveDashboard);
                         }
                     }
                 }
@@ -343,13 +346,13 @@ impl State {
                     self.active_modal = modal;
                 }
             }
-            Message::Notification(notification) => {
-                self.notification = Some(notification);
-            }
             Message::ErrorOccurred(err) => {
                 return match err {
                     InternalError::Fetch(err) => {
-                        handle_error(&err, "Failed to fetch data", Message::Notification)
+                        Task::done(Message::AddNotification(Toast::error(err)))
+                    }
+                    InternalError::Layout(err) => {
+                        Task::done(Message::AddNotification(Toast::error(err)))
                     }
                 };
             }
@@ -372,7 +375,7 @@ impl State {
                         active_popout_keys,
                         dashboard::Message::SavePopoutSpecs,
                     )
-                    .map(Message::Dashboard)
+                    .map(Message::ActiveDashboard)
                     .chain(window_tasks)
                     .chain(Task::done(Message::LoadLayout(new_layout_id)));
                 }
@@ -381,16 +384,29 @@ impl State {
                 self.layouts.active_layout = layout.clone();
                 if let Some(dashboard) = self.get_active_dashboard_mut() {
                     dashboard.focus = None;
-                    return dashboard.load_layout().map(Message::Dashboard);
+                    return dashboard.load_layout().map(Message::ActiveDashboard);
                 }
             }
-            Message::Dashboard(message) => {
+            Message::ActiveDashboard(message) => {
                 let main_window = self.main_window;
-                if let Some(dashboard) = self.get_active_dashboard_mut() {
-                    return dashboard
-                        .update(message, &main_window)
-                        .map(Message::Dashboard);
-                }
+                let active_layout = self.layouts.active_layout.id;
+
+                return self.handle_dashboard_msg(
+                    message,
+                    &main_window,
+                    &active_layout,
+                    Message::ActiveDashboard,
+                );
+            }
+            Message::Dashboard(dashboard_id, message) => {
+                let main_window = self.main_window;
+
+                return self.handle_dashboard_msg(
+                    message,
+                    &main_window,
+                    &dashboard_id,
+                    Message::ActiveDashboard,
+                );
             }
             Message::ToggleTickersDashboard => {
                 self.tickers_table.toggle_table();
@@ -437,7 +453,7 @@ impl State {
                                 &content,
                             );
 
-                            return task.map(Message::Dashboard);
+                            return task.map(Message::ActiveDashboard);
                         } else {
                             return Task::done(Message::ErrorOccurred(InternalError::Fetch(
                                 format!(
@@ -493,6 +509,12 @@ impl State {
                     return self.layouts.update(msg).map(Message::ManageLayouts);
                 }
             }
+            Message::AddNotification(toast) => {
+                self.notifications.push(toast);
+            }
+            Message::DeleteNotification(index) => {
+                self.notifications.remove(index);
+            }
         }
         Task::none()
     }
@@ -514,7 +536,7 @@ impl State {
             }
         };
 
-        if id == self.main_window.id {
+        let content = if id == self.main_window.id {
             let tooltip_position = if self.sidebar_location == Sidebar::Left {
                 TooltipPosition::Right
             } else {
@@ -636,7 +658,7 @@ impl State {
                     self.layouts.is_layout_locked(),
                     &self.timezone,
                 )
-                .map(Message::Dashboard);
+                .map(Message::ActiveDashboard);
 
             let base = column![
                 {
@@ -806,7 +828,7 @@ impl State {
                     let reset_pane_button = tooltip(
                         button(text("Reset").align_x(Alignment::Center))
                             .width(iced::Length::Fill)
-                            .on_press(Message::Dashboard(dashboard::Message::Pane(
+                            .on_press(Message::ActiveDashboard(dashboard::Message::Pane(
                                 id,
                                 pane::Message::ReplacePane(if let Some(focus) = dashboard.focus {
                                     focus.1
@@ -820,7 +842,7 @@ impl State {
                     let split_pane_button = tooltip(
                         button(text("Split").align_x(Alignment::Center))
                             .width(iced::Length::Fill)
-                            .on_press(Message::Dashboard(dashboard::Message::Pane(
+                            .on_press(Message::ActiveDashboard(dashboard::Message::Pane(
                                 id,
                                 pane::Message::SplitPane(
                                     pane_grid::Axis::Horizontal,
@@ -888,11 +910,22 @@ impl State {
                         self.layouts.is_layout_locked(),
                         &self.timezone,
                     )
-                    .map(Message::Dashboard),
+                    .map(Message::ActiveDashboard),
             )
             .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
             .into()
-        }
+        };
+
+        widget::notification::Manager::new(
+            content,
+            &self.notifications,
+            match self.sidebar_location {
+                Sidebar::Left => Alignment::End,
+                Sidebar::Right => Alignment::Start,
+            },
+            Message::DeleteNotification,
+        )
+        .into()
     }
 
     fn theme(&self, _window: window::Id) -> Theme {
@@ -927,6 +960,53 @@ impl State {
         Subscription::batch(vec![exchange_streams, tickers_table_fetch, window_events])
     }
 
+    fn handle_dashboard_msg<F>(
+        &mut self,
+        message: dashboard::Message,
+        window: &Window,
+        layout_id: &uuid::Uuid,
+        map_result: F,
+    ) -> Task<Message>
+    where
+        F: FnMut(dashboard::Message) -> Message + 'static + MaybeSend,
+    {
+        if let Some(dashboard) = self.get_mut_dashboard(*layout_id) {
+            match message {
+                dashboard::Message::GlobalNotification(toast) => {
+                    Task::done(Message::AddNotification(toast))
+                }
+                dashboard::Message::DistributeFetchedData(
+                    dashboard_id,
+                    window_id,
+                    pane,
+                    data,
+                    stream,
+                ) => {
+                    let main_window_id = self.main_window.id;
+
+                    if let Some(dashboard) = self.get_mut_dashboard(dashboard_id) {
+                        dashboard
+                            .distribute_fetched_data(main_window_id, window_id, pane, data, stream)
+                            .map(move |msg| Message::Dashboard(dashboard_id, msg))
+                    } else {
+                        Task::done(Message::ErrorOccurred(InternalError::Layout(
+                            "Couldn't find dashboard".to_string(),
+                        )))
+                    }
+                }
+                _ => dashboard.update(message, window, layout_id).map(map_result),
+            }
+        } else {
+            Task::done(Message::ErrorOccurred(InternalError::Layout(
+                "Couldn't find dashboard".to_string(),
+            )))
+        }
+    }
+
+    fn get_mut_dashboard(&mut self, id: uuid::Uuid) -> Option<&mut Dashboard> {
+        self.layouts.get_mut_dashboard(&id)
+    }
+
     fn get_active_dashboard(&self) -> Option<&Dashboard> {
         self.layouts.get_active_dashboard()
     }
@@ -940,6 +1020,8 @@ impl State {
 enum InternalError {
     #[error("Fetch error: {0}")]
     Fetch(String),
+    #[error("Layout error: {0}")]
+    Layout(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]
