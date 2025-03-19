@@ -130,16 +130,20 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        let center = Vector::new(bounds.width / 2.0, bounds.height / 2.0);
-
-        let palette = theme.extended_palette();
-
         let chart_state = self.chart_state;
+
+        if chart_state.bounds.width == 0.0 {
+            return vec![];
+        }
+
         let max_volume = self.max_volume;
 
         if max_volume == 0.0 {
             return vec![];
         }
+
+        let center = Vector::new(bounds.width / 2.0, bounds.height / 2.0);
+        let palette = theme.extended_palette();
 
         let indicator = self.indicator_cache.draw(renderer, bounds.size(), |frame| {
             frame.translate(center);

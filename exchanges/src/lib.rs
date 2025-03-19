@@ -196,7 +196,7 @@ impl TickerInfo {
     }
 }
 
-#[derive(Default, Debug, Clone, Copy, Deserialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct Trade {
     pub time: u64,
     #[serde(deserialize_with = "bool_from_int")]
@@ -205,7 +205,7 @@ pub struct Trade {
     pub qty: f32,
 }
 
-#[derive(Default, Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Kline {
     pub time: u64,
     pub open: f32,

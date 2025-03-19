@@ -791,6 +791,10 @@ impl canvas::Program<Message> for FootprintChart {
     ) -> Vec<Geometry> {
         let chart = self.get_common_data();
 
+        if chart.bounds.width == 0.0 {
+            return vec![];
+        }
+
         let center = Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         let bounds_size = bounds.size();
 

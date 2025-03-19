@@ -520,11 +520,11 @@ impl canvas::Program<Message> for HeatmapChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Vec<Geometry> {
-        if self.timeseries.is_empty() {
+        let chart = self.get_common_data();
+
+        if chart.bounds.width == 0.0 {
             return vec![];
         }
-
-        let chart = self.get_common_data();
 
         let center = Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         let bounds_size = bounds.size();

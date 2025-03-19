@@ -147,7 +147,7 @@ impl TimeSeries {
 
         let rounded_update_t = update_t.map(|t| (t / aggregate_time) * aggregate_time);
 
-        for trade in buffer {
+        buffer.iter().for_each(|trade| {
             let rounded_time =
                 rounded_update_t.unwrap_or((trade.time / aggregate_time) * aggregate_time);
             let price_level = OrderedFloat(round_to_tick(trade.price, tick_size));
@@ -156,7 +156,14 @@ impl TimeSeries {
                 .data_points
                 .entry(rounded_time)
                 .or_insert_with(|| DataPoint {
-                    kline: Kline::default(),
+                    kline: Kline {
+                        time: rounded_time,
+                        open: trade.price,
+                        high: trade.price,
+                        low: trade.price,
+                        close: trade.price,
+                        volume: (0.0, 0.0),
+                    },
                     trades: HashMap::new(),
                 });
 
@@ -171,7 +178,7 @@ impl TimeSeries {
             } else {
                 entry.trades.insert(price_level, (trade.qty, 0.0));
             }
-        }
+        });
     }
 
     pub fn clear_trades(&mut self) {
