@@ -21,7 +21,14 @@ ordered-float = "4.5.0"
 regex = "1.11.1"
 
 [dependencies]
-iced = { version = "0.14.0-dev", default-features = false, features = ["wgpu", "canvas", "tokio", "advanced", "lazy"] }
+iced = { version = "0.14.0-dev", default-features = false, features = [
+    "wgpu", 
+    "canvas", 
+    "tokio", 
+    "advanced", 
+    "lazy", 
+    "unconditional-rendering",
+] }
 iced_futures.workspace = true
 chrono.workspace = true
 serde_json.workspace = true
@@ -38,4 +45,4 @@ uuid = { version = "1.11.0", features = ["v4"] }
 exchanges = { version = "0.1.0", path = "exchanges" }
 
 [patch.crates-io]
-iced = { git = "https://github.com/iced-rs/iced", rev = "beddf49c76f3b43e7b33452831e1293cad28fd89" }
+iced = { git = "https://github.com/iced-rs/iced", rev = "892ac1ce722a809e73aecd8d47ed4e7254d156df" }

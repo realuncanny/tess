@@ -94,8 +94,8 @@ impl AxisLabel {
                     content: label.content.clone(),
                     position: rect.center(),
                     color: label.text_color,
-                    vertical_alignment: Alignment::Center.into(),
-                    horizontal_alignment: Alignment::Center.into(),
+                    align_y: Alignment::Center.into(),
+                    align_x: Alignment::Center.into(),
                     size: label.text_size.into(),
                     ..canvas::Text::default()
                 };
@@ -117,7 +117,7 @@ impl AxisLabel {
                         position: Point::new(rect.x + 4.0, rect.center_y() - 6.0),
                         color: price_label.text_color,
                         size: price_label.text_size.into(),
-                        vertical_alignment: Alignment::Center.into(),
+                        align_y: Alignment::Center.into(),
                         ..canvas::Text::default()
                     };
 
@@ -128,7 +128,7 @@ impl AxisLabel {
                         position: Point::new(rect.x + 4.0, rect.center_y() + 6.0),
                         color: timer_label.text_color,
                         size: timer_label.text_size.into(),
-                        vertical_alignment: Alignment::Center.into(),
+                        align_y: Alignment::Center.into(),
                         ..canvas::Text::default()
                     };
 
@@ -139,7 +139,7 @@ impl AxisLabel {
                         position: Point::new(rect.x + 4.0, rect.center_y()),
                         color: price_label.text_color,
                         size: price_label.text_size.into(),
-                        vertical_alignment: Alignment::Center.into(),
+                        align_y: Alignment::Center.into(),
                         ..canvas::Text::default()
                     };
 

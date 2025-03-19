@@ -140,30 +140,3 @@ pub enum DashboardError {
     #[error("Unknown error: {0}")]
     Unknown(String),
 }
-
-#[derive(Default, Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
-pub enum PresentMode {
-    #[default]
-    AutoVsync,
-    AutoNoVsync,
-}
-
-impl std::fmt::Display for PresentMode {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PresentMode::AutoVsync => write!(f, "Auto Vsync(Default)"),
-            PresentMode::AutoNoVsync => write!(f, "Auto No-Vsync"),
-        }
-    }
-}
-
-impl PresentMode {
-    pub const ALL: [PresentMode; 2] = [PresentMode::AutoVsync, PresentMode::AutoNoVsync];
-
-    pub fn get_env_name(&self) -> &'static str {
-        match self {
-            PresentMode::AutoVsync => "vsync",
-            PresentMode::AutoNoVsync => "no_vsync",
-        }
-    }
-}

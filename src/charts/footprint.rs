@@ -1073,8 +1073,8 @@ fn draw_data_point(
                     position: text_position,
                     size: iced::Pixels(text_size),
                     color: palette.background.weak.text,
-                    horizontal_alignment: Alignment::Start.into(),
-                    vertical_alignment: Alignment::Center.into(),
+                    align_x: Alignment::Start.into(),
+                    align_y: Alignment::Center.into(),
                     ..canvas::Text::default()
                 });
 
@@ -1103,8 +1103,8 @@ fn draw_data_point(
                     position: text_position,
                     size: iced::Pixels(text_size),
                     color: palette.background.weak.text,
-                    horizontal_alignment: Alignment::End.into(),
-                    vertical_alignment: Alignment::Center.into(),
+                    align_x: Alignment::End.into(),
+                    align_y: Alignment::Center.into(),
                     ..canvas::Text::default()
                 });
 

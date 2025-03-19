@@ -13,7 +13,7 @@ use crate::screen::{
 };
 use crate::style::get_icon_text;
 use crate::widget::column_drag::{self, DragEvent, DropPosition};
-use crate::{screen, style, tooltip};
+use crate::{style, tooltip};
 use exchanges::{
     Ticker, Timeframe,
     adapter::{Exchange, StreamType},
@@ -553,7 +553,6 @@ pub struct SavedState {
     pub window_position: Option<(f32, f32)>,
     pub timezone: UserTimezone,
     pub sidebar: Sidebar,
-    pub present_mode: screen::PresentMode,
     pub scale_factor: ScaleFactor,
 }
 
@@ -567,7 +566,6 @@ impl Default for SavedState {
             window_position: None,
             timezone: UserTimezone::default(),
             sidebar: Sidebar::default(),
-            present_mode: screen::PresentMode::default(),
             scale_factor: ScaleFactor::default(),
         }
     }
@@ -665,7 +663,6 @@ pub struct SerializableState {
     pub window_position: Option<(f32, f32)>,
     pub timezone: UserTimezone,
     pub sidebar: Sidebar,
-    pub present_mode: screen::PresentMode,
     pub scale_factor: ScaleFactor,
 }
 
@@ -678,7 +675,6 @@ impl SerializableState {
         position: Option<Point>,
         timezone: UserTimezone,
         sidebar: Sidebar,
-        present_mode: screen::PresentMode,
         scale_factor: ScaleFactor,
     ) -> Self {
         SerializableState {
@@ -691,7 +687,6 @@ impl SerializableState {
             window_position: position.map(|p| (p.x, p.y)),
             timezone,
             sidebar,
-            present_mode,
             scale_factor,
         }
     }
@@ -1060,7 +1055,6 @@ pub fn load_saved_state(file_path: &str) -> SavedState {
                 window_position: state.window_position,
                 timezone: state.timezone,
                 sidebar: state.sidebar,
-                present_mode: state.present_mode,
                 scale_factor: state.scale_factor,
             }
         }

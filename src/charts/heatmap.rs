@@ -589,7 +589,7 @@ impl canvas::Program<Message> for HeatmapChart {
                                             ),
                                             size: iced::Pixels(cell_height),
                                             color: Color::WHITE,
-                                            vertical_alignment: Alignment::Center.into(),
+                                            align_y: Alignment::Center.into(),
                                             ..canvas::Text::default()
                                         });
 

@@ -42,10 +42,6 @@ fn main() {
 
     let saved_state = layout::load_saved_state("dashboard_state.json");
 
-    if let Err(e) = set_present_mode(&saved_state.present_mode) {
-        log::warn!("Failed to set ICED_PRESENT_MODE: {}", e);
-    }
-
     std::thread::spawn(layout::cleanup_old_data);
 
     let main_window_size = saved_state.window_size.unwrap_or((1600.0, 900.0));
@@ -114,6 +110,7 @@ enum Message {
     SetTickersInfo(Exchange, HashMap<Ticker, Option<TickerInfo>>),
     SetTimezone(UserTimezone),
     SidebarPosition(layout::Sidebar),
+    ScaleFactorChanged(f64),
 
     TickersTable(tickers_table::Message),
     ToggleTickersDashboard,
@@ -122,11 +119,6 @@ enum Message {
 
     LoadLayout(Layout),
     ToggleDialogModal(Option<(String, Box<Message>)>),
-
-    PresentModeSelected(screen::PresentMode),
-    ChangePresentMode(screen::PresentMode),
-
-    ScaleFactorChanged(f64),
 
     ManageLayouts(layout::Message),
 
@@ -145,7 +137,6 @@ struct State {
     scale_factor: layout::ScaleFactor,
     tickers_table: TickersTable,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
-    present_mode: screen::PresentMode,
     notifications: Vec<Toast>,
 }
 
@@ -184,7 +175,6 @@ impl State {
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
-                present_mode: saved_state.present_mode,
                 notifications: Vec::new(),
             },
             open_main_window
@@ -320,7 +310,6 @@ impl State {
                     position,
                     self.timezone,
                     self.sidebar_location,
-                    self.present_mode,
                     self.scale_factor,
                 );
 
@@ -486,18 +475,6 @@ impl State {
             }
             Message::ToggleDialogModal(dialog) => {
                 self.confirm_dialog = dialog;
-            }
-            Message::PresentModeSelected(mode) => {
-                if mode != self.present_mode {
-                    return Task::done(Message::ToggleDialogModal(Some((
-                        "This will take effect after restarting the app".to_string(),
-                        Box::new(Message::ChangePresentMode(mode)),
-                    ))));
-                }
-            }
-            Message::ChangePresentMode(mode) => {
-                self.present_mode = mode;
-                self.confirm_dialog = None;
             }
             Message::ScaleFactorChanged(value) => {
                 self.scale_factor = layout::ScaleFactor::from(value);
@@ -721,12 +698,6 @@ impl State {
                             )
                         };
 
-                        let present_mode_picklist = pick_list(
-                            screen::PresentMode::ALL,
-                            Some(self.present_mode),
-                            Message::PresentModeSelected,
-                        );
-
                         let theme_picklist =
                             pick_list(all_themes, Some(self.theme.clone()), Message::ThemeSelected);
 
@@ -778,12 +749,8 @@ impl State {
                                 column![text("Time zone").size(14), timezone_picklist,].spacing(8),
                                 column![text("Theme").size(14), theme_picklist,].spacing(8),
                                 column![text("Interface scale").size(14), scale_factor,].spacing(8),
-                                column![
-                                    text("Experimental").size(14),
-                                    trade_fetch_checkbox,
-                                    present_mode_picklist,
-                                ]
-                                .spacing(8),
+                                column![text("Experimental").size(14), trade_fetch_checkbox,]
+                                    .spacing(8),
                             ]
                             .spacing(20),
                         )
@@ -1057,13 +1024,4 @@ where
             Err(err) => Message::ErrorOccurred(InternalError::Fetch(err)),
         },
     )
-}
-
-fn set_present_mode(present_mode: &screen::PresentMode) -> Result<(), std::env::VarError> {
-    if std::env::var("ICED_PRESENT_MODE").is_err() {
-        unsafe {
-            std::env::set_var("ICED_PRESENT_MODE", present_mode.get_env_name());
-        }
-    }
-    Ok(())
 }
