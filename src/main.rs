@@ -538,7 +538,7 @@ impl State {
                             Some("Layout Lock"),
                             tooltip_position,
                             |theme: &Theme, status: button::Status| {
-                                style::button_transparent(theme, status, false)
+                                style::button::transparent(theme, status, false)
                             },
                         )
                     };
@@ -557,7 +557,7 @@ impl State {
                             Some("Settings"),
                             tooltip_position,
                             move |theme: &Theme, status: button::Status| {
-                                style::button_transparent(theme, status, is_active)
+                                style::button::transparent(theme, status, is_active)
                             },
                         )
                     };
@@ -576,7 +576,7 @@ impl State {
                             Some("Manage Layouts"),
                             tooltip_position,
                             move |theme: &Theme, status: button::Status| {
-                                style::button_transparent(theme, status, is_active)
+                                style::button::transparent(theme, status, is_active)
                             },
                         )
                     };
@@ -591,7 +591,7 @@ impl State {
                             Some("Search Tickers"),
                             tooltip_position,
                             move |theme: &Theme, status: button::Status| {
-                                style::button_transparent(theme, status, is_active)
+                                style::button::transparent(theme, status, is_active)
                             },
                         )
                     };

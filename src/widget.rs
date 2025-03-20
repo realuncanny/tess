@@ -45,7 +45,7 @@ pub fn confirm_dialog<'a, Message: 'a + Clone>(
             text(dialog).size(14),
             row![
                 button(text("Cancel"))
-                    .style(|theme, status| style::button_transparent(theme, status, false))
+                    .style(|theme, status| style::button::transparent(theme, status, false))
                     .on_press(on_cancel),
                 button(text("Confirm")).on_press(on_confirm),
             ]

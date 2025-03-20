@@ -11,7 +11,7 @@ use iced::{
 };
 use iced::{Border, mouse, padding, theme, window};
 
-use crate::style::{self, button_transparent};
+use crate::style;
 
 pub const DEFAULT_TIMEOUT: u64 = 8;
 
@@ -107,7 +107,9 @@ where
                             horizontal_space(),
                             button("X")
                                 .on_press((on_close)(index))
-                                .style(move |theme, status| button_transparent(theme, status, true))
+                                .style(move |theme, status| style::button::transparent(
+                                    theme, status, true
+                                ))
                                 .padding(padding::right(6).left(6).top(2).bottom(2))
                         ]
                         .align_y(Center)

@@ -422,7 +422,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
             .height(Length::Fill)
             .on_press(Message::AutoscaleToggle)
             .style(move |theme, status| {
-                style::button_transparent(theme, status, chart_state.autoscale)
+                style::button::transparent(theme, status, chart_state.autoscale)
             });
 
         let crosshair_button = button(text("+").size(10).align_x(alignment::Horizontal::Center))
@@ -430,7 +430,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
             .height(Length::Fill)
             .on_press(Message::CrosshairToggle)
             .style(move |theme, status| {
-                style::button_transparent(theme, status, chart_state.crosshair)
+                style::button::transparent(theme, status, chart_state.crosshair)
             });
 
         container(
@@ -853,6 +853,10 @@ pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
 }
 
 pub fn format_with_commas(num: f32) -> String {
+    if num == 0.0 {
+        return "0".to_string();
+    }
+
     let abs_num = num.abs();
     let is_negative = num < 0.0;
 

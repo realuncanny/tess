@@ -102,8 +102,8 @@ impl AxisLabel {
 
                 frame.fill_text(label);
             }
-            AxisLabel::Y(rect, price_label, timer_label) => {
-                if let Some(background_color) = price_label.background_color {
+            AxisLabel::Y(rect, value_label, timer_label) => {
+                if let Some(background_color) = value_label.background_color {
                     frame.fill_rectangle(
                         Point::new(rect.x, rect.y),
                         Size::new(rect.width, rect.height),
@@ -112,16 +112,16 @@ impl AxisLabel {
                 }
 
                 if let Some(timer_label) = timer_label {
-                    let price_label = canvas::Text {
-                        content: price_label.content.clone(),
+                    let value_label = canvas::Text {
+                        content: value_label.content.clone(),
                         position: Point::new(rect.x + 4.0, rect.center_y() - 6.0),
-                        color: price_label.text_color,
-                        size: price_label.text_size.into(),
+                        color: value_label.text_color,
+                        size: value_label.text_size.into(),
                         align_y: Alignment::Center.into(),
                         ..canvas::Text::default()
                     };
 
-                    frame.fill_text(price_label);
+                    frame.fill_text(value_label);
 
                     let timer_label = canvas::Text {
                         content: timer_label.content.clone(),
@@ -134,16 +134,16 @@ impl AxisLabel {
 
                     frame.fill_text(timer_label);
                 } else {
-                    let price_label = canvas::Text {
-                        content: price_label.content.clone(),
+                    let value_label = canvas::Text {
+                        content: value_label.content.clone(),
                         position: Point::new(rect.x + 4.0, rect.center_y()),
-                        color: price_label.text_color,
-                        size: price_label.text_size.into(),
+                        color: value_label.text_color,
+                        size: value_label.text_size.into(),
                         align_y: Alignment::Center.into(),
                         ..canvas::Text::default()
                     };
 
-                    frame.fill_text(price_label);
+                    frame.fill_text(value_label);
                 }
             }
         }
@@ -733,7 +733,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                                 Color::WHITE
                             }
                         } else {
-                            palette.primary.weak.text
+                            palette.primary.strong.text
                         }
                     },
                     text_size: 12.0,
@@ -816,7 +816,7 @@ impl PriceInfoLabel {
         match self {
             PriceInfoLabel::Up(p) => (*p, palette.success.base.color),
             PriceInfoLabel::Down(p) => (*p, palette.danger.base.color),
-            PriceInfoLabel::Neutral(p) => (*p, palette.primary.weak.color),
+            PriceInfoLabel::Neutral(p) => (*p, palette.secondary.strong.color),
         }
     }
 }

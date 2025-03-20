@@ -200,6 +200,8 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
 
         let text_size = 12.0;
 
+        let tick_size = 1.0;
+
         let labels = self.label_cache.draw(renderer, bounds.size(), |frame| {
             draw_borders(frame, bounds, palette);
 
@@ -209,7 +211,7 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
                 self.max,
                 text_size,
                 palette.background.base.text,
-                10.0,
+                tick_size,
                 None,
             );
 
@@ -224,7 +226,7 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
                 if let Some(crosshair_pos) = cursor.position_in(common_bounds) {
                     let rounded_value = round_to_tick(
                         lowest + (range * (bounds.height - crosshair_pos.y) / bounds.height),
-                        10.0,
+                        tick_size,
                     );
 
                     let label = Label {

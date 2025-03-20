@@ -479,7 +479,7 @@ impl PaneState {
                             .to_string(),
                     ))
                     .style(move |theme, status| {
-                        style::button_modifier(theme, status, !is_stream_modifier)
+                        style::button::modifier(theme, status, !is_stream_modifier)
                     })
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
@@ -496,7 +496,7 @@ impl PaneState {
                         self.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
                     )))
                     .style(move |theme, status| {
-                        style::button_modifier(theme, status, !is_stream_modifier)
+                        style::button::modifier(theme, status, !is_stream_modifier)
                     })
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
@@ -512,7 +512,7 @@ impl PaneState {
                             .to_string(),
                     ))
                     .style(move |theme, status| {
-                        style::button_modifier(theme, status, !is_stream_modifier)
+                        style::button::modifier(theme, status, !is_stream_modifier)
                     })
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
@@ -793,12 +793,12 @@ fn indicators_view<I: Indicator>(
             button(text(indicator.to_string()))
                 .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
                 .width(Length::Fill)
-                .style(move |theme, status| style::button_transparent(theme, status, true))
+                .style(move |theme, status| style::button::transparent(theme, status, true))
         } else {
             button(text(indicator.to_string()))
                 .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
                 .width(Length::Fill)
-                .style(move |theme, status| style::button_transparent(theme, status, false))
+                .style(move |theme, status| style::button::transparent(theme, status, false))
         });
     }
 
@@ -822,7 +822,7 @@ fn stream_modifier_view<'a>(
     let create_button = |content: String, msg: Option<Message>, active: bool| {
         let btn = button(container(text(content)).align_x(Horizontal::Center))
             .width(Length::Fill)
-            .style(move |theme, status| style::button_transparent(theme, status, active));
+            .style(move |theme, status| style::button::transparent(theme, status, active));
 
         if let Some(msg) = msg {
             btn.on_press(msg)
@@ -985,7 +985,7 @@ fn view_controls<'a>(
     is_chart: bool,
 ) -> Element<'a, Message> {
     let button_style =
-        |theme: &Theme, status: button::Status| style::button_transparent(theme, status, false);
+        |theme: &Theme, status: button::Status| style::button::transparent(theme, status, false);
     let tooltip_pos = tooltip::Position::Bottom;
 
     let mut buttons = row![create_button(

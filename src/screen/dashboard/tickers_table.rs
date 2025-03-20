@@ -320,11 +320,11 @@ impl TickersTable {
 
         let spot_market_button = button(text("Spot"))
             .on_press(Message::SetMarketFilter(Some(MarketType::Spot)))
-            .style(move |theme, status| style::button_transparent(theme, status, false));
+            .style(move |theme, status| style::button::transparent(theme, status, false));
 
         let perp_market_button = button(text("Linear Perps"))
             .on_press(Message::SetMarketFilter(Some(MarketType::LinearPerps)))
-            .style(move |theme, status| style::button_transparent(theme, status, false));
+            .style(move |theme, status| style::button::transparent(theme, status, false));
 
         let show_sorting_button = button(get_icon_text(Icon::Sort, 14).align_x(Horizontal::Center))
             .on_press(Message::ShowSortingOptions);
@@ -371,10 +371,11 @@ impl TickersTable {
                     .align_x(Horizontal::Left),
                 if self.show_sort_options {
                     show_sorting_button
-                        .style(move |theme, status| style::button_transparent(theme, status, true))
+                        .style(move |theme, status| style::button::transparent(theme, status, true))
                 } else {
-                    show_sorting_button
-                        .style(move |theme, status| style::button_transparent(theme, status, false))
+                    show_sorting_button.style(move |theme, status| {
+                        style::button::transparent(theme, status, false)
+                    })
                 }
             ]
             .align_y(Vertical::Center)
@@ -387,20 +388,20 @@ impl TickersTable {
                             match self.selected_sort_option {
                                 SortOptions::VolumeAsc | SortOptions::VolumeDesc =>
                                     volume_sort_button.style(move |theme, status| {
-                                        style::button_transparent(theme, status, true)
+                                        style::button::transparent(theme, status, true)
                                     }),
                                 _ => volume_sort_button.style(move |theme, status| {
-                                    style::button_transparent(theme, status, false)
+                                    style::button::transparent(theme, status, false)
                                 }),
                             },
                             Space::new(Length::FillPortion(1), Length::Shrink),
                             match self.selected_sort_option {
                                 SortOptions::ChangeAsc | SortOptions::ChangeDesc =>
                                     change_sort_button.style(move |theme, status| {
-                                        style::button_transparent(theme, status, true)
+                                        style::button::transparent(theme, status, true)
                                     }),
                                 _ => change_sort_button.style(move |theme, status| {
-                                    style::button_transparent(theme, status, false)
+                                    style::button::transparent(theme, status, false)
                                 }),
                             },
                             Space::new(Length::FillPortion(2), Length::Shrink),
@@ -410,20 +411,20 @@ impl TickersTable {
                             match self.selected_market {
                                 Some(MarketType::Spot) =>
                                     spot_market_button.style(move |theme, status| {
-                                        style::button_transparent(theme, status, true)
+                                        style::button::transparent(theme, status, true)
                                     }),
                                 _ => spot_market_button.style(move |theme, status| {
-                                    style::button_transparent(theme, status, false)
+                                    style::button::transparent(theme, status, false)
                                 }),
                             },
                             Space::new(Length::FillPortion(1), Length::Shrink),
                             match self.selected_market {
                                 Some(MarketType::LinearPerps) =>
                                     perp_market_button.style(move |theme, status| {
-                                        style::button_transparent(theme, status, true)
+                                        style::button::transparent(theme, status, true)
                                     }),
                                 _ => perp_market_button.style(move |theme, status| {
-                                    style::button_transparent(theme, status, false)
+                                    style::button::transparent(theme, status, false)
                                 }),
                             },
                             Space::new(Length::FillPortion(1), Length::Shrink),
@@ -573,7 +574,7 @@ fn create_ticker_card<'a>(
             .padding(8)
             .spacing(4),
         ])
-        .style(style::ticker_card_button)
+        .style(style::button::ticker_card)
         .on_press(Message::ExpandTickerCard(Some((*ticker, *exchange))))
     ]
     .height(Length::Fixed(60.0))
@@ -591,14 +592,14 @@ fn create_expanded_ticker_card<'a>(
         row![
             button(get_icon_text(Icon::Return, 11))
                 .on_press(Message::ExpandTickerCard(None))
-                .style(move |theme, status| style::button_transparent(theme, status, false)),
+                .style(move |theme, status| style::button::transparent(theme, status, false)),
             button(if is_fav {
                 get_icon_text(Icon::StarFilled, 11)
             } else {
                 get_icon_text(Icon::Star, 11)
             })
             .on_press(Message::FavoriteTicker(*exchange, *ticker))
-            .style(move |theme, status| style::button_transparent(theme, status, false)),
+            .style(move |theme, status| style::button::transparent(theme, status, false)),
         ]
         .spacing(2),
         row![
@@ -678,7 +679,7 @@ fn create_tab_button<'a>(
     target_tab: TickerTab,
 ) -> Button<'a, Message, Theme, Renderer> {
     let mut btn =
-        button(text).style(move |theme, status| style::button_transparent(theme, status, false));
+        button(text).style(move |theme, status| style::button::transparent(theme, status, false));
     if *current_tab != target_tab {
         btn = btn.on_press(Message::ChangeTickersTableTab(target_tab));
     }

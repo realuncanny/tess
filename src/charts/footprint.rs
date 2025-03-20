@@ -1057,6 +1057,8 @@ fn draw_data_point(
     );
 
     // Trades
+    let trade_qty_text_color = palette.background.weakest.text;
+
     for trade in trades {
         let y_position = price_to_y(**trade.0);
 
@@ -1064,6 +1066,7 @@ fn draw_data_point(
 
         if trade.1.0 > 0.0 {
             if cell_height_unscaled > 12.0 && cell_width_unscaled > 108.0 {
+                // cell is large enough, display the trade quantity
                 let text_content = abbr_large_numbers(trade.1.0);
 
                 let text_position = Point::new(x_position + (candle_width / 4.0), y_position);
@@ -1072,13 +1075,13 @@ fn draw_data_point(
                     content: text_content,
                     position: text_position,
                     size: iced::Pixels(text_size),
-                    color: palette.background.weak.text,
+                    color: trade_qty_text_color,
                     align_x: Alignment::Start.into(),
                     align_y: Alignment::Center.into(),
                     ..canvas::Text::default()
                 });
 
-                bar_color_alpha = 0.6;
+                bar_color_alpha = 0.3;
             }
 
             let bar_width = (trade.1.0 / max_trade_qty) * (cell_width * 0.4);
@@ -1102,13 +1105,13 @@ fn draw_data_point(
                     content: text_content,
                     position: text_position,
                     size: iced::Pixels(text_size),
-                    color: palette.background.weak.text,
+                    color: trade_qty_text_color,
                     align_x: Alignment::End.into(),
                     align_y: Alignment::Center.into(),
                     ..canvas::Text::default()
                 });
 
-                bar_color_alpha = 0.6;
+                bar_color_alpha = 0.3;
             }
 
             let bar_width = -(trade.1.1 / max_trade_qty) * (cell_width * 0.4);

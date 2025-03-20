@@ -327,7 +327,7 @@ impl LayoutManager {
                 Space::with_width(iced::Length::Fill),
                 row![
                     tooltip(
-                        button("i").style(move |theme, status| style::button_modifier(theme, status, true)),
+                        button("i").style(move |theme, status| style::button::modifier(theme, status, true)),
                         Some("- Drag & drop to reorder layouts\n- Layouts won't be saved if app exits abruptly"),
                         TooltipPosition::Top,
                     ),
@@ -392,7 +392,7 @@ impl LayoutManager {
                             .push(tooltip(
                                 button(get_icon_text(style::Icon::Clone, 12))
                                     .on_press(Message::CloneLayout(layout.id))
-                                    .style(move |t, s| style::button_transparent(t, s, true)),
+                                    .style(move |t, s| style::button::transparent(t, s, true)),
                                 Some("Clone layout"),
                                 TooltipPosition::Top,
                             ))
@@ -425,7 +425,7 @@ impl LayoutManager {
             content = content.push(
                 container(
                     button(text("Add layout"))
-                        .style(move |t, s| style::button_transparent(t, s, false))
+                        .style(move |t, s| style::button::transparent(t, s, false))
                         .width(iced::Length::Fill)
                         .on_press(Message::AddLayout),
                 )
@@ -448,7 +448,7 @@ impl LayoutManager {
                 create_icon_button(
                     style::Icon::TrashBin,
                     12,
-                    |theme, status| style::button_layout_name(theme, *status),
+                    |theme, status| style::button::layout_name(theme, *status),
                     None,
                 ),
                 Some("Can't delete active layout"),
@@ -458,7 +458,7 @@ impl LayoutManager {
             create_icon_button(
                 style::Icon::TrashBin,
                 12,
-                |theme, status| style::button_layout_name(theme, *status),
+                |theme, status| style::button::layout_name(theme, *status),
                 Some(Message::ToggleEditMode(Editing::ConfirmingDelete(
                     layout_id,
                 ))),
@@ -471,7 +471,7 @@ impl LayoutManager {
         create_icon_button(
             style::Icon::Edit,
             12,
-            |theme, status| style::button_layout_name(theme, *status),
+            |theme, status| style::button::layout_name(theme, *status),
             Some(Message::ToggleEditMode(Editing::Renaming(
                 layout.id,
                 layout.name.clone(),
@@ -486,14 +486,14 @@ impl LayoutManager {
         let confirm = create_icon_button(
             style::Icon::Checkmark,
             12,
-            |theme, status| style::button_confirm(theme, *status, true),
+            |theme, status| style::button::confirm(theme, *status, true),
             Some(Message::RemoveLayout(layout.id)),
         );
 
         let cancel = create_icon_button(
             style::Icon::Close,
             12,
-            |theme, status| style::button_cancel(theme, *status, true),
+            |theme, status| style::button::cancel(theme, *status, true),
             Some(Message::ToggleEditMode(Editing::Preview)),
         );
 
@@ -504,7 +504,7 @@ impl LayoutManager {
 fn create_layout_button<'a>(layout: &Layout, on_press: Option<Message>) -> Element<'a, Message> {
     let mut layout_btn = button(text(layout.name.clone()))
         .width(iced::Length::Fill)
-        .style(style::button_layout_name);
+        .style(style::button::layout_name);
 
     if let Some(msg) = on_press {
         layout_btn = layout_btn.on_press(msg);
