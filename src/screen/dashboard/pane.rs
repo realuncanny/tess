@@ -24,7 +24,10 @@ use iced::{
     Alignment, Element, Length, Renderer, Task, Theme,
     alignment::{Horizontal, Vertical},
     padding,
-    widget::{button, center, column, container, pane_grid, row, scrollable, text, tooltip},
+    widget::{
+        button, center, column, container, horizontal_space, pane_grid, row, scrollable, text,
+        tooltip,
+    },
 };
 use serde::{Deserialize, Serialize};
 
@@ -790,10 +793,14 @@ fn indicators_view<I: Indicator>(
 
     for indicator in I::get_available(market_type) {
         content_row = content_row.push(if selected.contains(indicator) {
-            button(text(indicator.to_string()))
-                .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
-                .width(Length::Fill)
-                .style(move |theme, status| style::button::transparent(theme, status, true))
+            button(row![
+                text(indicator.to_string()),
+                horizontal_space(),
+                container(get_icon_text(Icon::Checkmark, 12)),
+            ])
+            .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
+            .width(Length::Fill)
+            .style(move |theme, status| style::button::transparent(theme, status, true))
         } else {
             button(text(indicator.to_string()))
                 .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
