@@ -1,6 +1,9 @@
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
 
+use data::UserTimezone;
+use data::chart::ChartLayout;
+use data::chart::indicators::{CandlestickIndicator, Indicator};
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{LineDash, Path, Stroke};
 use iced::widget::container;
@@ -10,16 +13,14 @@ use iced::widget::{
 };
 use iced::{Element, Length, Point, Rectangle, Renderer, Size, Task, Theme, Vector, mouse};
 
-use crate::aggr::{ticks::TickAggr, time::TimeSeries};
-use crate::fetcher::{FetchRange, RequestHandler};
-use crate::layout::SerializableChartData;
-use crate::screen::UserTimezone;
+use data::aggr::{ticks::TickAggr, time::TimeSeries};
+use exchanges::fetcher::{FetchRange, RequestHandler};
 use exchanges::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade, adapter::MarketType};
 
-use super::indicators::{self, CandlestickIndicator, Indicator};
 use super::scales::PriceInfoLabel;
 use super::{
-    Caches, Chart, ChartBasis, ChartConstants, ChartData, CommonChartData, Interaction, Message,
+    Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
+    indicators,
 };
 use super::{canvas_interaction, count_decimals, request_fetch, update_chart, view_chart};
 
@@ -129,8 +130,8 @@ pub struct CandlestickChart {
 
 impl CandlestickChart {
     pub fn new(
-        layout: SerializableChartData,
-        basis: ChartBasis,
+        layout: ChartLayout,
+        basis: Basis,
         klines_raw: Vec<Kline>,
         raw_trades: Vec<Trade>,
         tick_size: f32,
@@ -138,7 +139,7 @@ impl CandlestickChart {
         ticker_info: Option<TickerInfo>,
     ) -> CandlestickChart {
         match basis {
-            ChartBasis::Time(interval) => {
+            Basis::Time(interval) => {
                 let timeseries = TimeSeries::new(interval.into(), tick_size, &[], &klines_raw);
 
                 let base_price_y = timeseries.get_base_price();
@@ -159,7 +160,7 @@ impl CandlestickChart {
                         indicators_split: layout.indicators_split,
                         decimals: count_decimals(tick_size),
                         ticker_info,
-                        basis: super::ChartBasis::Time(interval),
+                        basis: super::Basis::Time(interval),
                         ..Default::default()
                     },
                     data_source: ChartData::TimeBased(timeseries),
@@ -189,7 +190,7 @@ impl CandlestickChart {
                     request_handler: RequestHandler::new(),
                 }
             }
-            ChartBasis::Tick(interval) => {
+            Basis::Tick(interval) => {
                 let tick_aggr = TickAggr::new(interval, tick_size, &raw_trades);
                 let volume_data = tick_aggr.get_volume_data();
 
@@ -414,7 +415,7 @@ impl CandlestickChart {
     }
 
     pub fn set_tick_basis(&mut self, tick_basis: u64) {
-        self.chart.basis = ChartBasis::Tick(tick_basis);
+        self.chart.basis = Basis::Tick(tick_basis);
 
         let new_tick_aggr = TickAggr::new(tick_basis, self.chart.tick_size, &self.raw_trades);
 
@@ -466,7 +467,7 @@ impl CandlestickChart {
         });
     }
 
-    pub fn get_chart_layout(&self) -> SerializableChartData {
+    pub fn get_chart_layout(&self) -> ChartLayout {
         self.chart.get_chart_layout()
     }
 
@@ -612,97 +613,96 @@ impl canvas::Program<Message> for CandlestickChart {
         let palette = theme.extended_palette();
 
         let candlesticks = chart.cache.main.draw(renderer, bounds_size, |frame| {
-            frame.with_save(|frame| {
-                frame.translate(center);
-                frame.scale(chart.scaling);
-                frame.translate(chart.translation);
+            frame.translate(center);
+            frame.scale(chart.scaling);
+            frame.translate(chart.translation);
 
-                let region = chart.visible_region(frame.size());
+            let region = chart.visible_region(frame.size());
 
-                let (earliest, latest) = chart.get_interval_range(region);
-                let price_to_y = |price: f32| chart.price_to_y(price);
+            let (earliest, latest) = chart.get_interval_range(region);
+            let price_to_y = |price: f32| chart.price_to_y(price);
 
-                match &self.data_source {
-                    ChartData::TickBased(tick_aggr) => {
-                        let earliest = earliest as usize;
-                        let latest = latest as usize;
+            match &self.data_source {
+                ChartData::TickBased(tick_aggr) => {
+                    let earliest = earliest as usize;
+                    let latest = latest as usize;
 
-                        tick_aggr
-                            .data_points
-                            .iter()
-                            .rev()
-                            .enumerate()
-                            .filter(|(index, _)| *index <= latest && *index >= earliest)
-                            .for_each(|(index, tick_aggr)| {
-                                let x_position = chart.interval_to_x(index as u64);
+                    tick_aggr
+                        .data_points
+                        .iter()
+                        .rev()
+                        .enumerate()
+                        .filter(|(index, _)| *index <= latest && *index >= earliest)
+                        .for_each(|(index, tick_aggr)| {
+                            let x_position = chart.interval_to_x(index as u64);
 
-                                let kline = Kline {
-                                    time: tick_aggr.start_timestamp,
-                                    open: tick_aggr.open_price,
-                                    high: tick_aggr.high_price,
-                                    low: tick_aggr.low_price,
-                                    close: tick_aggr.close_price,
-                                    volume: (tick_aggr.volume_buy, tick_aggr.volume_sell),
-                                };
+                            let kline = Kline {
+                                time: tick_aggr.start_timestamp,
+                                open: tick_aggr.open_price,
+                                high: tick_aggr.high_price,
+                                low: tick_aggr.low_price,
+                                close: tick_aggr.close_price,
+                                volume: (tick_aggr.volume_buy, tick_aggr.volume_sell),
+                            };
 
-                                draw_data_point(
-                                    frame,
-                                    price_to_y,
-                                    candle_width,
-                                    palette,
-                                    x_position,
-                                    &kline,
-                                );
-                            });
-                    }
-                    ChartData::TimeBased(timeseries) => {
-                        if latest < earliest {
-                            return;
-                        }
-
-                        timeseries.data_points.range(earliest..=latest).for_each(
-                            |(timestamp, dp)| {
-                                let x_position = chart.interval_to_x(*timestamp);
-
-                                draw_data_point(
-                                    frame,
-                                    price_to_y,
-                                    candle_width,
-                                    palette,
-                                    x_position,
-                                    &dp.kline,
-                                );
-                            },
-                        );
-                    }
+                            draw_data_point(
+                                frame,
+                                price_to_y,
+                                candle_width,
+                                palette,
+                                x_position,
+                                &kline,
+                            );
+                        });
                 }
+                ChartData::TimeBased(timeseries) => {
+                    if latest < earliest {
+                        return;
+                    }
 
-                // last price line
-                if let Some(price) = &chart.last_price {
-                    let (mut y_pos, line_color) = price.get_with_color(palette);
-                    y_pos = chart.price_to_y(y_pos);
+                    timeseries
+                        .data_points
+                        .range(earliest..=latest)
+                        .for_each(|(timestamp, dp)| {
+                            let x_position = chart.interval_to_x(*timestamp);
 
-                    let marker_line = Stroke::with_color(
-                        Stroke {
-                            width: 1.0,
-                            line_dash: LineDash {
-                                segments: &[2.0, 2.0],
-                                offset: 4,
-                            },
-                            ..Default::default()
+                            draw_data_point(
+                                frame,
+                                price_to_y,
+                                candle_width,
+                                palette,
+                                x_position,
+                                &dp.kline,
+                            );
+                        });
+                }
+            }
+
+            // last price line
+            if let Some(price) = &chart.last_price {
+                let (mut y_pos, line_color) = price.get_with_color(palette);
+                y_pos = chart.price_to_y(y_pos);
+
+                let marker_line = Stroke::with_color(
+                    Stroke {
+                        width: 1.0,
+                        line_dash: LineDash {
+                            segments: &[2.0, 2.0],
+                            offset: 4,
                         },
-                        line_color.scale_alpha(0.5),
-                    );
+                        ..Default::default()
+                    },
+                    line_color.scale_alpha(0.5),
+                );
 
-                    frame.stroke(
-                        &Path::line(
-                            Point::new(0.0, y_pos),
-                            Point::new(region.x + region.width, y_pos),
-                        ),
-                        marker_line,
-                    );
-                };
-            });
+                frame.stroke(
+                    &Path::line(
+                        Point::new(0.0, y_pos),
+                        Point::new(region.x + region.width, y_pos),
+                    ),
+                    marker_line,
+                );
+            };
         });
 
         if chart.crosshair {

@@ -1,4 +1,3 @@
-use iced::theme::{Custom, Palette};
 use iced::widget::container::{self, Style};
 use iced::widget::pane_grid::{Highlight, Line};
 use iced::widget::scrollable::{Rail, Scroller};
@@ -68,20 +67,6 @@ pub fn get_icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
     text(char::from(icon).to_string())
         .font(ICON_FONT)
         .size(iced::Pixels(size.into()))
-}
-
-pub fn custom_theme() -> Custom {
-    Custom::new(
-        "Flowsurface".to_string(),
-        Palette {
-            background: Color::from_rgb8(24, 22, 22),
-            text: Color::from_rgb8(197, 201, 197),
-            primary: Color::from_rgb8(200, 200, 200),
-            success: Color::from_rgb8(81, 205, 160),
-            danger: Color::from_rgb8(192, 80, 77),
-            warning: Color::from_rgb8(238, 216, 139),
-        },
-    )
 }
 
 #[cfg(target_os = "macos")]
@@ -374,7 +359,6 @@ pub fn chart_modal(theme: &Theme) -> Style {
             blur_radius: 12.0,
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.4 } else { 0.2 }),
         },
-        ..Default::default()
     }
 }
 
@@ -463,9 +447,9 @@ pub fn ts_table_container(theme: &Theme, is_sell: bool, color_alpha: f32) -> Sty
     Style {
         text_color: color.into(),
         border: Border {
-            width: 1.0,
+            width: 2.0,
             color: color.scale_alpha(color_alpha),
-            ..Border::default()
+            radius: 2.0.into(),
         },
         ..Default::default()
     }
@@ -478,70 +462,36 @@ pub fn search_input(
 ) -> widget::text_input::Style {
     let palette = theme.extended_palette();
 
-    match status {
-        widget::text_input::Status::Active => widget::text_input::Style {
-            background: palette.background.weak.color.into(),
-            border: Border {
-                radius: 3.0.into(),
-                width: 1.0,
-                color: palette.secondary.base.color,
-            },
-            icon: palette.background.strong.text,
-            placeholder: palette.background.base.text,
-            value: palette.background.weak.text,
-            selection: palette.background.strong.color,
-        },
-        widget::text_input::Status::Hovered => widget::text_input::Style {
-            background: palette.background.weak.color.into(),
-            border: Border {
-                radius: 3.0.into(),
-                width: 1.0,
-                color: palette.secondary.strong.color,
-            },
-            icon: palette.background.strong.text,
-            placeholder: palette.background.base.text,
-            value: palette.background.weak.text,
-            selection: palette.background.strong.color,
-        },
-        widget::text_input::Status::Focused { .. } => widget::text_input::Style {
-            background: palette.background.weak.color.into(),
-            border: Border {
-                radius: 3.0.into(),
-                width: 2.0,
-                color: palette.secondary.strong.color,
-            },
-            icon: palette.background.strong.text,
-            placeholder: palette.background.base.text,
-            value: palette.background.weak.text,
-            selection: palette.background.strong.color,
-        },
-        widget::text_input::Status::Disabled => widget::text_input::Style {
-            background: palette.background.weak.color.into(),
-            border: Border {
-                radius: 3.0.into(),
-                width: 1.0,
-                color: palette.secondary.weak.color,
-            },
-            icon: palette.background.weak.text,
-            placeholder: palette.background.weak.text,
-            value: palette.background.weak.text,
-            selection: palette.background.weak.text,
-        },
-    }
-}
+    let (background, border_color, placeholder) = match status {
+        widget::text_input::Status::Active => (
+            palette.background.weakest.color,
+            palette.background.weak.color,
+            palette.background.strongest.color,
+        ),
+        widget::text_input::Status::Hovered => (
+            palette.background.weak.color,
+            palette.background.strong.color,
+            palette.background.base.text,
+        ),
+        widget::text_input::Status::Focused { .. }
+        | widget::text_input::Status::Disabled { .. } => (
+            palette.background.base.color,
+            palette.background.strong.color,
+            palette.background.base.text,
+        ),
+    };
 
-pub fn sorter_container(theme: &Theme) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        text_color: Some(palette.background.base.text),
-        background: Some(palette.background.weakest.color.into()),
+    widget::text_input::Style {
+        background: background.into(),
         border: Border {
-            width: 1.0,
-            color: palette.background.weak.color,
             radius: 3.0.into(),
+            width: 1.0,
+            color: border_color,
         },
-        ..Default::default()
+        icon: palette.background.strong.text,
+        placeholder,
+        value: palette.background.weak.text,
+        selection: palette.background.strongest.color,
     }
 }
 
@@ -554,7 +504,6 @@ pub fn ticker_card(theme: &Theme) -> Style {
             radius: 4.0.into(),
             width: 1.0,
             color: palette.background.strong.color,
-            ..Border::default()
         },
         ..Default::default()
     }

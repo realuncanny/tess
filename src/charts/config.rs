@@ -1,6 +1,7 @@
-use super::{format_with_commas, heatmap, timeandsales};
+use super::format_with_commas;
 use crate::{screen::dashboard::pane::Message, style, tooltip, widget::scrollable_content};
 
+use data::chart::{VisualConfig, heatmap, timeandsales};
 use iced::{
     Alignment, Element, Length,
     widget::{
@@ -8,29 +9,6 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
-pub enum VisualConfig {
-    Heatmap(heatmap::Config),
-    TimeAndSales(timeandsales::Config),
-}
-
-impl VisualConfig {
-    pub fn heatmap(&self) -> Option<heatmap::Config> {
-        match self {
-            Self::Heatmap(cfg) => Some(*cfg),
-            _ => None,
-        }
-    }
-
-    pub fn time_and_sales(&self) -> Option<timeandsales::Config> {
-        match self {
-            Self::TimeAndSales(cfg) => Some(*cfg),
-            _ => None,
-        }
-    }
-}
 
 pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Element<'a, Message> {
     let trade_size_slider = {
@@ -150,7 +128,6 @@ pub fn timesales_cfg_view<'a>(
                     Some(pane),
                     VisualConfig::TimeAndSales(timeandsales::Config {
                         trade_size_filter: value,
-                        ..cfg
                     }),
                 )
             })

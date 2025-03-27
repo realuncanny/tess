@@ -1,4 +1,4 @@
-use exchanges::{Kline, OpenInterest, Trade};
+use crate::{Kline, OpenInterest, Trade};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -82,6 +82,12 @@ impl RequestHandler {
         } else {
             log::warn!("Request not found: {:?}", id);
         }
+    }
+}
+
+impl Default for RequestHandler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,43 +1,25 @@
 use std::collections::HashMap;
 
+use data::layout::WindowSpec;
 use iced::{Point, Size, Subscription, Task, window};
 
 pub use iced::window::{Id, Position, Settings, close, open};
 use iced_futures::MaybeSend;
 
-#[allow(dead_code)]
 #[derive(Debug, Clone, Copy)]
 pub struct Window {
     pub id: Id,
     pub position: Option<Point>,
-    pub size: Size,
-    pub focused: bool,
 }
 
-#[allow(dead_code)]
 impl Window {
     pub fn new(id: Id) -> Self {
-        Self {
-            id,
-            position: None,
-            size: Size::default(),
-            focused: false,
-        }
+        Self { id, position: None }
     }
+}
 
-    pub fn opened(&mut self, position: Option<Point>, size: Size) {
-        self.position = position;
-        self.size = size;
-        self.focused = true;
-    }
-
-    pub fn resized(&mut self, size: Size) {
-        self.size = size;
-    }
-
-    pub fn moved(&mut self, position: Point) {
-        self.position = Some(position);
-    }
+pub fn default_size() -> Size {
+    WindowSpec::default().get_size()
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -64,7 +46,7 @@ fn filtered_events(
 
 pub fn collect_window_specs<M, F>(window_ids: Vec<window::Id>, message: F) -> Task<M>
 where
-    F: Fn(HashMap<window::Id, (Point, Size)>) -> M + Send + 'static,
+    F: Fn(HashMap<window::Id, WindowSpec>) -> M + Send + 'static,
     M: MaybeSend + 'static,
 {
     // Create a task that collects specs for each window
@@ -96,9 +78,11 @@ where
     Task::batch(window_spec_tasks)
         .collect()
         .map(move |results| {
-            let specs: HashMap<window::Id, (Point, Size)> = results
+            let specs: HashMap<window::Id, WindowSpec> = results
                 .into_iter()
-                .filter_map(|(id, (pos, size))| pos.map(|position| (id, (position, size))))
+                .filter_map(|(id, (pos, size))| {
+                    pos.map(|position| (id, WindowSpec::from((&position, &size))))
+                })
                 .collect();
 
             message(specs)
@@ -108,6 +92,7 @@ where
 #[cfg(target_os = "linux")]
 pub fn settings() -> Settings {
     Settings {
+        min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }
 }
@@ -122,6 +107,7 @@ pub fn settings() -> Settings {
             titlebar_transparent: true,
             fullsize_content_view: true,
         },
+        min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }
 }
@@ -129,6 +115,7 @@ pub fn settings() -> Settings {
 #[cfg(target_os = "windows")]
 pub fn settings() -> Settings {
     Settings {
+        min_size: Some(Size::new(800.0, 600.0)),
         ..Default::default()
     }
 }

@@ -10,20 +10,12 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use indicators::Indicator;
 use scales::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
-use serde::{Deserialize, Serialize};
-use uuid::Uuid;
 
-use crate::{
-    aggr::{ticks::TickAggr, time::TimeSeries},
-    fetcher::{FetchRange, ReqError, RequestHandler},
-    layout::SerializableChartData,
-    screen::UserTimezone,
-    style,
-    widget::hsplit::HSplit,
-    widget::tooltip,
-};
+use crate::{style, widget::hsplit::HSplit, widget::tooltip};
+use data::aggr::{ticks::TickAggr, time::TimeSeries};
+use data::chart::{Basis, ChartLayout, indicators::Indicator};
+use exchanges::fetcher::{FetchRange, ReqError, RequestHandler};
 use exchanges::{TickerInfo, Timeframe};
 
 pub mod candlestick;
@@ -74,7 +66,7 @@ pub enum Message {
     XScaling(f32, f32, bool),
     BoundsChanged(Rectangle),
     SplitDragged(f32),
-    NewDataRange(Uuid, FetchRange),
+    NewDataRange(uuid::Uuid, FetchRange),
     DoubleClick(AxisScaleClicked),
 }
 
@@ -303,13 +295,13 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) -> Task<Message> {
                 };
 
                 let new_cursor_x = match chart_state.basis {
-                    ChartBasis::Time(_) => {
+                    Basis::Time(_) => {
                         let cursor_time = chart_state.x_to_interval(cursor_chart_x);
                         chart_state.cell_width = new_width;
 
                         chart_state.interval_to_x(cursor_time)
                     }
-                    ChartBasis::Tick(_) => {
+                    Basis::Tick(_) => {
                         let tick_index = cursor_chart_x / chart_state.cell_width;
                         chart_state.cell_width = new_width;
 
@@ -377,7 +369,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) -> Task<Message> {
 fn view_chart<'a, T: Chart, I: Indicator>(
     chart: &'a T,
     indicators: &'a [I],
-    timezone: &'a UserTimezone,
+    timezone: &'a data::UserTimezone,
 ) -> Element<'a, Message> {
     let chart_state = chart.get_common_data();
 
@@ -507,49 +499,6 @@ impl Caches {
     }
 }
 
-/// Defines how chart data is aggregated and displayed along the x-axis.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
-pub enum ChartBasis {
-    /// Time-based aggregation where each datapoint represents a fixed time interval.
-    ///
-    /// The u64 value represents milliseconds. Common values include:
-    /// - `60_000` (1 minute)
-    /// - `300_000` (5 minutes)
-    /// - `3_600_000` (1 hour)
-    Time(u64),
-
-    /// Trade-based aggregation where each datapoint represents a fixed number of trades.
-    ///
-    /// The u64 value represents the number of trades per aggregation unit.
-    /// Common values include 100, 500, or 1000 trades per bar/candle.
-    Tick(u64),
-}
-
-impl ChartBasis {
-    pub fn is_time(&self) -> bool {
-        matches!(self, ChartBasis::Time(_))
-    }
-}
-
-impl std::fmt::Display for ChartBasis {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ChartBasis::Time(millis) => match *millis {
-                60_000 => write!(f, "1m"),
-                180_000 => write!(f, "3m"),
-                300_000 => write!(f, "5m"),
-                900_000 => write!(f, "15m"),
-                1_800_000 => write!(f, "30m"),
-                3_600_000 => write!(f, "1h"),
-                7_200_000 => write!(f, "2h"),
-                14_400_000 => write!(f, "4h"),
-                _ => write!(f, "{millis}ms"),
-            },
-            ChartBasis::Tick(count) => write!(f, "{count}T"),
-        }
-    }
-}
-
 enum ChartData {
     TimeBased(TimeSeries),
     TickBased(TickAggr),
@@ -586,7 +535,7 @@ pub struct CommonChartData {
     scaling: f32,
     cell_width: f32,
     cell_height: f32,
-    basis: ChartBasis,
+    basis: Basis,
 
     last_price: Option<PriceInfoLabel>,
 
@@ -606,7 +555,7 @@ impl Default for CommonChartData {
             crosshair: true,
             translation: Vector::default(),
             bounds: Rectangle::default(),
-            basis: ChartBasis::Time(Timeframe::M5.to_milliseconds()),
+            basis: Basis::Time(Timeframe::M5.to_milliseconds()),
             last_price: None,
             scaling: 1.0,
             autoscale: true,
@@ -643,11 +592,11 @@ impl CommonChartData {
 
     fn get_interval_range(&self, region: Rectangle) -> (u64, u64) {
         match self.basis {
-            ChartBasis::Tick(_) => (
+            Basis::Tick(_) => (
                 self.x_to_interval(region.x + region.width),
                 self.x_to_interval(region.x),
             ),
-            ChartBasis::Time(interval) => (
+            Basis::Time(interval) => (
                 self.x_to_interval(region.x).saturating_sub(interval / 2),
                 self.x_to_interval(region.x + region.width)
                     .saturating_add(interval / 2),
@@ -664,7 +613,7 @@ impl CommonChartData {
 
     fn interval_to_x(&self, value: u64) -> f32 {
         match self.basis {
-            ChartBasis::Time(timeframe) => {
+            Basis::Time(timeframe) => {
                 if value <= self.latest_x {
                     let diff = self.latest_x - value;
                     -(diff as f32 / timeframe as f32) * self.cell_width
@@ -673,13 +622,13 @@ impl CommonChartData {
                     (diff as f32 / timeframe as f32) * self.cell_width
                 }
             }
-            ChartBasis::Tick(_) => -((value as f32) * self.cell_width),
+            Basis::Tick(_) => -((value as f32) * self.cell_width),
         }
     }
 
     fn x_to_interval(&self, x: f32) -> u64 {
         match self.basis {
-            ChartBasis::Time(interval) => {
+            Basis::Time(interval) => {
                 if x <= 0.0 {
                     let diff = (-x / self.cell_width * interval as f32) as u64;
                     self.latest_x.saturating_sub(diff)
@@ -688,7 +637,7 @@ impl CommonChartData {
                     self.latest_x.saturating_add(diff)
                 }
             }
-            ChartBasis::Tick(_) => {
+            Basis::Tick(_) => {
                 let tick = -(x / self.cell_width);
                 tick.round() as u64
             }
@@ -750,7 +699,7 @@ impl CommonChartData {
 
         // Vertical time/tick line
         match self.basis {
-            ChartBasis::Time(timeframe) => {
+            Basis::Time(timeframe) => {
                 let earliest = self.x_to_interval(region.x) as f64;
                 let latest = self.x_to_interval(region.x + region.width) as f64;
 
@@ -772,7 +721,7 @@ impl CommonChartData {
 
                 (rounded_price, rounded_timestamp)
             }
-            ChartBasis::Tick(aggregation) => {
+            Basis::Tick(aggregation) => {
                 let crosshair_ratio = cursor_position.x / bounds.width;
 
                 let (chart_x_min, chart_x_max) = (region.x, region.x + region.width);
@@ -799,8 +748,8 @@ impl CommonChartData {
         }
     }
 
-    fn get_chart_layout(&self) -> SerializableChartData {
-        SerializableChartData {
+    fn get_chart_layout(&self) -> ChartLayout {
+        ChartLayout {
             crosshair: self.crosshair,
             indicators_split: self.indicators_split,
         }
@@ -812,9 +761,11 @@ fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Option<Task
         Ok(req_id) => Some(Task::done(Message::NewDataRange(req_id, range))),
         Err(e) => {
             match e {
-                ReqError::Overlaps => log::debug!("Request overlaps with existing request"),
-                ReqError::Failed(msg) => log::debug!("Request already failed: {}", msg),
-                ReqError::Completed => log::debug!("Request already completed"),
+                ReqError::Overlaps => {
+                    log::debug!("Request overlaps with existing request: {range:?}")
+                }
+                ReqError::Failed(msg) => log::debug!("Request already failed: {msg}: {range:?}"),
+                ReqError::Completed => log::debug!("Request already completed: {range:?}"),
             }
             None
         }

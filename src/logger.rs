@@ -1,75 +1,195 @@
-use chrono::Local;
 use std::{
-    fs::{self, File},
+    fs,
+    io::{self, Write},
     path::PathBuf,
     process,
+    sync::mpsc,
+    thread,
 };
 
-use crate::layout;
+pub use data::log::Error;
 
-const MAX_LOG_FILE_SIZE: u64 = 10_000_000; // 10 MB
+const MAX_LOG_FILE_SIZE: u64 = 50 * 1024 * 1024; // 50 MB
 
-pub fn setup(is_debug: bool, log_trace: bool) -> Result<(), fern::InitError> {
-    let log_level = if log_trace {
-        log::LevelFilter::Trace
-    } else {
-        log::LevelFilter::Info
-    };
+enum LogMessage {
+    Content(Vec<u8>),
+    Flush,
+    Shutdown,
+}
 
-    let mut logger = fern::Dispatch::new()
-        .format(|out, message, record| {
-            out.finish(format_args!(
-                "{}:{} [{}:{}] -- {}",
-                Local::now().format("%H:%M:%S%.3f"),
-                record.level(),
-                record.file().unwrap_or("unknown"),
-                record.line().unwrap_or(0),
-                message
-            ));
-        })
-        .level(log_level);
+pub fn setup(is_debug: bool) -> Result<(), Error> {
+    let level_filter = std::env::var("RUST_LOG")
+        .ok()
+        .as_deref()
+        .map(str::parse::<log::Level>)
+        .transpose()?
+        .unwrap_or(log::Level::Debug)
+        .to_level_filter();
+
+    let mut io_sink = fern::Dispatch::new().format(|out, message, record| {
+        out.finish(format_args!(
+            "{}:{} -- {}",
+            chrono::Local::now().format("%H:%M:%S%.3f"),
+            record.level(),
+            message
+        ))
+    });
 
     if is_debug {
-        logger = logger.chain(std::io::stdout());
+        io_sink = io_sink.chain(std::io::stdout());
     } else {
-        let log_file_path = layout::get_data_path("output.log");
+        let log_path = data::log::path()?;
+        initial_rotation(&log_path)?;
 
-        if let Some(parent) = log_file_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
+        let logger: Box<dyn Write + Send> = Box::new(BackgroundLogger::new(log_path)?);
 
-        let log_file = File::create(&log_file_path)?;
-        log_file.set_len(0)?;
-
-        let log_file = fern::log_file(&log_file_path)?;
-        logger = logger.chain(log_file);
-
-        std::thread::spawn(move || {
-            monitor_file_size(log_file_path, MAX_LOG_FILE_SIZE);
-        });
+        io_sink = io_sink.chain(logger);
     }
 
-    logger.apply()?;
+    fern::Dispatch::new()
+        .level(log::LevelFilter::Off)
+        .level_for("panic", log::LevelFilter::Error)
+        .level_for("iced_wgpu", log::LevelFilter::Info)
+        .level_for("data", level_filter)
+        .level_for("flowsurface", level_filter)
+        .chain(io_sink)
+        .apply()?;
+
     Ok(())
 }
 
-fn monitor_file_size(file_path: PathBuf, max_size_bytes: u64) {
-    loop {
-        match fs::metadata(&file_path) {
-            Ok(metadata) => {
-                if metadata.len() > max_size_bytes {
-                    eprintln!(
-                        "Things went south. Log file size caused panic exceeding {} MB",
-                        metadata.len() / 1_000_000,
-                    );
-                    process::exit(1);
+fn initial_rotation(log_path: &PathBuf) -> io::Result<()> {
+    let path = PathBuf::from(".");
+
+    let dir = log_path.parent().unwrap_or(&path);
+
+    let previous_log_path = dir.join("flowsurface-previous.log");
+
+    if previous_log_path.exists() {
+        fs::remove_file(&previous_log_path)?;
+    }
+
+    if log_path.exists() {
+        fs::rename(log_path, &previous_log_path)?;
+    }
+
+    Ok(())
+}
+
+struct BackgroundLogger {
+    sender: mpsc::Sender<LogMessage>,
+    _thread_handle: thread::JoinHandle<()>,
+}
+
+impl BackgroundLogger {
+    fn new(path: PathBuf) -> io::Result<Self> {
+        let (sender, receiver) = mpsc::channel();
+
+        let thread_handle = thread::Builder::new()
+            .name("logger-thread".to_string())
+            .spawn(move || {
+                let mut logger = match Logger::new(path) {
+                    Ok(logger) => logger,
+                    Err(e) => {
+                        eprintln!("Failed to initialize logger: {}", e);
+                        return;
+                    }
+                };
+
+                loop {
+                    match receiver.recv() {
+                        Ok(LogMessage::Content(data)) => {
+                            if let Err(e) = logger.write_all(&data) {
+                                eprintln!("Logging error: {}", e);
+                            }
+                        }
+                        Ok(LogMessage::Flush) => {
+                            if let Err(e) = logger.flush() {
+                                eprintln!("Error flushing logs: {}", e);
+                            }
+                        }
+                        Ok(LogMessage::Shutdown) | Err(_) => break,
+                    }
                 }
-            }
-            Err(err) => {
-                eprintln!("Error reading log file metadata: {err}");
-                process::exit(1);
-            }
+            })?;
+
+        Ok(BackgroundLogger {
+            sender,
+            _thread_handle: thread_handle,
+        })
+    }
+}
+
+impl Write for BackgroundLogger {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let len = buf.len();
+        self.sender
+            .send(LogMessage::Content(buf.to_vec()))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Logger thread disconnected"))?;
+        Ok(len)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.sender
+            .send(LogMessage::Flush)
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "Logger thread disconnected"))?;
+        Ok(())
+    }
+}
+
+impl Drop for BackgroundLogger {
+    fn drop(&mut self) {
+        let _ = self.sender.send(LogMessage::Shutdown);
+    }
+}
+
+struct Logger {
+    file: fs::File,
+    current_size: u64,
+}
+
+impl Logger {
+    fn new(path: PathBuf) -> io::Result<Self> {
+        let file = fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)?;
+
+        let size = file.metadata()?.len();
+
+        Ok(Logger {
+            file,
+            current_size: size,
+        })
+    }
+}
+
+impl Write for Logger {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        let buf_len = buf.len() as u64;
+
+        if self.current_size + buf_len > MAX_LOG_FILE_SIZE {
+            let timestamp = chrono::Local::now().format("%H:%M:%S%.3f");
+            let error_msg = format!(
+                "\n{}:FATAL -- Log file size would exceed the maximum allowed size of {} bytes\n",
+                timestamp, MAX_LOG_FILE_SIZE
+            );
+
+            eprintln!("{error_msg}");
+
+            let _ = self.file.write_all(error_msg.as_bytes());
+            let _ = self.file.flush();
+
+            process::abort();
         }
-        std::thread::sleep(std::time::Duration::from_secs(30));
+
+        let bytes = self.file.write(buf)?;
+        self.current_size += bytes as u64;
+
+        Ok(bytes)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.file.flush()
     }
 }
