@@ -14,8 +14,8 @@ use iced::widget::{
 use iced::{Element, Length, Point, Rectangle, Renderer, Size, Task, Theme, Vector, mouse};
 
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
-use exchanges::fetcher::{FetchRange, RequestHandler};
-use exchanges::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade, adapter::MarketType};
+use exchange::fetcher::{FetchRange, RequestHandler};
+use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
 
 use super::scales::PriceInfoLabel;
 use super::{
@@ -132,7 +132,7 @@ impl CandlestickChart {
     pub fn new(
         layout: ChartLayout,
         basis: Basis,
-        klines_raw: Vec<Kline>,
+        klines_raw: &[Kline],
         raw_trades: Vec<Trade>,
         tick_size: f32,
         enabled_indicators: &[CandlestickIndicator],
@@ -140,7 +140,7 @@ impl CandlestickChart {
     ) -> CandlestickChart {
         match basis {
             Basis::Time(interval) => {
-                let timeseries = TimeSeries::new(interval.into(), tick_size, &[], &klines_raw);
+                let timeseries = TimeSeries::new(interval.into(), tick_size, &[], klines_raw);
 
                 let base_price_y = timeseries.get_base_price();
                 let latest_x = timeseries.get_latest_timestamp().unwrap_or(0);
@@ -288,9 +288,7 @@ impl CandlestickChart {
                 for data in self.indicators.values() {
                     if let IndicatorData::OpenInterest(_, _) = data {
                         if timeframe >= Timeframe::M5.to_milliseconds()
-                            && self.chart.ticker_info.is_some_and(|info| {
-                                info.get_market_type() == MarketType::LinearPerps
-                            })
+                            && self.chart.ticker_info.is_some_and(|t| t.is_perps())
                         {
                             let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
 
@@ -369,7 +367,7 @@ impl CandlestickChart {
         self.render_start();
     }
 
-    pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
+    pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: &[OIData]) {
         if let Some(req_id) = req_id {
             if oi_data.is_empty() {
                 self.request_handler
@@ -572,7 +570,7 @@ impl CandlestickChart {
     pub fn view<'a, I: Indicator>(
         &'a self,
         indicators: &'a [I],
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<'a, Message> {
         view_chart(self, indicators, timezone)
     }

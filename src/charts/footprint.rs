@@ -17,8 +17,8 @@ use iced::{
 use ordered_float::OrderedFloat;
 
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
-use exchanges::fetcher::{FetchRange, RequestHandler};
-use exchanges::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade, adapter::MarketType};
+use exchange::fetcher::{FetchRange, RequestHandler};
+use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
 
 use super::scales::PriceInfoLabel;
 use super::{
@@ -146,7 +146,7 @@ impl FootprintChart {
         layout: ChartLayout,
         basis: Basis,
         tick_size: f32,
-        klines_raw: Vec<Kline>,
+        klines_raw: &[Kline],
         raw_trades: Vec<Trade>,
         enabled_indicators: &[FootprintIndicator],
         ticker_info: Option<TickerInfo>,
@@ -154,7 +154,7 @@ impl FootprintChart {
         match basis {
             Basis::Time(interval) => {
                 let timeseries =
-                    TimeSeries::new(interval.into(), tick_size, &raw_trades, &klines_raw);
+                    TimeSeries::new(interval.into(), tick_size, &raw_trades, klines_raw);
 
                 let base_price_y = timeseries.get_base_price();
                 let latest_x = timeseries.get_latest_timestamp().unwrap_or(0);
@@ -305,24 +305,33 @@ impl FootprintChart {
                 }
 
                 if !self.fetching_trades {
-                    let (kline_earliest, _) = self.get_trades_timerange(kline_latest);
+                    if let Some(earliest_gap) = timeseries
+                        .data_points
+                        .range(visible_earliest..=visible_latest)
+                        .filter(|(_, dp)| dp.trades.is_empty())
+                        .map(|(time, _)| *time)
+                        .min()
+                    {
+                        let last_kline_before_gap = timeseries
+                            .data_points
+                            .range(..earliest_gap)
+                            .filter(|(_, dp)| !dp.trades.is_empty())
+                            .max_by_key(|(time, _)| *time)
+                            .map_or(earliest_gap, |(time, _)| *time);
 
-                    if visible_earliest < kline_earliest {
-                        let trade_earliest = self
-                            .raw_trades
-                            .iter()
-                            .filter(|trade| trade.time >= kline_earliest)
-                            .map(|trade| trade.time)
-                            .min();
+                        let first_kline_after_gap = timeseries
+                            .data_points
+                            .range(earliest_gap..)
+                            .filter(|(_, dp)| !dp.trades.is_empty())
+                            .min_by_key(|(time, _)| *time)
+                            .map_or(kline_latest, |(time, _)| *time);
 
-                        if let Some(earliest) = trade_earliest {
-                            if let Some(fetch_task) = request_fetch(
-                                &mut self.request_handler,
-                                FetchRange::Trades(visible_earliest, earliest),
-                            ) {
-                                self.fetching_trades = true;
-                                return Some(fetch_task);
-                            }
+                        if let Some(fetch_task) = request_fetch(
+                            &mut self.request_handler,
+                            FetchRange::Trades(last_kline_before_gap, first_kline_after_gap),
+                        ) {
+                            self.fetching_trades = true;
+                            return Some(fetch_task);
                         }
                     }
                 }
@@ -331,9 +340,7 @@ impl FootprintChart {
                 for data in self.indicators.values() {
                     if let IndicatorData::OpenInterest(_, _) = data {
                         if timeframe >= Timeframe::M5.to_milliseconds()
-                            && self.chart.ticker_info.is_some_and(|info| {
-                                info.get_market_type() == MarketType::LinearPerps
-                            })
+                            && self.chart.ticker_info.is_some_and(|t| t.is_perps())
                         {
                             let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
 
@@ -464,40 +471,6 @@ impl FootprintChart {
         (from_time, to_time)
     }
 
-    fn get_trades_timerange(&self, latest_kline: u64) -> (u64, u64) {
-        let mut from_time = latest_kline;
-        let mut to_time = 0;
-
-        match &self.data_source {
-            ChartData::TimeBased(source) => {
-                source
-                    .data_points
-                    .iter()
-                    .filter(|(_, dp)| !dp.trades.is_empty())
-                    .for_each(|(time, _)| {
-                        from_time = from_time.min(*time);
-                        to_time = to_time.max(*time);
-                    });
-            }
-            ChartData::TickBased(tick_aggr) => {
-                let earliest = tick_aggr
-                    .data_points
-                    .iter()
-                    .rev()
-                    .enumerate()
-                    .find(|(_, tick_kline)| !tick_kline.trades.is_empty())
-                    .map(|(index, _)| index);
-
-                if let Some(earliest) = earliest {
-                    from_time = tick_aggr.data_points.len() as u64 - earliest as u64;
-                    to_time = tick_aggr.data_points.len() as u64;
-                }
-            }
-        }
-
-        (from_time, to_time)
-    }
-
     pub fn insert_trades_buffer(&mut self, trades_buffer: &[Trade], depth_update: u64) {
         self.raw_trades.extend_from_slice(trades_buffer);
 
@@ -578,7 +551,7 @@ impl FootprintChart {
         self.render_start();
     }
 
-    pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: Vec<OIData>) {
+    pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: &[OIData]) {
         if let Some(req_id) = req_id {
             if oi_data.is_empty() {
                 self.request_handler
@@ -761,7 +734,7 @@ impl FootprintChart {
     pub fn view<'a, I: Indicator>(
         &'a self,
         indicators: &'a [I],
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<'a, Message> {
         view_chart(self, indicators, timezone)
     }

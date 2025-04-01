@@ -18,7 +18,7 @@ use data::{
     },
     layout::pane::PaneSettings,
 };
-use exchanges::{
+use exchange::{
     Kline, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe,
     adapter::{Exchange, MarketType},
 };
@@ -131,15 +131,13 @@ impl PaneState {
     pub fn get_ticker_exchange(&self) -> Option<(Exchange, Ticker)> {
         for stream in &self.streams {
             match stream {
-                StreamType::DepthAndTrades { exchange, ticker } => {
-                    return Some((*exchange, *ticker));
-                }
-                StreamType::Kline {
+                StreamType::DepthAndTrades { exchange, ticker }
+                | StreamType::Kline {
                     exchange, ticker, ..
                 } => {
                     return Some((*exchange, *ticker));
                 }
-                _ => {}
+                StreamType::None => {}
             }
         }
         None
@@ -212,7 +210,7 @@ impl PaneState {
             _ => vec![],
         };
 
-        self.streams = streams.clone();
+        self.streams.clone_from(&streams);
 
         Task::done(Message::InitPaneContent(
             content.to_string(),
@@ -292,7 +290,7 @@ impl PaneState {
                         layout,
                         basis,
                         tick_size,
-                        vec![],
+                        &[],
                         vec![],
                         &enabled_indicators,
                         Some(ticker_info),
@@ -325,7 +323,7 @@ impl PaneState {
                     CandlestickChart::new(
                         layout,
                         basis,
-                        vec![],
+                        &[],
                         vec![],
                         tick_size,
                         &enabled_indicators,
@@ -335,12 +333,14 @@ impl PaneState {
                 )
             }
             "time&sales" => {
+                let _ = self.set_tickers_info(None, ticker_info);
+
                 let config = self
                     .settings
                     .visual_config
                     .and_then(|cfg| cfg.time_and_sales());
 
-                PaneContent::TimeAndSales(TimeAndSales::new(config))
+                PaneContent::TimeAndSales(TimeAndSales::new(config, Some(ticker_info)))
             }
             _ => {
                 log::error!("content not found: {}", content_str);
@@ -353,7 +353,7 @@ impl PaneState {
         Ok(())
     }
 
-    pub fn insert_oi_vec(&mut self, req_id: Option<uuid::Uuid>, oi: Vec<OpenInterest>) {
+    pub fn insert_oi_vec(&mut self, req_id: Option<uuid::Uuid>, oi: &[OpenInterest]) {
         match &mut self.content {
             PaneContent::Candlestick(chart, _) => {
                 chart.insert_open_interest(req_id, oi);
@@ -385,7 +385,7 @@ impl PaneState {
                     *chart = CandlestickChart::new(
                         layout,
                         Basis::Time(timeframe.into()),
-                        klines.clone(),
+                        klines,
                         raw_trades,
                         tick_size,
                         indicators,
@@ -405,7 +405,7 @@ impl PaneState {
                         layout,
                         Basis::Time(timeframe.into()),
                         tick_size,
-                        klines.clone(),
+                        klines,
                         raw_trades,
                         indicators,
                         ticker_info,
@@ -426,7 +426,7 @@ impl PaneState {
         maximized: bool,
         window: window::Id,
         main_window: &'a Window,
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> pane_grid::Content<'a, Message, Theme, Renderer> {
         let mut stream_info_element = row![]
             .padding(padding::left(8))
@@ -435,26 +435,27 @@ impl PaneState {
             .height(Length::Fixed(32.0));
 
         if let Some((exchange, ticker)) = self.get_ticker_exchange() {
-            let (ticker_str, market) = ticker.get_string();
+            let exchange_info = match exchange {
+                Exchange::BinanceSpot | Exchange::BinanceLinear | Exchange::BinanceInverse => {
+                    get_icon_text(Icon::BinanceLogo, 14)
+                }
+                Exchange::BybitSpot | Exchange::BybitLinear | Exchange::BybitInverse => {
+                    get_icon_text(Icon::BybitLogo, 14)
+                }
+            };
+
+            let ticker_str = {
+                let symbol = ticker.display_symbol_and_type().0;
+                match ticker.get_market_type() {
+                    MarketType::Spot => symbol,
+                    MarketType::LinearPerps | MarketType::InversePerps => symbol + " PERP",
+                }
+            };
 
             stream_info_element = stream_info_element.push(
-                row![
-                    match exchange {
-                        Exchange::BinanceFutures | Exchange::BinanceSpot =>
-                            get_icon_text(Icon::BinanceLogo, 14),
-                        Exchange::BybitLinear | Exchange::BybitSpot =>
-                            get_icon_text(Icon::BybitLogo, 14),
-                    },
-                    text({
-                        if market == MarketType::LinearPerps {
-                            ticker_str + " PERP"
-                        } else {
-                            ticker_str
-                        }
-                    })
-                    .size(14),
-                ]
-                .spacing(4),
+                row![exchange_info, text(ticker_str).size(14),]
+                    .align_y(Vertical::Center)
+                    .spacing(4),
             );
         }
 
@@ -587,7 +588,7 @@ trait ChartView {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<'a, Message>;
 }
 
@@ -646,7 +647,7 @@ where
             padding::right(12).left(12),
             Alignment::End,
         ),
-        _ => base,
+        PaneModal::None => base,
     }
 }
 
@@ -656,7 +657,7 @@ impl ChartView for HeatmapChart {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<'a, Message> {
         let base = self
             .view(indicators, timezone)
@@ -683,7 +684,7 @@ impl ChartView for FootprintChart {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<'a, Message> {
         let base = self
             .view(indicators, timezone)
@@ -714,7 +715,7 @@ impl ChartView for CandlestickChart {
         pane: pane_grid::Pane,
         state: &'a PaneState,
         indicators: &'a [I],
-        timezone: &'a UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<'a, Message> {
         let base = self
             .view(indicators, timezone)
@@ -746,7 +747,7 @@ trait PanelView {
         &self,
         pane: pane_grid::Pane,
         state: &PaneState,
-        timezone: &UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<Message>;
 }
 
@@ -755,14 +756,16 @@ impl PanelView for TimeAndSales {
         &self,
         pane: pane_grid::Pane,
         state: &PaneState,
-        timezone: &UserTimezone,
+        timezone: UserTimezone,
     ) -> Element<Message> {
         let underlay = self.view(timezone);
+
+        let settings_view = config::timesales_cfg_view(self.get_config(), pane);
 
         match state.modal {
             PaneModal::Settings => pane_modal(
                 underlay,
-                config::timesales_cfg_view(self.get_config(), pane),
+                settings_view,
                 Message::ToggleModal(pane, PaneModal::None),
                 padding::right(12).left(12),
                 Alignment::End,
@@ -953,7 +956,7 @@ fn view_panel<'a, C: PanelView>(
     pane: pane_grid::Pane,
     state: &'a PaneState,
     content: &'a C,
-    timezone: &'a UserTimezone,
+    timezone: UserTimezone,
 ) -> Element<'a, Message> {
     let base = center(content.view(pane, state, timezone));
 
@@ -968,7 +971,7 @@ fn view_chart<'a, C: ChartView, I: Indicator>(
     state: &'a PaneState,
     content: &'a C,
     indicators: &'a [I],
-    timezone: &'a UserTimezone,
+    timezone: UserTimezone,
 ) -> Element<'a, Message> {
     content.view(pane, state, indicators, timezone)
 }
@@ -1061,10 +1064,10 @@ pub enum PaneContent {
 }
 
 impl PaneContent {
-    pub fn toggle_indicator(&mut self, indicator_str: String) {
+    pub fn toggle_indicator(&mut self, indicator_str: &str) {
         match self {
             PaneContent::Heatmap(chart, indicators) => {
-                let indicator = if indicator_str.as_str() == "Volume" {
+                let indicator = if indicator_str == "Volume" {
                     HeatmapIndicator::Volume
                 } else {
                     log::error!("indicator not found: {}", indicator_str);
@@ -1080,7 +1083,7 @@ impl PaneContent {
                 chart.toggle_indicator(indicator);
             }
             PaneContent::Footprint(chart, indicators) => {
-                let indicator = match indicator_str.as_str() {
+                let indicator = match indicator_str {
                     "Volume" => FootprintIndicator::Volume,
                     "Open Interest" => FootprintIndicator::OpenInterest,
                     _ => {
@@ -1098,7 +1101,7 @@ impl PaneContent {
                 chart.toggle_indicator(indicator);
             }
             PaneContent::Candlestick(chart, indicators) => {
-                let indicator = match indicator_str.as_str() {
+                let indicator = match indicator_str {
                     "Volume" => CandlestickIndicator::Volume,
                     "Open Interest" => CandlestickIndicator::OpenInterest,
                     _ => {

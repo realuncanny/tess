@@ -32,7 +32,7 @@ pub fn setup(is_debug: bool) -> Result<(), Error> {
             chrono::Local::now().format("%H:%M:%S%.3f"),
             record.level(),
             message
-        ))
+        ));
     });
 
     if is_debug {
@@ -51,6 +51,7 @@ pub fn setup(is_debug: bool) -> Result<(), Error> {
         .level_for("panic", log::LevelFilter::Error)
         .level_for("iced_wgpu", log::LevelFilter::Info)
         .level_for("data", level_filter)
+        .level_for("exchange", level_filter)
         .level_for("flowsurface", level_filter)
         .chain(io_sink)
         .apply()?;
@@ -88,7 +89,7 @@ impl BackgroundLogger {
         let thread_handle = thread::Builder::new()
             .name("logger-thread".to_string())
             .spawn(move || {
-                let mut logger = match Logger::new(path) {
+                let mut logger = match Logger::new(&path) {
                     Ok(logger) => logger,
                     Err(e) => {
                         eprintln!("Failed to initialize logger: {}", e);
@@ -149,11 +150,11 @@ struct Logger {
 }
 
 impl Logger {
-    fn new(path: PathBuf) -> io::Result<Self> {
+    fn new(path: &PathBuf) -> io::Result<Self> {
         let file = fs::OpenOptions::new()
             .create(true)
             .append(true)
-            .open(&path)?;
+            .open(path)?;
 
         let size = file.metadata()?.len();
 

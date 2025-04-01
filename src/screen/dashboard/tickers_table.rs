@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::style::{self, ICON_FONT, Icon, get_icon_text};
-use exchanges::{
+use exchange::{
     Ticker, TickerStats,
     adapter::{Exchange, MarketType},
 };
@@ -198,14 +198,14 @@ impl TickersTable {
     }
 
     fn compute_display_data(ticker: &Ticker, stats: &TickerStats) -> TickerDisplayData {
-        let (ticker_str, market) = ticker.get_string();
+        let (ticker_str, market) = ticker.display_symbol_and_type();
         let display_ticker = if ticker_str.len() >= 11 {
             ticker_str[..9].to_string() + "..."
         } else {
             ticker_str + {
                 match market {
                     MarketType::Spot => "",
-                    MarketType::LinearPerps => "P",
+                    MarketType::LinearPerps | MarketType::InversePerps => "P",
                 }
             }
         };
@@ -219,10 +219,16 @@ impl TickersTable {
         }
     }
 
-    fn matches_exchange(ex: &Exchange, tab: &TickerTab) -> bool {
+    fn matches_exchange(ex: Exchange, tab: &TickerTab) -> bool {
         match tab {
-            TickerTab::Bybit => matches!(ex, Exchange::BybitLinear | Exchange::BybitSpot),
-            TickerTab::Binance => matches!(ex, Exchange::BinanceFutures | Exchange::BinanceSpot),
+            TickerTab::Bybit => matches!(
+                ex,
+                Exchange::BybitLinear | Exchange::BybitSpot | Exchange::BybitInverse
+            ),
+            TickerTab::Binance => matches!(
+                ex,
+                Exchange::BinanceLinear | Exchange::BinanceInverse | Exchange::BinanceSpot
+            ),
             _ => false,
         }
     }
@@ -243,12 +249,12 @@ impl TickersTable {
         container(
             if let Some((selected_ticker, selected_exchange)) = &self.expand_ticker_card {
                 if ticker == selected_ticker && exchange == *selected_exchange {
-                    create_expanded_ticker_card(&exchange, ticker, display_data, is_fav)
+                    create_expanded_ticker_card(exchange, ticker, display_data, is_fav)
                 } else {
-                    create_ticker_card(&exchange, ticker, display_data)
+                    create_ticker_card(exchange, ticker, display_data)
                 }
             } else {
-                create_ticker_card(&exchange, ticker, display_data)
+                create_ticker_card(exchange, ticker, display_data)
             },
         )
         .style(style::ticker_card)
@@ -331,8 +337,12 @@ impl TickersTable {
                 .on_press(Message::SetMarketFilter(Some(MarketType::Spot)))
                 .style(move |theme, status| style::button::transparent(theme, status, false));
 
-            let perp_market_button = button(text("Linear Perps"))
+            let linear_markets_btn = button(text("Linear"))
                 .on_press(Message::SetMarketFilter(Some(MarketType::LinearPerps)))
+                .style(move |theme, status| style::button::transparent(theme, status, false));
+
+            let inverse_markets_btn = button(text("Inverse"))
+                .on_press(Message::SetMarketFilter(Some(MarketType::InversePerps)))
                 .style(move |theme, status| style::button::transparent(theme, status, false));
 
             let volume_sort_button = button(
@@ -406,10 +416,20 @@ impl TickersTable {
                     Space::new(Length::FillPortion(1), Length::Shrink),
                     match self.selected_market {
                         Some(MarketType::LinearPerps) =>
-                            perp_market_button.style(move |theme, status| {
+                            linear_markets_btn.style(move |theme, status| {
                                 style::button::transparent(theme, status, true)
                             }),
-                        _ => perp_market_button.style(move |theme, status| {
+                        _ => linear_markets_btn.style(move |theme, status| {
+                            style::button::transparent(theme, status, false)
+                        }),
+                    },
+                    Space::new(Length::FillPortion(1), Length::Shrink),
+                    match self.selected_market {
+                        Some(MarketType::InversePerps) =>
+                            inverse_markets_btn.style(move |theme, status| {
+                                style::button::transparent(theme, status, true)
+                            }),
+                        _ => inverse_markets_btn.style(move |theme, status| {
                             style::button::transparent(theme, status, false)
                         }),
                     },
@@ -463,7 +483,7 @@ impl TickersTable {
                     self.combined_tickers
                         .iter()
                         .filter(|(_, ticker, _, _)| {
-                            let (ticker, market) = ticker.get_string();
+                            let (ticker, market) = ticker.to_full_symbol_and_type();
                             ticker.contains(&self.search_query)
                                 && match self.selected_market {
                                     Some(market_type) => market == market_type,
@@ -486,7 +506,7 @@ impl TickersTable {
                     self.combined_tickers
                         .iter()
                         .filter(|(_, ticker, _, is_fav)| {
-                            let (ticker, market) = ticker.get_string();
+                            let (ticker, market) = ticker.to_full_symbol_and_type();
                             *is_fav
                                 && ticker.contains(&self.search_query)
                                 && match self.selected_market {
@@ -510,8 +530,8 @@ impl TickersTable {
                     .combined_tickers
                     .iter()
                     .filter(|(ex, ticker, _, _)| {
-                        let (ticker, market) = ticker.get_string();
-                        Self::matches_exchange(ex, &self.selected_tab)
+                        let (ticker, market) = ticker.to_full_symbol_and_type();
+                        Self::matches_exchange(*ex, &self.selected_tab)
                             && ticker.contains(&self.search_query)
                             && match self.selected_market {
                                 Some(market_type) => market == market_type,
@@ -546,7 +566,7 @@ impl TickersTable {
 }
 
 fn create_ticker_card<'a>(
-    exchange: &Exchange,
+    exchange: Exchange,
     ticker: &Ticker,
     display_data: &'a TickerDisplayData,
 ) -> Column<'a, Message> {
@@ -562,10 +582,12 @@ fn create_ticker_card<'a>(
                 row![
                     row![
                         match exchange {
-                            Exchange::BybitLinear | Exchange::BybitSpot =>
-                                get_icon_text(Icon::BybitLogo, 12),
-                            Exchange::BinanceFutures | Exchange::BinanceSpot =>
-                                get_icon_text(Icon::BinanceLogo, 12),
+                            Exchange::BybitInverse
+                            | Exchange::BybitLinear
+                            | Exchange::BybitSpot => get_icon_text(Icon::BybitLogo, 12),
+                            Exchange::BinanceInverse
+                            | Exchange::BinanceLinear
+                            | Exchange::BinanceSpot => get_icon_text(Icon::BinanceLogo, 12),
                         },
                         text(&display_data.display_ticker),
                     ]
@@ -587,18 +609,18 @@ fn create_ticker_card<'a>(
             .spacing(4),
         ])
         .style(style::button::ticker_card)
-        .on_press(Message::ExpandTickerCard(Some((*ticker, *exchange))))
+        .on_press(Message::ExpandTickerCard(Some((*ticker, exchange))))
     ]
     .height(Length::Fixed(60.0))
 }
 
 fn create_expanded_ticker_card<'a>(
-    exchange: &Exchange,
+    exchange: Exchange,
     ticker: &Ticker,
     display_data: &'a TickerDisplayData,
     is_fav: bool,
 ) -> Column<'a, Message> {
-    let (ticker_str, market) = ticker.get_string();
+    let (ticker_str, market) = ticker.display_symbol_and_type();
 
     column![
         row![
@@ -610,23 +632,25 @@ fn create_expanded_ticker_card<'a>(
             } else {
                 get_icon_text(Icon::Star, 11)
             })
-            .on_press(Message::FavoriteTicker(*exchange, *ticker))
+            .on_press(Message::FavoriteTicker(exchange, *ticker))
             .style(move |theme, status| style::button::transparent(theme, status, false)),
         ]
         .spacing(2),
         row![
             match exchange {
-                Exchange::BybitLinear | Exchange::BybitSpot => get_icon_text(Icon::BybitLogo, 12),
-                Exchange::BinanceFutures | Exchange::BinanceSpot =>
+                Exchange::BybitInverse | Exchange::BybitLinear | Exchange::BybitSpot =>
+                    get_icon_text(Icon::BybitLogo, 12),
+                Exchange::BinanceInverse | Exchange::BinanceLinear | Exchange::BinanceSpot =>
                     get_icon_text(Icon::BinanceLogo, 12),
             },
             text(
-                ticker_str + {
-                    match market {
+                ticker_str
+                    + " "
+                    + &market.to_string()
+                    + match market {
                         MarketType::Spot => "",
-                        MarketType::LinearPerps => " Perp",
+                        MarketType::LinearPerps | MarketType::InversePerps => " Perp",
                     }
-                }
             ),
         ]
         .spacing(2),
@@ -652,28 +676,28 @@ fn create_expanded_ticker_card<'a>(
             button(text("Heatmap Chart").align_x(Horizontal::Center))
                 .on_press(Message::TickerSelected(
                     *ticker,
-                    *exchange,
+                    exchange,
                     "heatmap".to_string()
                 ))
                 .width(Length::Fixed(180.0)),
             button(text("Footprint Chart").align_x(Horizontal::Center))
                 .on_press(Message::TickerSelected(
                     *ticker,
-                    *exchange,
+                    exchange,
                     "footprint".to_string()
                 ))
                 .width(Length::Fixed(180.0)),
             button(text("Candlestick Chart").align_x(Horizontal::Center))
                 .on_press(Message::TickerSelected(
                     *ticker,
-                    *exchange,
+                    exchange,
                     "candlestick".to_string()
                 ))
                 .width(Length::Fixed(180.0)),
             button(text("Time&Sales").align_x(Horizontal::Center))
                 .on_press(Message::TickerSelected(
                     *ticker,
-                    *exchange,
+                    exchange,
                     "time&sales".to_string()
                 ))
                 .width(Length::Fixed(160.0)),

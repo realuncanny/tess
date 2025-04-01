@@ -1,5 +1,4 @@
 use csv::ReaderBuilder;
-use regex::Regex;
 use serde::{Deserialize, Serialize};
 use std::{collections::HashMap, io::BufReader, path::PathBuf};
 
@@ -90,7 +89,7 @@ struct SonicTrade {
 #[derive(Debug)]
 enum SonicDepth {
     Spot(SpotDepth),
-    LinearPerp(LinearPerpDepth),
+    Perp(PerpDepth),
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -108,7 +107,7 @@ struct SpotDepth {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct LinearPerpDepth {
+struct PerpDepth {
     #[serde(rename = "T")]
     time: u64,
     #[serde(rename = "U")]
@@ -176,11 +175,11 @@ fn feed_de(slice: &[u8], market: MarketType) -> Result<StreamData, StreamError> 
 
                         return Ok(StreamData::Depth(SonicDepth::Spot(depth)));
                     }
-                    MarketType::LinearPerps => {
-                        let depth: LinearPerpDepth = sonic_rs::from_str(&v.as_raw_faststr())
+                    MarketType::LinearPerps | MarketType::InversePerps => {
+                        let depth: PerpDepth = sonic_rs::from_str(&v.as_raw_faststr())
                             .map_err(|e| StreamError::ParseError(e.to_string()))?;
 
-                        return Ok(StreamData::Depth(SonicDepth::LinearPerp(depth)));
+                        return Ok(StreamData::Depth(SonicDepth::Perp(depth)));
                     }
                 },
                 Some(StreamWrapper::Kline) => {
@@ -264,11 +263,12 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
     stream::channel(100, async move |mut output| {
         let mut state = State::Disconnected;
 
-        let (symbol_str, market) = ticker.get_string();
+        let (symbol_str, market) = ticker.to_full_symbol_and_type();
 
         let exchange = match market {
             MarketType::Spot => Exchange::BinanceSpot,
-            MarketType::LinearPerps => Exchange::BinanceFutures,
+            MarketType::LinearPerps => Exchange::BinanceLinear,
+            MarketType::InversePerps => Exchange::BinanceInverse,
         };
 
         let stream_1 = format!("{}@aggTrade", symbol_str.to_lowercase());
@@ -284,7 +284,10 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
         let domain = match market {
             MarketType::Spot => "stream.binance.com",
             MarketType::LinearPerps => "fstream.binance.com",
+            MarketType::InversePerps => "dstream.binance.com",
         };
+
+        let contract_size = get_contract_size(&ticker, market);
 
         loop {
             match &mut state {
@@ -344,7 +347,9 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                 time: de_trade.time,
                                                 is_sell: de_trade.is_sell,
                                                 price: de_trade.price,
-                                                qty: de_trade.qty,
+                                                qty: contract_size.map_or(de_trade.qty, |size| {
+                                                    de_trade.qty * size
+                                                }),
                                             };
 
                                             trades_buffer.push(trade);
@@ -358,7 +363,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                             let last_update_id = orderbook.get_fetch_id();
 
                                             match depth_type {
-                                                SonicDepth::LinearPerp(ref de_depth) => {
+                                                SonicDepth::Perp(ref de_depth) => {
                                                     if (de_depth.final_id <= last_update_id)
                                                         || last_update_id == 0
                                                     {
@@ -388,7 +393,10 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                         || (prev_id == de_depth.prev_final_id)
                                                     {
                                                         orderbook.update_depth_cache(
-                                                            &new_depth_cache(&depth_type),
+                                                            &new_depth_cache(
+                                                                &depth_type,
+                                                                contract_size,
+                                                            ),
                                                         );
 
                                                         let _ = output
@@ -445,7 +453,10 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                         || (prev_id == de_depth.first_id - 1)
                                                     {
                                                         orderbook.update_depth_cache(
-                                                            &new_depth_cache(&depth_type),
+                                                            &new_depth_cache(
+                                                                &depth_type,
+                                                                contract_size,
+                                                            ),
                                                         );
 
                                                         let _ = output
@@ -514,7 +525,8 @@ pub fn connect_kline_stream(
 
         let exchange = match market {
             MarketType::Spot => Exchange::BinanceSpot,
-            MarketType::LinearPerps => Exchange::BinanceFutures,
+            MarketType::LinearPerps => Exchange::BinanceLinear,
+            MarketType::InversePerps => Exchange::BinanceInverse,
         };
 
         let stream_str = streams
@@ -523,7 +535,7 @@ pub fn connect_kline_stream(
                 let timeframe_str = timeframe.to_string();
                 format!(
                     "{}@kline_{timeframe_str}",
-                    ticker.get_string().0.to_lowercase()
+                    ticker.to_full_symbol_and_type().0.to_lowercase()
                 )
             })
             .collect::<Vec<String>>()
@@ -535,6 +547,7 @@ pub fn connect_kline_stream(
                     let domain = match market {
                         MarketType::Spot => "stream.binance.com",
                         MarketType::LinearPerps => "fstream.binance.com",
+                        MarketType::InversePerps => "dstream.binance.com",
                     };
 
                     if let Ok(websocket) = connect(domain, stream_str.as_str()).await {
@@ -557,8 +570,16 @@ pub fn connect_kline_stream(
                             if let Ok(StreamData::Kline(ticker, de_kline)) =
                                 feed_de(&msg.payload[..], market)
                             {
-                                let buy_volume = de_kline.taker_buy_base_asset_volume;
-                                let sell_volume = de_kline.volume - buy_volume;
+                                let (buy_volume, sell_volume) = {
+                                    let buy_volume = de_kline.taker_buy_base_asset_volume;
+                                    let sell_volume = de_kline.volume - buy_volume;
+
+                                    if let Some(c_size) = get_contract_size(&ticker, market) {
+                                        (buy_volume * c_size, sell_volume * c_size)
+                                    } else {
+                                        (buy_volume, sell_volume)
+                                    }
+                                };
 
                                 let kline = Kline {
                                     time: de_kline.time,
@@ -612,57 +633,52 @@ pub fn connect_kline_stream(
     })
 }
 
-fn new_depth_cache(depth: &SonicDepth) -> TempLocalDepth {
-    match depth {
-        SonicDepth::Spot(de) => TempLocalDepth {
-            last_update_id: de.final_id,
-            time: de.time,
-            bids: de
-                .bids
-                .iter()
-                .map(|x| Order {
-                    price: x.price,
-                    qty: x.qty,
-                })
-                .collect(),
-            asks: de
-                .asks
-                .iter()
-                .map(|x| Order {
-                    price: x.price,
-                    qty: x.qty,
-                })
-                .collect(),
-        },
-        SonicDepth::LinearPerp(de) => TempLocalDepth {
-            last_update_id: de.final_id,
-            time: de.time,
-            bids: de
-                .bids
-                .iter()
-                .map(|x| Order {
-                    price: x.price,
-                    qty: x.qty,
-                })
-                .collect(),
-            asks: de
-                .asks
-                .iter()
-                .map(|x| Order {
-                    price: x.price,
-                    qty: x.qty,
-                })
-                .collect(),
-        },
+fn get_contract_size(ticker: &Ticker, market_type: MarketType) -> Option<f32> {
+    match market_type {
+        MarketType::Spot | MarketType::LinearPerps => None,
+        MarketType::InversePerps => {
+            if ticker.to_full_symbol_and_type().0 == "BTCUSD_PERP" {
+                Some(100.0)
+            } else {
+                Some(10.0)
+            }
+        }
+    }
+}
+
+fn new_depth_cache(depth: &SonicDepth, contract_size: Option<f32>) -> TempLocalDepth {
+    let (time, final_id, bids, asks) = match depth {
+        SonicDepth::Spot(de) => (de.time, de.final_id, &de.bids, &de.asks),
+        SonicDepth::Perp(de) => (de.time, de.final_id, &de.bids, &de.asks),
+    };
+
+    TempLocalDepth {
+        last_update_id: final_id,
+        time,
+        bids: bids
+            .iter()
+            .map(|x| Order {
+                price: x.price,
+                qty: contract_size.map_or(x.qty, |size| x.qty * size),
+            })
+            .collect(),
+        asks: asks
+            .iter()
+            .map(|x| Order {
+                price: x.price,
+                qty: contract_size.map_or(x.qty, |size| x.qty * size),
+            })
+            .collect(),
     }
 }
 
 async fn fetch_depth(ticker: &Ticker) -> Result<TempLocalDepth, StreamError> {
-    let (symbol_str, market_type) = ticker.get_string();
+    let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
 
     let base_url = match market_type {
         MarketType::Spot => "https://api.binance.com/api/v3/depth",
         MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/depth",
+        MarketType::InversePerps => "https://dapi.binance.com/dapi/v1/depth",
     };
 
     let url = format!(
@@ -688,7 +704,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<TempLocalDepth, StreamError> {
 
             Ok(depth)
         }
-        MarketType::LinearPerps => {
+        MarketType::LinearPerps | MarketType::InversePerps => {
             let fetched_depth: FetchedPerpDepth =
                 serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
 
@@ -741,12 +757,13 @@ pub async fn fetch_klines(
     timeframe: Timeframe,
     range: Option<(u64, u64)>,
 ) -> Result<Vec<Kline>, StreamError> {
-    let (symbol_str, market_type) = ticker.get_string();
+    let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
     let timeframe_str = timeframe.to_string();
 
     let base_url = match market_type {
         MarketType::Spot => "https://api.binance.com/api/v3/klines",
         MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/klines",
+        MarketType::InversePerps => "https://dapi.binance.com/dapi/v1/klines",
     };
 
     let mut url = format!("{base_url}?symbol={symbol_str}&interval={timeframe_str}");
@@ -778,7 +795,32 @@ pub async fn fetch_klines(
     let fetched_klines: Vec<FetchedKlines> = serde_json::from_str(&text)
         .map_err(|e| StreamError::ParseError(format!("Failed to parse klines: {e}")))?;
 
-    let klines: Vec<_> = fetched_klines.into_iter().map(Kline::from).collect();
+    let klines: Vec<_> = fetched_klines
+        .into_iter()
+        .map(|k| Kline {
+            time: k.0,
+            open: k.1,
+            high: k.2,
+            low: k.3,
+            close: k.4,
+            volume: match market_type {
+                MarketType::Spot | MarketType::LinearPerps => {
+                    let sell_volume = k.5 - k.9;
+                    (k.9, sell_volume)
+                }
+                MarketType::InversePerps => {
+                    let contract_size = if symbol_str == "BTCUSD_PERP" {
+                        100.0
+                    } else {
+                        10.0
+                    };
+
+                    let sell_volume = k.5 - k.9;
+                    (k.9 * contract_size, sell_volume * contract_size)
+                }
+            },
+        })
+        .collect();
 
     Ok(klines)
 }
@@ -789,6 +831,7 @@ pub async fn fetch_ticksize(
     let url = match market_type {
         MarketType::Spot => "https://api.binance.com/api/v3/exchangeInfo".to_string(),
         MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/exchangeInfo".to_string(),
+        MarketType::InversePerps => "https://dapi.binance.com/dapi/v1/exchangeInfo".to_string(),
     };
     let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
     let text = response.text().await.map_err(StreamError::FetchError)?;
@@ -811,6 +854,7 @@ pub async fn fetch_ticksize(
         match market_type {
             MarketType::Spot => "Spot",
             MarketType::LinearPerps => "Linear Perps",
+            MarketType::InversePerps => "Inverse Perps",
         },
         request_limit
     );
@@ -821,22 +865,24 @@ pub async fn fetch_ticksize(
 
     let mut ticker_info_map = HashMap::new();
 
-    let re = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
-
-    for symbol in symbols {
-        let symbol_str = symbol["symbol"]
+    for item in symbols {
+        let symbol_str = item["symbol"]
             .as_str()
             .ok_or_else(|| StreamError::ParseError("Missing symbol".to_string()))?;
 
-        if !re.is_match(symbol_str) {
-            continue;
+        if let Some(contract_type) = item["contractType"].as_str() {
+            if contract_type != "PERPETUAL" {
+                continue;
+            }
         }
 
-        if !symbol_str.ends_with("USDT") {
-            continue;
+        if let Some(quote_asset) = item["quoteAsset"].as_str() {
+            if quote_asset != "USDT" && quote_asset != "USD" {
+                continue;
+            }
         }
 
-        let filters = symbol["filters"]
+        let filters = item["filters"]
             .as_array()
             .ok_or_else(|| StreamError::ParseError("Missing filters array".to_string()))?;
 
@@ -868,7 +914,8 @@ pub async fn fetch_ticksize(
     Ok(ticker_info_map)
 }
 
-const PERP_FILTER_VOLUME: f32 = 32_000_000.0;
+const LINEAR_FILTER_VOLUME: f32 = 32_000_000.0;
+const INVERSE_FILTER_VOLUME: f32 = 4_000.0;
 const SPOT_FILTER_VOLUME: f32 = 9_000_000.0;
 
 pub async fn fetch_ticker_prices(
@@ -877,6 +924,7 @@ pub async fn fetch_ticker_prices(
     let url = match market {
         MarketType::Spot => "https://api.binance.com/api/v3/ticker/24hr".to_string(),
         MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/ticker/24hr".to_string(),
+        MarketType::InversePerps => "https://dapi.binance.com/dapi/v1/ticker/24hr".to_string(),
     };
     let response = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
     let text = response.text().await.map_err(StreamError::FetchError)?;
@@ -886,49 +934,178 @@ pub async fn fetch_ticker_prices(
 
     let mut ticker_price_map = HashMap::new();
 
-    let re = Regex::new(r"^[a-zA-Z0-9]+$").unwrap();
-
     let volume_threshold = match market {
         MarketType::Spot => SPOT_FILTER_VOLUME,
-        MarketType::LinearPerps => PERP_FILTER_VOLUME,
+        MarketType::LinearPerps => LINEAR_FILTER_VOLUME,
+        MarketType::InversePerps => INVERSE_FILTER_VOLUME,
     };
 
     for item in value {
-        if let (Some(symbol), Some(last_price), Some(price_change_pt), Some(volume)) = (
-            item.get("symbol").and_then(|v| v.as_str()),
-            item.get("lastPrice")
-                .and_then(|v| v.as_str())
-                .and_then(|v| v.parse::<f32>().ok()),
-            item.get("priceChangePercent")
-                .and_then(|v| v.as_str())
-                .and_then(|v| v.parse::<f32>().ok()),
-            item.get("quoteVolume")
-                .and_then(|v| v.as_str())
-                .and_then(|v| v.parse::<f32>().ok()),
-        ) {
-            if !re.is_match(symbol) {
-                continue;
+        let symbol = item["symbol"]
+            .as_str()
+            .ok_or_else(|| StreamError::ParseError("Symbol not found".to_string()))?;
+
+        let last_price = item["lastPrice"]
+            .as_str()
+            .ok_or_else(|| StreamError::ParseError("Last price not found".to_string()))?
+            .parse::<f32>()
+            .map_err(|e| StreamError::ParseError(format!("Failed to parse last price: {e}")))?;
+
+        let price_change_pt = item["priceChangePercent"]
+            .as_str()
+            .ok_or_else(|| StreamError::ParseError("Price change percent not found".to_string()))?
+            .parse::<f32>()
+            .map_err(|e| {
+                StreamError::ParseError(format!("Failed to parse price change percent: {e}"))
+            })?;
+
+        let volume = {
+            match market {
+                MarketType::Spot | MarketType::LinearPerps => item["quoteVolume"]
+                    .as_str()
+                    .ok_or_else(|| StreamError::ParseError("Quote volume not found".to_string()))?
+                    .parse::<f32>()
+                    .map_err(|e| {
+                        StreamError::ParseError(format!("Failed to parse quote volume: {e}"))
+                    })?,
+                MarketType::InversePerps => item["volume"]
+                    .as_str()
+                    .ok_or_else(|| StreamError::ParseError("Volume not found".to_string()))?
+                    .parse::<f32>()
+                    .map_err(|e| StreamError::ParseError(format!("Failed to parse volume: {e}")))?,
             }
+        };
 
-            if !symbol.ends_with("USDT") {
-                continue;
-            }
-
-            if volume < volume_threshold {
-                continue;
-            }
-
-            let ticker_stats = TickerStats {
-                mark_price: last_price,
-                daily_price_chg: price_change_pt,
-                daily_volume: volume,
-            };
-
-            ticker_price_map.insert(Ticker::new(symbol, market), ticker_stats);
+        if volume < volume_threshold {
+            continue;
         }
+
+        let ticker_stats = TickerStats {
+            mark_price: last_price,
+            daily_price_chg: price_change_pt,
+            daily_volume: match market {
+                MarketType::Spot | MarketType::LinearPerps => volume,
+                MarketType::InversePerps => {
+                    let contract_size = if symbol == "BTCUSD_PERP" { 100.0 } else { 10.0 };
+                    volume * contract_size
+                }
+            },
+        };
+
+        ticker_price_map.insert(Ticker::new(symbol, market), ticker_stats);
     }
 
     Ok(ticker_price_map)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeOpenInterest {
+    #[serde(rename = "timestamp")]
+    pub time: u64,
+    #[serde(rename = "sumOpenInterest", deserialize_with = "de_string_to_f32")]
+    pub sum: f32,
+}
+
+const THIRTY_DAYS_MS: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
+
+pub async fn fetch_historical_oi(
+    ticker: Ticker,
+    range: Option<(u64, u64)>,
+    period: Timeframe,
+) -> Result<Vec<OpenInterest>, StreamError> {
+    let (ticker_str, market) = ticker.to_full_symbol_and_type();
+    let period_str = period.to_string();
+
+    let (domain, pair_str) = match market {
+        MarketType::LinearPerps => (
+            "https://fapi.binance.com/futures/data/openInterestHist",
+            format!("?symbol={ticker_str}",),
+        ),
+        MarketType::InversePerps => (
+            "https://dapi.binance.com/futures/data/openInterestHist",
+            format!(
+                "?pair={}&contractType=PERPETUAL",
+                ticker_str.split('_').next().unwrap()
+            ),
+        ),
+        _ => {
+            let err_msg = format!("Unsupported market type for open interest: {market:?}");
+            log::error!("{}", err_msg);
+            return Err(StreamError::UnknownError(err_msg));
+        }
+    };
+
+    let mut url = format!("{domain}{pair_str}&period={period_str}",);
+
+    if let Some((start, end)) = range {
+        // API is limited to 30 days of historical data
+        let thirty_days_ago = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("Could not get system time")
+            .as_millis() as u64
+            - THIRTY_DAYS_MS;
+
+        if end < thirty_days_ago {
+            let err_msg = format!(
+                "Requested end time {end} is before available data (30 days is the API limit)"
+            );
+            log::error!("{}", err_msg);
+            return Err(StreamError::UnknownError(err_msg));
+        }
+
+        let adjusted_start = if start < thirty_days_ago {
+            log::warn!(
+                "Adjusting start time from {} to {} (30 days limit)",
+                start,
+                thirty_days_ago
+            );
+            thirty_days_ago
+        } else {
+            start
+        };
+
+        let interval_ms = period.to_milliseconds();
+        let num_intervals = ((end - adjusted_start) / interval_ms).min(500);
+
+        url.push_str(&format!(
+            "&startTime={adjusted_start}&endTime={end}&limit={num_intervals}"
+        ));
+    } else {
+        url.push_str("&limit=400");
+    }
+
+    let response = reqwest::get(&url).await.map_err(|e| {
+        log::error!("Failed to fetch from {}: {}", url, e);
+        StreamError::FetchError(e)
+    })?;
+
+    let text = response.text().await.map_err(|e| {
+        log::error!("Failed to get response text from {}: {}", url, e);
+        StreamError::FetchError(e)
+    })?;
+
+    let binance_oi: Vec<DeOpenInterest> = serde_json::from_str(&text).map_err(|e| {
+        log::error!(
+            "Failed to parse response from {}: {}\nResponse: {}",
+            url,
+            e,
+            text
+        );
+        StreamError::ParseError(format!("Failed to parse open interest: {e}"))
+    })?;
+
+    let contract_size = get_contract_size(&ticker, market);
+
+    let open_interest = binance_oi
+        .iter()
+        .map(|x| OpenInterest {
+            time: x.time,
+            value: contract_size.map_or(x.sum, |size| x.sum * size),
+        })
+        .collect::<Vec<OpenInterest>>();
+
+    Ok(open_interest)
 }
 
 async fn handle_rate_limit(headers: &hyper::HeaderMap, max_limit: f32) -> Result<(), StreamError> {
@@ -993,10 +1170,11 @@ pub async fn fetch_trades(
 }
 
 pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trade>, StreamError> {
-    let (symbol_str, market_type) = ticker.get_string();
+    let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
     let base_url = match market_type {
         MarketType::Spot => "https://api.binance.com/api/v3/aggTrades",
         MarketType::LinearPerps => "https://fapi.binance.com/fapi/v1/aggTrades",
+        MarketType::InversePerps => "https://dapi.binance.com/dapi/v1/aggTrades",
     };
 
     let mut url = format!("{base_url}?symbol={symbol_str}&limit=1000",);
@@ -1009,7 +1187,7 @@ pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trad
         response.headers(),
         match market_type {
             MarketType::Spot => 6000.0,
-            MarketType::LinearPerps => 2400.0,
+            MarketType::LinearPerps | MarketType::InversePerps => 2400.0,
         },
     )
     .await?;
@@ -1039,11 +1217,12 @@ pub async fn get_hist_trades(
     date: chrono::NaiveDate,
     base_path: PathBuf,
 ) -> Result<Vec<Trade>, StreamError> {
-    let (symbol, market_type) = ticker.get_string();
+    let (symbol, market_type) = ticker.to_full_symbol_and_type();
 
     let market_subpath = match market_type {
         MarketType::Spot => format!("data/spot/daily/aggTrades/{symbol}"),
         MarketType::LinearPerps => format!("data/futures/um/daily/aggTrades/{symbol}"),
+        MarketType::InversePerps => format!("data/futures/cm/daily/aggTrades/{symbol}"),
     };
 
     let zip_file_name = format!(
@@ -1106,19 +1285,11 @@ pub async fn get_hist_trades(
                         let price = str_f32_parse(&record[1]);
                         let qty = str_f32_parse(&record[2]);
 
-                        Some(match market_type {
-                            MarketType::Spot => Trade {
-                                time,
-                                is_sell,
-                                price,
-                                qty,
-                            },
-                            MarketType::LinearPerps => Trade {
-                                time,
-                                is_sell,
-                                price,
-                                qty,
-                            },
+                        Some(Trade {
+                            time,
+                            is_sell,
+                            price,
+                            qty,
                         })
                     })
                 }));
@@ -1141,107 +1312,4 @@ pub async fn get_hist_trades(
             "Failed to open compressed file: {e}"
         ))),
     }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct DeOpenInterest {
-    #[serde(rename = "timestamp")]
-    pub time: u64,
-    #[serde(rename = "sumOpenInterest", deserialize_with = "de_string_to_f32")]
-    pub sum: f32,
-}
-
-const THIRTY_DAYS_MS: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
-
-pub async fn fetch_historical_oi(
-    ticker: Ticker,
-    range: Option<(u64, u64)>,
-    period: Timeframe,
-) -> Result<Vec<OpenInterest>, StreamError> {
-    let ticker_str = ticker.get_string().0.to_uppercase();
-    let period_str = match period {
-        Timeframe::M5 => "5m",
-        Timeframe::M15 => "15m",
-        Timeframe::M30 => "30m",
-        Timeframe::H1 => "1h",
-        Timeframe::H2 => "2h",
-        Timeframe::H4 => "4h",
-        _ => {
-            let err_msg = format!("Unsupported timeframe for open interest: {period}");
-            log::error!("{}", err_msg);
-            return Err(StreamError::UnknownError(err_msg));
-        }
-    };
-
-    let mut url = format!(
-        "https://fapi.binance.com/futures/data/openInterestHist?symbol={ticker_str}&period={period_str}",
-    );
-
-    if let Some((start, end)) = range {
-        // This API seems to be limited to 30 days of historical data
-        let thirty_days_ago = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .expect("Could not get system time")
-            .as_millis() as u64
-            - THIRTY_DAYS_MS;
-
-        if end < thirty_days_ago {
-            let err_msg = format!(
-                "Requested end time {end} is before available data (30 days is the API limit)"
-            );
-            log::error!("{}", err_msg);
-            return Err(StreamError::UnknownError(err_msg));
-        }
-
-        let adjusted_start = if start < thirty_days_ago {
-            log::warn!(
-                "Adjusting start time from {} to {} (30 days limit)",
-                start,
-                thirty_days_ago
-            );
-            thirty_days_ago
-        } else {
-            start
-        };
-
-        let interval_ms = period.to_milliseconds();
-        let num_intervals = ((end - adjusted_start) / interval_ms).min(500);
-
-        url.push_str(&format!(
-            "&startTime={adjusted_start}&endTime={end}&limit={num_intervals}"
-        ));
-    } else {
-        url.push_str("&limit=400");
-    }
-
-    let response = reqwest::get(&url).await.map_err(|e| {
-        log::error!("Failed to fetch from {}: {}", url, e);
-        StreamError::FetchError(e)
-    })?;
-
-    let text = response.text().await.map_err(|e| {
-        log::error!("Failed to get response text from {}: {}", url, e);
-        StreamError::FetchError(e)
-    })?;
-
-    let binance_oi: Vec<DeOpenInterest> = serde_json::from_str(&text).map_err(|e| {
-        log::error!(
-            "Failed to parse response from {}: {}\nResponse: {}",
-            url,
-            e,
-            text
-        );
-        StreamError::ParseError(format!("Failed to parse open interest: {e}"))
-    })?;
-
-    let open_interest = binance_oi
-        .iter()
-        .map(|x| OpenInterest {
-            time: x.time,
-            value: x.sum,
-        })
-        .collect();
-
-    Ok(open_interest)
 }

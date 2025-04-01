@@ -55,10 +55,8 @@ pub enum AxisLabel {
 impl AxisLabel {
     fn intersects(&self, other: &AxisLabel) -> bool {
         match (self, other) {
-            (AxisLabel::X(self_rect, ..), AxisLabel::X(other_rect, ..)) => {
-                self_rect.intersects(other_rect)
-            }
-            (AxisLabel::Y(self_rect, ..), AxisLabel::Y(other_rect, ..)) => {
+            (AxisLabel::Y(self_rect, ..), AxisLabel::Y(other_rect, ..))
+            | (AxisLabel::X(self_rect, ..), AxisLabel::X(other_rect, ..)) => {
                 self_rect.intersects(other_rect)
             }
             _ => false,
@@ -159,7 +157,7 @@ pub struct AxisLabelsX<'a> {
     pub translation_x: f32,
     pub basis: Basis,
     pub cell_width: f32,
-    pub timezone: &'a UserTimezone,
+    pub timezone: UserTimezone,
     pub chart_bounds: Rectangle,
     pub interval_keys: Vec<u64>,
 }

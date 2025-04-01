@@ -3,6 +3,7 @@ pub mod connect;
 pub mod depth;
 pub mod fetcher;
 
+pub use adapter::Event;
 use adapter::{Exchange, MarketType, StreamType};
 use rust_decimal::{
     Decimal,
@@ -118,7 +119,9 @@ impl Ticker {
 
         assert!(base_len <= 20, "Ticker too long");
         assert!(
-            ticker.chars().all(|c| c.is_ascii_alphanumeric()),
+            ticker
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '_'),
             "Invalid character in ticker: {ticker:?}"
         );
 
@@ -129,6 +132,7 @@ impl Ticker {
             let value = match c {
                 b'0'..=b'9' => c - b'0',
                 b'A'..=b'Z' => c - b'A' + 10,
+                b'_' => 36,
                 _ => unreachable!(),
             };
             let shift = (i % 10) * 6;
@@ -143,10 +147,32 @@ impl Ticker {
         }
     }
 
-    pub fn get_string(&self) -> (String, MarketType) {
+    pub fn to_full_symbol_and_type(&self) -> (String, MarketType) {
         let mut result = String::with_capacity(self.len as usize);
         for i in 0..self.len {
             let value = (self.data[i as usize / 10] >> ((i % 10) * 6)) & 0x3F;
+            let c = match value {
+                0..=9 => (b'0' + value as u8) as char,
+                10..=35 => (b'A' + (value as u8 - 10)) as char,
+                36 => '_',
+                _ => unreachable!(),
+            };
+            result.push(c);
+        }
+
+        (result, self.market_type)
+    }
+
+    pub fn display_symbol_and_type(&self) -> (String, MarketType) {
+        let mut result = String::with_capacity(self.len as usize);
+
+        for i in 0..self.len {
+            let value = (self.data[i as usize / 10] >> ((i % 10) * 6)) & 0x3F;
+
+            if value == 36 {
+                break;
+            }
+
             let c = match value {
                 0..=9 => (b'0' + value as u8) as char,
                 10..=35 => (b'A' + (value as u8 - 10)) as char,
@@ -157,16 +183,20 @@ impl Ticker {
 
         (result, self.market_type)
     }
+
+    pub fn get_market_type(&self) -> MarketType {
+        self.market_type
+    }
 }
 
 impl fmt::Display for Ticker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        // Direct formatting without intermediate String allocation
         for i in 0..self.len {
             let value = (self.data[i as usize / 10] >> ((i % 10) * 6)) & 0x3F;
             let c = match value {
                 0..=9 => (b'0' + value as u8) as char,
                 10..=35 => (b'A' + (value as u8 - 10)) as char,
+                36 => '_',
                 _ => unreachable!(),
             };
             f.write_char(c)?;
@@ -198,6 +228,11 @@ pub struct TickerInfo {
 impl TickerInfo {
     pub fn get_market_type(&self) -> MarketType {
         self.ticker.market_type
+    }
+
+    pub fn is_perps(&self) -> bool {
+        self.ticker.market_type == MarketType::LinearPerps
+            || self.ticker.market_type == MarketType::InversePerps
     }
 }
 

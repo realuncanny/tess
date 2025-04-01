@@ -11,7 +11,7 @@ use data::{
     chart::Basis,
     layout::{WindowSpec, pane::Axis},
 };
-use exchanges::{TickMultiplier, Ticker, Timeframe, adapter::Exchange};
+use exchange::{TickMultiplier, Ticker, Timeframe, adapter::Exchange};
 
 use iced::widget::{
     Space, button, center, column, container,
@@ -100,9 +100,9 @@ impl LayoutManager {
         }
     }
 
-    fn ensure_unique_name(&self, proposed_name: String, current_id: Uuid) -> String {
+    fn ensure_unique_name(&self, proposed_name: &str, current_id: Uuid) -> String {
         let mut counter = 2;
-        let mut final_name = proposed_name.clone();
+        let mut final_name = proposed_name.to_string();
 
         while self
             .layouts
@@ -178,7 +178,7 @@ impl LayoutManager {
                 self.edit_mode = Editing::Preview;
             }
             Message::SetLayoutName(id, new_name) => {
-                let unique_name = self.ensure_unique_name(new_name, id);
+                let unique_name = self.ensure_unique_name(&new_name, id);
                 let updated_layout = Layout {
                     id,
                     name: unique_name,
@@ -209,7 +209,7 @@ impl LayoutManager {
                     let new_id = Uuid::new_v4();
                     let new_layout = Layout {
                         id: new_id,
-                        name: self.ensure_unique_name(layout.name.clone(), new_id),
+                        name: self.ensure_unique_name(&layout.name, new_id),
                     };
 
                     let ser_dashboard = data::Dashboard::from(dashboard);
@@ -612,7 +612,7 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
                         CandlestickChart::new(
                             layout,
                             basis,
-                            vec![],
+                            &[],
                             vec![],
                             ticker_info.min_ticksize,
                             &indicators,
@@ -649,7 +649,7 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
                             layout,
                             basis,
                             tick_size,
-                            vec![],
+                            &[],
                             vec![],
                             &indicators,
                             settings.ticker_info,
@@ -702,10 +702,15 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
             stream_type,
             settings,
         } => {
+            if settings.ticker_info.is_none() {
+                log::info!("Skipping a TimeAndSales initialization due to missing ticker info");
+                return Configuration::Pane(PaneState::new());
+            }
+
             let config = settings.visual_config.and_then(|cfg| cfg.time_and_sales());
 
             Configuration::Pane(PaneState::from_config(
-                PaneContent::TimeAndSales(TimeAndSales::new(config)),
+                PaneContent::TimeAndSales(TimeAndSales::new(config, settings.ticker_info)),
                 stream_type,
                 settings,
             ))
