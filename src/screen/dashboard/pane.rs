@@ -459,10 +459,10 @@ impl PaneState {
             );
         }
 
-        let mut is_chart = false;
         let is_stream_modifier = self.modal == PaneModal::StreamModifier;
 
         match self.content {
+            PaneContent::Starter => {}
             PaneContent::Heatmap(_, _) => {
                 stream_info_element = stream_info_element.push(
                     button(text(
@@ -476,8 +476,6 @@ impl PaneState {
                     })
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
-
-                is_chart = true;
             }
             PaneContent::Footprint(_, _) => {
                 stream_info_element = stream_info_element.push(
@@ -493,8 +491,6 @@ impl PaneState {
                     })
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
-
-                is_chart = true;
             }
             PaneContent::Candlestick(_, _) => {
                 stream_info_element = stream_info_element.push(
@@ -509,10 +505,8 @@ impl PaneState {
                     })
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
-
-                is_chart = true;
             }
-            _ => {}
+            PaneContent::TimeAndSales(_) => {}
         }
 
         match &self.status {
@@ -529,7 +523,7 @@ impl PaneState {
             Status::Stale(msg) => {
                 stream_info_element = stream_info_element.push(text(msg));
             }
-            _ => {}
+            Status::Ready => {}
         }
 
         let content = pane_grid::Content::new(match &self.content {
@@ -548,16 +542,111 @@ impl PaneState {
         .style(move |theme| style::pane_background(theme, is_focused));
 
         let title_bar = pane_grid::TitleBar::new(stream_info_element)
-            .controls(view_controls(
-                id,
-                panes,
-                maximized,
-                window != main_window.id,
-                is_chart,
-            ))
+            .controls(self.view_controls(id, panes, maximized, window != main_window.id))
             .style(style::pane_title_bar);
 
-        content.title_bar(title_bar)
+        content.title_bar(if self.modal == PaneModal::None {
+            title_bar
+        } else {
+            title_bar.always_show_controls()
+        })
+    }
+
+    fn view_controls(
+        &self,
+        pane: pane_grid::Pane,
+        total_panes: usize,
+        is_maximized: bool,
+        is_popout: bool,
+    ) -> Element<Message> {
+        let modal_btn_style = |modal: PaneModal| {
+            let is_active = self.modal == modal;
+            move |theme: &Theme, status: button::Status| {
+                style::button::transparent(theme, status, is_active)
+            }
+        };
+
+        let control_btn_style = |is_active: bool| {
+            move |theme: &Theme, status: button::Status| {
+                style::button::transparent(theme, status, is_active)
+            }
+        };
+
+        let tooltip_pos = tooltip::Position::Bottom;
+        let mut buttons = row![];
+
+        if !matches!(&self.content, PaneContent::Starter) {
+            buttons = buttons.push(create_button(
+                get_icon_text(Icon::Cog, 12),
+                Message::ToggleModal(pane, PaneModal::Settings),
+                None,
+                tooltip_pos,
+                modal_btn_style(PaneModal::Settings),
+            ))
+        }
+
+        if matches!(
+            &self.content,
+            PaneContent::Heatmap(_, _)
+                | PaneContent::Footprint(_, _)
+                | PaneContent::Candlestick(_, _)
+        ) {
+            buttons = buttons.push(create_button(
+                get_icon_text(Icon::ChartOutline, 12),
+                Message::ToggleModal(pane, PaneModal::Indicators),
+                Some("Indicators"),
+                tooltip_pos,
+                modal_btn_style(PaneModal::Indicators),
+            ));
+        }
+
+        if is_popout {
+            buttons = buttons.push(create_button(
+                get_icon_text(Icon::Popout, 12),
+                Message::Merge,
+                Some("Merge"),
+                tooltip_pos,
+                control_btn_style(is_popout),
+            ));
+        } else if total_panes > 1 {
+            buttons = buttons.push(create_button(
+                get_icon_text(Icon::Popout, 12),
+                Message::Popout,
+                Some("Pop out"),
+                tooltip_pos,
+                control_btn_style(is_popout),
+            ));
+        }
+
+        if total_panes > 1 {
+            let (resize_icon, message) = if is_maximized {
+                (Icon::ResizeSmall, Message::Restore)
+            } else {
+                (Icon::ResizeFull, Message::MaximizePane(pane))
+            };
+
+            buttons = buttons.push(create_button(
+                get_icon_text(resize_icon, 12),
+                message,
+                None,
+                tooltip_pos,
+                control_btn_style(is_maximized),
+            ));
+
+            buttons = buttons.push(create_button(
+                get_icon_text(Icon::Close, 12),
+                Message::ClosePane(pane),
+                None,
+                tooltip_pos,
+                control_btn_style(false),
+            ));
+        }
+
+        buttons
+            .padding(padding::right(4))
+            .align_y(Vertical::Center)
+            .height(Length::Fixed(32.0))
+            .into()
     }
 
     pub fn matches_stream(&self, stream: &StreamType) -> bool {
@@ -793,12 +882,12 @@ fn indicators_view<I: Indicator>(
             ])
             .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
             .width(Length::Fill)
-            .style(move |theme, status| style::button::transparent(theme, status, true))
+            .style(move |theme, status| style::button::modifier(theme, status, true))
         } else {
             button(text(indicator.to_string()))
                 .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
                 .width(Length::Fill)
-                .style(move |theme, status| style::button::transparent(theme, status, false))
+                .style(move |theme, status| style::button::modifier(theme, status, false))
         });
     }
 
@@ -974,85 +1063,6 @@ fn view_chart<'a, C: ChartView, I: Indicator>(
     timezone: UserTimezone,
 ) -> Element<'a, Message> {
     content.view(pane, state, indicators, timezone)
-}
-
-// Pane controls, title bar
-fn view_controls<'a>(
-    pane: pane_grid::Pane,
-    total_panes: usize,
-    is_maximized: bool,
-    is_popout: bool,
-    is_chart: bool,
-) -> Element<'a, Message> {
-    let button_style =
-        |theme: &Theme, status: button::Status| style::button::transparent(theme, status, false);
-    let tooltip_pos = tooltip::Position::Bottom;
-
-    let mut buttons = row![create_button(
-        get_icon_text(Icon::Cog, 12),
-        Message::ToggleModal(pane, PaneModal::Settings),
-        None,
-        tooltip_pos,
-        button_style,
-    )];
-
-    if is_chart {
-        buttons = buttons.push(create_button(
-            get_icon_text(Icon::ChartOutline, 12),
-            Message::ToggleModal(pane, PaneModal::Indicators),
-            Some("Indicators"),
-            tooltip_pos,
-            button_style,
-        ));
-    }
-
-    if is_popout {
-        buttons = buttons.push(create_button(
-            get_icon_text(Icon::Popout, 12),
-            Message::Merge,
-            Some("Merge"),
-            tooltip_pos,
-            button_style,
-        ));
-    } else if total_panes > 1 {
-        buttons = buttons.push(create_button(
-            get_icon_text(Icon::Popout, 12),
-            Message::Popout,
-            Some("Pop out"),
-            tooltip_pos,
-            button_style,
-        ));
-    }
-
-    if total_panes > 1 {
-        let (resize_icon, message) = if is_maximized {
-            (Icon::ResizeSmall, Message::Restore)
-        } else {
-            (Icon::ResizeFull, Message::MaximizePane(pane))
-        };
-
-        buttons = buttons.push(create_button(
-            get_icon_text(resize_icon, 12),
-            message,
-            None,
-            tooltip_pos,
-            button_style,
-        ));
-
-        buttons = buttons.push(create_button(
-            get_icon_text(Icon::Close, 12),
-            Message::ClosePane(pane),
-            None,
-            tooltip_pos,
-            button_style,
-        ));
-    }
-
-    buttons
-        .padding(padding::right(4))
-        .align_y(Vertical::Center)
-        .height(Length::Fixed(32.0))
-        .into()
 }
 
 pub enum PaneContent {

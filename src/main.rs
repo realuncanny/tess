@@ -16,7 +16,7 @@ use screen::{
         tickers_table::{self, TickersTable},
     },
 };
-use style::{Icon, get_icon_text};
+use style::{Icon, TITLE_PADDING_TOP, get_icon_text};
 use widget::{
     confirm_dialog_container, dashboard_modal, main_dialog_modal,
     notification::{self, Toast},
@@ -77,7 +77,6 @@ enum Message {
     WindowEvent(window::Event),
     SaveAndExit(HashMap<window::Id, WindowSpec>),
 
-    ToggleLayoutLock,
     LayoutSelected(Layout),
     LoadLayout(Layout),
     ManageLayouts(layout::Message),
@@ -194,12 +193,6 @@ impl State {
                                 .map(move |msg| Message::Dashboard(None, msg));
                         }
                     }
-                }
-            }
-            Message::ToggleLayoutLock => {
-                self.layout_manager.toggle_layout_lock();
-                if let Some(dashboard) = self.get_active_dashboard_mut() {
-                    dashboard.focus = None;
                 }
             }
             Message::WindowEvent(event) => match event {
@@ -443,7 +436,6 @@ impl State {
         };
 
         let sidebar_pos = self.sidebar.position;
-        let layout_lock = self.layout_manager.is_layout_locked();
 
         let content = if id == self.main_window.id {
             let tooltip_position = if sidebar_pos == sidebar::Position::Left {
@@ -453,25 +445,9 @@ impl State {
             };
 
             let sidebar = {
+                let is_table_open = self.tickers_table.is_open();
+
                 let nav_buttons = {
-                    let layout_lock_button = {
-                        create_button(
-                            get_icon_text(
-                                if layout_lock {
-                                    Icon::Locked
-                                } else {
-                                    Icon::Unlocked
-                                },
-                                14,
-                            )
-                            .width(24)
-                            .align_x(Alignment::Center),
-                            Message::ToggleLayoutLock,
-                            Some("Layout Lock"),
-                            tooltip_position,
-                            |theme, status| style::button::transparent(theme, status, false),
-                        )
-                    };
                     let settings_modal_button = {
                         let is_active = self.sidebar.is_menu_active(sidebar::Menu::Settings);
 
@@ -495,7 +471,7 @@ impl State {
                                 .width(24)
                                 .align_x(Alignment::Center),
                             Message::ToggleSidebarMenu(sidebar::Menu::Layout),
-                            Some("Manage Layouts"),
+                            None,
                             tooltip_position,
                             move |theme, status| {
                                 style::button::transparent(theme, status, is_active)
@@ -503,8 +479,6 @@ impl State {
                         )
                     };
                     let ticker_search_button = {
-                        let is_active = self.tickers_table.is_open();
-
                         create_button(
                             get_icon_text(Icon::Search, 14)
                                 .width(24)
@@ -513,7 +487,7 @@ impl State {
                             Some("Search Tickers"),
                             tooltip_position,
                             move |theme, status| {
-                                style::button::transparent(theme, status, is_active)
+                                style::button::transparent(theme, status, is_table_open)
                             },
                         )
                     };
@@ -521,16 +495,15 @@ impl State {
                     column![
                         ticker_search_button,
                         layout_modal_button,
-                        layout_lock_button,
                         Space::with_height(Length::Fill),
                         settings_modal_button,
                     ]
                     .width(32)
-                    .spacing(4)
+                    .spacing(8)
                 };
 
                 let tickers_table = {
-                    if self.tickers_table.is_open() {
+                    if is_table_open {
                         column![responsive(move |size| {
                             self.tickers_table.view(size).map(Message::TickersTable)
                         })]
@@ -548,11 +521,11 @@ impl State {
                         row![tickers_table, nav_buttons,]
                     }
                 }
-                .spacing(4)
+                .spacing(if is_table_open { 8 } else { 4 })
             };
 
             let dashboard_view = dashboard
-                .view(&self.main_window, layout_lock, self.timezone)
+                .view(&self.main_window, self.timezone)
                 .map(move |msg| Message::Dashboard(None, msg));
 
             let base = column![
@@ -800,10 +773,10 @@ impl State {
         } else {
             container(
                 dashboard
-                    .view_window(id, &self.main_window, layout_lock, self.timezone)
+                    .view_window(id, &self.main_window, self.timezone)
                     .map(move |msg| Message::Dashboard(None, msg)),
             )
-            .padding(padding::top(if cfg!(target_os = "macos") { 20 } else { 0 }))
+            .padding(padding::top(TITLE_PADDING_TOP))
             .into()
         };
 

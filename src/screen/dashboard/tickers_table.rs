@@ -501,62 +501,58 @@ impl TickersTable {
             column![
                 row![
                     Space::new(Length::FillPortion(2), Length::Shrink),
-                    match self.selected_sort_option {
-                        SortOptions::VolumeAsc | SortOptions::VolumeDesc => volume_sort_button
-                            .style(move |theme, status| {
-                                style::button::transparent(theme, status, true)
-                            }),
-                        _ => volume_sort_button.style(move |theme, status| {
-                            style::button::transparent(theme, status, false)
-                        }),
-                    },
+                    volume_sort_button.style(move |theme, status| {
+                        style::button::transparent(
+                            theme,
+                            status,
+                            matches!(
+                                self.selected_sort_option,
+                                SortOptions::VolumeAsc | SortOptions::VolumeDesc
+                            ),
+                        )
+                    }),
                     Space::new(Length::FillPortion(1), Length::Shrink),
-                    match self.selected_sort_option {
-                        SortOptions::ChangeAsc | SortOptions::ChangeDesc => change_sort_button
-                            .style(move |theme, status| {
-                                style::button::transparent(theme, status, true)
-                            }),
-                        _ => change_sort_button.style(move |theme, status| {
-                            style::button::transparent(theme, status, false)
-                        }),
-                    },
+                    change_sort_button.style(move |theme, status| {
+                        style::button::transparent(
+                            theme,
+                            status,
+                            matches!(
+                                self.selected_sort_option,
+                                SortOptions::ChangeAsc | SortOptions::ChangeDesc
+                            ),
+                        )
+                    }),
                     Space::new(Length::FillPortion(2), Length::Shrink),
                 ],
                 row![
                     Space::new(Length::FillPortion(1), Length::Shrink),
-                    match self.selected_market {
-                        Some(MarketType::Spot) => spot_market_button.style(move |theme, status| {
-                            style::button::transparent(theme, status, true)
-                        }),
-                        _ => spot_market_button.style(move |theme, status| {
-                            style::button::transparent(theme, status, false)
-                        }),
-                    },
+                    spot_market_button.style(move |theme, status| {
+                        style::button::transparent(
+                            theme,
+                            status,
+                            matches!(self.selected_market, Some(MarketType::Spot)),
+                        )
+                    }),
                     Space::new(Length::FillPortion(1), Length::Shrink),
-                    match self.selected_market {
-                        Some(MarketType::LinearPerps) =>
-                            linear_markets_btn.style(move |theme, status| {
-                                style::button::transparent(theme, status, true)
-                            }),
-                        _ => linear_markets_btn.style(move |theme, status| {
-                            style::button::transparent(theme, status, false)
-                        }),
-                    },
+                    linear_markets_btn.style(move |theme, status| {
+                        style::button::transparent(
+                            theme,
+                            status,
+                            matches!(self.selected_market, Some(MarketType::LinearPerps)),
+                        )
+                    }),
                     Space::new(Length::FillPortion(1), Length::Shrink),
-                    match self.selected_market {
-                        Some(MarketType::InversePerps) =>
-                            inverse_markets_btn.style(move |theme, status| {
-                                style::button::transparent(theme, status, true)
-                            }),
-                        _ => inverse_markets_btn.style(move |theme, status| {
-                            style::button::transparent(theme, status, false)
-                        }),
-                    },
+                    inverse_markets_btn.style(move |theme, status| {
+                        style::button::transparent(
+                            theme,
+                            status,
+                            matches!(self.selected_market, Some(MarketType::InversePerps)),
+                        )
+                    }),
                     Space::new(Length::FillPortion(1), Length::Shrink),
                 ],
                 horizontal_rule(1.0).style(style::split_ruler),
             ]
-            .padding(4)
             .spacing(4)
         };
 

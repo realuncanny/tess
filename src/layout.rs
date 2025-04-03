@@ -54,7 +54,6 @@ pub struct LayoutManager {
     pub active_layout: Layout,
     pub layout_order: Vec<Uuid>,
     edit_mode: Editing,
-    is_locked: bool,
 }
 
 impl LayoutManager {
@@ -73,16 +72,7 @@ impl LayoutManager {
             active_layout: layout1.clone(),
             layout_order: vec![layout1.id],
             edit_mode: Editing::None,
-            is_locked: false,
         }
-    }
-
-    pub fn toggle_layout_lock(&mut self) {
-        self.is_locked = !self.is_locked;
-    }
-
-    pub fn is_layout_locked(&self) -> bool {
-        self.is_locked
     }
 
     fn generate_unique_layout_name(&self) -> String {
@@ -771,7 +761,6 @@ pub fn load_saved_state() -> SavedState {
                     active_layout,
                     layout_order,
                     edit_mode: Editing::None,
-                    is_locked: false,
                 }
             };
 

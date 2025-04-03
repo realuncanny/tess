@@ -736,13 +736,12 @@ impl Dashboard {
     pub fn view<'a>(
         &'a self,
         main_window: &'a Window,
-        layout_lock: bool,
         timezone: UserTimezone,
     ) -> Element<'a, Message> {
         let focus = self.focus;
 
-        let mut pane_grid = PaneGrid::new(&self.panes, |id, pane, maximized| {
-            let is_focused = !layout_lock && focus == Some((main_window.id, id));
+        let pane_grid: Element<_> = PaneGrid::new(&self.panes, |id, pane, maximized| {
+            let is_focused = focus == Some((main_window.id, id));
             pane.view(
                 id,
                 self.panes.len(),
@@ -753,17 +752,12 @@ impl Dashboard {
                 timezone,
             )
         })
+        .on_click(pane::Message::PaneClicked)
+        .on_resize(8, pane::Message::PaneResized)
+        .on_drag(pane::Message::PaneDragged)
         .spacing(6)
-        .style(style::pane_grid);
-
-        if !layout_lock {
-            pane_grid = pane_grid
-                .on_click(pane::Message::PaneClicked)
-                .on_resize(8, pane::Message::PaneResized)
-                .on_drag(pane::Message::PaneDragged);
-        }
-
-        let pane_grid: Element<_> = pane_grid.into();
+        .style(style::pane_grid)
+        .into();
 
         container(pane_grid.map(move |message| Message::Pane(main_window.id, message))).into()
     }
@@ -772,12 +766,11 @@ impl Dashboard {
         &'a self,
         window: window::Id,
         main_window: &'a Window,
-        layout_lock: bool,
         timezone: UserTimezone,
     ) -> Element<'a, Message> {
         if let Some((state, _)) = self.popout.get(&window) {
-            let content = container({
-                let mut pane_grid = PaneGrid::new(state, |id, pane, _maximized| {
+            let content = container(
+                PaneGrid::new(state, |id, pane, _maximized| {
                     let is_focused = self.focus == Some((window, id));
                     pane.view(
                         id,
@@ -788,13 +781,9 @@ impl Dashboard {
                         main_window,
                         timezone,
                     )
-                });
-
-                if !layout_lock {
-                    pane_grid = pane_grid.on_click(pane::Message::PaneClicked);
-                }
-                pane_grid
-            })
+                })
+                .on_click(pane::Message::PaneClicked),
+            )
             .width(Length::Fill)
             .height(Length::Fill)
             .padding(8);

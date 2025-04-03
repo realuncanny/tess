@@ -7,6 +7,8 @@ use iced::{Border, Color, Font, Renderer, Shadow, Theme, widget};
 pub const ICON_BYTES: &[u8] = include_bytes!(".././assets/fonts/icons.ttf");
 pub const ICON_FONT: Font = Font::with_name("icons");
 
+pub const TITLE_PADDING_TOP: f32 = if cfg!(target_os = "macos") { 20.0 } else { 0.0 };
+
 pub enum Icon {
     Locked,
     Unlocked,
