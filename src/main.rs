@@ -25,10 +25,7 @@ use widget::{
 use window::{Window, window_events};
 
 use data::{InternalError, config::theme::custom_theme, layout::WindowSpec, sidebar};
-use exchange::{
-    Ticker, TickerInfo, TickerStats,
-    adapter::{Exchange, StreamType, fetch_ticker_info, fetch_ticker_prices},
-};
+use exchange::adapter::{Exchange, StreamType, fetch_ticker_info};
 use iced::{
     Alignment, Element, Length, Subscription, Task, padding,
     widget::{
@@ -94,12 +91,7 @@ enum Message {
     ThemeSelected(data::Theme),
 
     TickersTable(tickers_table::Message),
-    ToggleTickersTable,
-    UpdateTickersTable(Exchange, HashMap<Ticker, TickerStats>),
-    FetchForTickersTable(Option<Exchange>),
-
     FetchForTickersInfo,
-    UpdateTickersInfo(Exchange, HashMap<Ticker, Option<TickerInfo>>),
 
     ToggleDialogModal(Option<(String, Box<Message>)>),
 
@@ -111,7 +103,6 @@ struct State {
     main_window: Window,
     layout_manager: LayoutManager,
     tickers_table: TickersTable,
-    tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
@@ -134,7 +125,6 @@ impl State {
                 main_window: Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
-                tickers_info: HashMap::new(),
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
@@ -159,7 +149,9 @@ impl State {
                     .iter()
                     .map(|exchange| {
                         Task::perform(fetch_ticker_info(*exchange), move |result| match result {
-                            Ok(ticker_info) => Message::UpdateTickersInfo(*exchange, ticker_info),
+                            Ok(ticker_info) => Message::TickersTable(
+                                tickers_table::Message::UpdateTickersInfo(*exchange, ticker_info),
+                            ),
                             Err(err) => {
                                 Message::ErrorOccurred(InternalError::Fetch(err.to_string()))
                             }
@@ -168,16 +160,6 @@ impl State {
                     .collect::<Vec<Task<Message>>>();
 
                 return Task::batch(fetch_tasks);
-            }
-            Message::UpdateTickersInfo(exchange, tickers_info) => {
-                log::info!(
-                    "Received tickers info for {exchange}, len: {}",
-                    tickers_info.len()
-                );
-
-                self.tickers_info.insert(exchange, tickers_info);
-
-                return Task::done(Message::FetchForTickersTable(Some(exchange)));
             }
             Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
@@ -343,123 +325,59 @@ impl State {
                         .map(move |msg| Message::Dashboard(None, msg));
                 }
             }
-            Message::Dashboard(id, message) => {
-                let main_window = self.main_window;
+            Message::Dashboard(id, message) => match message {
+                dashboard::Message::Notification(toast) => {
+                    return Task::done(Message::AddNotification(toast));
+                }
+                dashboard::Message::DistributeFetchedData(layout_id, pane_uid, data, stream) => {
+                    let main_window = self.main_window;
 
-                match message {
-                    dashboard::Message::GlobalNotification(toast) => {
-                        return Task::done(Message::AddNotification(toast));
-                    }
-                    dashboard::Message::DistributeFetchedData(
-                        layout_id,
-                        pane_uid,
-                        data,
-                        stream,
-                    ) => {
-                        if let Some(dashboard) = self.layout_manager.get_mut_dashboard(&layout_id) {
-                            return dashboard
-                                .distribute_fetched_data(main_window.id, pane_uid, data, stream)
-                                .map(move |msg| Message::Dashboard(Some(layout_id), msg));
-                        } else {
-                            return Task::done(Message::ErrorOccurred(InternalError::Layout(
-                                "Couldn't find dashboard".to_string(),
-                            )));
-                        }
-                    }
-                    _ => {
-                        let layout_id = id.unwrap_or(self.layout_manager.active_layout.id);
-
-                        if let Some(dashboard) = self.layout_manager.get_mut_dashboard(&layout_id) {
-                            return dashboard
-                                .update(message, &main_window, &layout_id)
-                                .map(move |msg| Message::Dashboard(Some(layout_id), msg));
-                        }
+                    if let Some(dashboard) = self.layout_manager.get_mut_dashboard(&layout_id) {
+                        return dashboard
+                            .distribute_fetched_data(main_window.id, pane_uid, data, stream)
+                            .map(move |msg| Message::Dashboard(Some(layout_id), msg));
+                    } else {
+                        return Task::done(Message::ErrorOccurred(InternalError::Layout(
+                            "Couldn't find dashboard".to_string(),
+                        )));
                     }
                 }
-            }
-            Message::ToggleTickersTable => {
-                self.tickers_table.toggle_table();
-            }
-            Message::UpdateTickersTable(exchange, ticker_stats) => {
-                let tickers = self
-                    .tickers_info
-                    .get(&exchange)
-                    .map(|info| info.keys().copied().collect::<Vec<_>>())
-                    .unwrap_or_default();
+                _ => {
+                    let main_window = self.main_window;
+                    let layout_id = id.unwrap_or(self.layout_manager.active_layout.id);
 
-                let filtered_tickers_stats = ticker_stats
-                    .into_iter()
-                    .filter(|(ticker, _)| tickers.iter().any(|t| t == ticker))
-                    .collect::<HashMap<Ticker, TickerStats>>();
-
-                self.tickers_table
-                    .update_table(exchange, filtered_tickers_stats);
-            }
-            Message::FetchForTickersTable(exchange) => {
-                if let Some(exchange) = exchange {
-                    return Task::perform(
-                        fetch_ticker_prices(exchange),
-                        move |result| match result {
-                            Ok(ticker_stats) => Message::UpdateTickersTable(exchange, ticker_stats),
-                            Err(err) => {
-                                Message::ErrorOccurred(InternalError::Fetch(err.to_string()))
-                            }
-                        },
-                    );
-                } else {
-                    let fetch_tasks = {
-                        Exchange::ALL
-                            .iter()
-                            .map(|exchange| {
-                                Task::perform(fetch_ticker_prices(*exchange), move |result| {
-                                    match result {
-                                        Ok(ticker_stats) => {
-                                            Message::UpdateTickersTable(*exchange, ticker_stats)
-                                        }
-                                        Err(err) => Message::ErrorOccurred(InternalError::Fetch(
-                                            err.to_string(),
-                                        )),
-                                    }
-                                })
-                            })
-                            .collect::<Vec<Task<Message>>>()
-                    };
-
-                    return Task::batch(fetch_tasks);
+                    if let Some(dashboard) = self.layout_manager.get_mut_dashboard(&layout_id) {
+                        return dashboard
+                            .update(message, &main_window, &layout_id)
+                            .map(move |msg| Message::Dashboard(Some(layout_id), msg));
+                    }
                 }
-            }
+            },
             Message::TickersTable(message) => {
-                if let tickers_table::Message::TickerSelected(ticker, exchange, content) = message {
-                    let main_window_id = self.main_window.id;
+                let action = self.tickers_table.update(message);
 
-                    let ticker_info = self
-                        .tickers_info
-                        .get(&exchange)
-                        .and_then(|info| info.get(&ticker).copied().flatten());
+                match action {
+                    tickers_table::Action::TickerSelected(ticker_info, exchange, content) => {
+                        let main_window_id = self.main_window.id;
 
-                    if let Some(dashboard) = self.get_active_dashboard_mut() {
-                        if let Some(ticker_info) = ticker_info {
+                        if let Some(dashboard) = self.get_active_dashboard_mut() {
                             let task = dashboard.init_pane_task(
                                 main_window_id,
-                                (ticker, ticker_info),
+                                ticker_info,
                                 exchange,
                                 &content,
                             );
 
                             return task.map(move |msg| Message::Dashboard(None, msg));
-                        } else {
-                            return Task::done(Message::ErrorOccurred(InternalError::Fetch(
-                                format!(
-                                    "Couldn't find ticker info for {ticker} on {exchange}, try restarting the app"
-                                ),
-                            )));
                         }
                     }
-                } else {
-                    return self
-                        .tickers_table
-                        .update(message)
-                        .map(Message::TickersTable);
+                    tickers_table::Action::Fetch(task) => {
+                        return task.map(Message::TickersTable);
+                    }
+                    tickers_table::Action::ErrorOccurred(err) => {
+                        return Task::done(Message::ErrorOccurred(err));
+                    }
+                    tickers_table::Action::None => {}
                 }
             }
             Message::SetTimezone(tz) => {
@@ -591,7 +509,7 @@ impl State {
                             get_icon_text(Icon::Search, 14)
                                 .width(24)
                                 .align_x(Alignment::Center),
-                            Message::ToggleTickersTable,
+                            Message::TickersTable(tickers_table::Message::ToggleTable),
                             Some("Search Tickers"),
                             tooltip_position,
                             move |theme, status| {
@@ -918,14 +836,7 @@ impl State {
 
         let exchange_streams = dashboard.get_market_subscriptions(Message::MarketWsEvent);
 
-        let tickers_table_fetch = iced::time::every(std::time::Duration::from_secs(
-            if self.tickers_table.is_open() {
-                25
-            } else {
-                300
-            },
-        ))
-        .map(|_| Message::FetchForTickersTable(None));
+        let tickers_table_fetch = self.tickers_table.subscription().map(Message::TickersTable);
 
         Subscription::batch(vec![exchange_streams, tickers_table_fetch, window_events])
     }

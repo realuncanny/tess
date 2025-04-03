@@ -1,12 +1,13 @@
 use std::collections::HashMap;
 
 use crate::style::{self, ICON_FONT, Icon, get_icon_text};
+use data::InternalError;
 use exchange::{
-    Ticker, TickerStats,
-    adapter::{Exchange, MarketType},
+    Ticker, TickerInfo, TickerStats,
+    adapter::{Exchange, MarketType, fetch_ticker_prices},
 };
 use iced::{
-    Element, Length, Renderer, Size, Task, Theme,
+    Element, Length, Renderer, Size, Subscription, Task, Theme,
     alignment::{self, Horizontal, Vertical},
     padding,
     widget::{
@@ -19,6 +20,13 @@ use iced::{
 
 const TICKER_CARD_HEIGHT: f32 = 64.0;
 const SEARCH_BAR_HEIGHT: f32 = 120.0;
+
+pub enum Action {
+    TickerSelected(TickerInfo, Exchange, String),
+    ErrorOccurred(data::InternalError),
+    Fetch(Task<Message>),
+    None,
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TickerTab {
@@ -56,10 +64,15 @@ pub enum Message {
     FavoriteTicker(Exchange, Ticker),
     Scrolled(scrollable::Viewport),
     SetMarketFilter(Option<MarketType>),
+    ToggleTable,
+    FetchForTickerStats(Option<Exchange>),
+    UpdateTickersInfo(Exchange, HashMap<Ticker, Option<TickerInfo>>),
+    UpdateTickerStats(Exchange, HashMap<Ticker, TickerStats>),
+    ErrorOccurred(data::InternalError),
 }
 
 pub struct TickersTable {
-    tickers_info: HashMap<Exchange, Vec<(Ticker, TickerStats)>>,
+    ticker_stats: HashMap<Exchange, Vec<(Ticker, TickerStats)>>,
     combined_tickers: Vec<(Exchange, Ticker, TickerStats, bool)>,
     favorited_tickers: Vec<(Exchange, Ticker)>,
     display_cache: HashMap<(Exchange, Ticker), TickerDisplayData>,
@@ -71,12 +84,13 @@ pub struct TickersTable {
     expand_ticker_card: Option<(Ticker, Exchange)>,
     scroll_offset: AbsoluteOffset,
     is_show: bool,
+    tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
 }
 
 impl TickersTable {
     pub fn new(favorited_tickers: Vec<(Exchange, Ticker)>) -> Self {
         Self {
-            tickers_info: HashMap::new(),
+            ticker_stats: HashMap::new(),
             combined_tickers: Vec::new(),
             display_cache: HashMap::new(),
             favorited_tickers,
@@ -88,13 +102,14 @@ impl TickersTable {
             scroll_offset: AbsoluteOffset::default(),
             selected_market: None,
             is_show: false,
+            tickers_info: HashMap::new(),
         }
     }
 
-    pub fn update_table(&mut self, exchange: Exchange, tickers_info: HashMap<Ticker, TickerStats>) {
+    pub fn update_table(&mut self, exchange: Exchange, ticker_stats: HashMap<Ticker, TickerStats>) {
         self.display_cache.retain(|(ex, _), _| ex != &exchange);
 
-        let tickers_vec: Vec<_> = tickers_info
+        let tickers_vec: Vec<_> = ticker_stats
             .into_iter()
             .map(|(ticker, stats)| {
                 self.display_cache.insert(
@@ -105,14 +120,14 @@ impl TickersTable {
             })
             .collect();
 
-        self.tickers_info.insert(exchange, tickers_vec);
+        self.ticker_stats.insert(exchange, tickers_vec);
         self.update_combined_tickers();
     }
 
     fn update_combined_tickers(&mut self) {
         self.combined_tickers.clear();
 
-        self.tickers_info.iter().for_each(|(exchange, tickers)| {
+        self.ticker_stats.iter().for_each(|(exchange, tickers)| {
             for (ticker, stats) in tickers {
                 let is_fav = self
                     .favorited_tickers
@@ -272,11 +287,48 @@ impl TickersTable {
         self.is_show
     }
 
-    pub fn toggle_table(&mut self) {
-        self.is_show = !self.is_show;
+    pub fn update_ticker_info(
+        &mut self,
+        exchange: Exchange,
+        info: HashMap<Ticker, Option<TickerInfo>>,
+    ) -> Action {
+        if let Some(tickers) = self.tickers_info.get_mut(&exchange) {
+            for (ticker, ticker_info) in info {
+                if let Some(existing_ticker_info) = tickers.get_mut(&ticker) {
+                    *existing_ticker_info = ticker_info;
+                } else {
+                    tickers.insert(ticker, ticker_info);
+                }
+            }
+        } else {
+            self.tickers_info.insert(exchange, info);
+        }
+
+        let task = Task::perform(fetch_ticker_prices(exchange), move |result| match result {
+            Ok(ticker_stats) => Message::UpdateTickerStats(exchange, ticker_stats),
+
+            Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
+        });
+
+        Action::Fetch(task)
     }
 
-    pub fn update(&mut self, message: Message) -> Task<Message> {
+    pub fn update_ticker_stats(&mut self, exchange: Exchange, stats: HashMap<Ticker, TickerStats>) {
+        let tickers = self
+            .tickers_info
+            .get(&exchange)
+            .map(|info| info.keys().copied().collect::<Vec<_>>())
+            .unwrap_or_default();
+
+        let filtered_tickers_stats = stats
+            .into_iter()
+            .filter(|(ticker, _)| tickers.iter().any(|t| t == ticker))
+            .collect::<HashMap<Ticker, TickerStats>>();
+
+        self.update_table(exchange, filtered_tickers_stats);
+    }
+
+    pub fn update(&mut self, message: Message) -> Action {
         match message {
             Message::ChangeTickersTableTab(tab) => {
                 self.selected_tab = tab;
@@ -306,9 +358,76 @@ impl TickersTable {
                     self.selected_market = market;
                 }
             }
-            _ => {}
+            Message::TickerSelected(ticker, exchange, chart_type) => {
+                let ticker_info = self
+                    .tickers_info
+                    .get(&exchange)
+                    .and_then(|info| info.get(&ticker))
+                    .cloned()
+                    .flatten();
+
+                if let Some(ticker_info) = ticker_info {
+                    return Action::TickerSelected(ticker_info, exchange, chart_type);
+                } else {
+                    log::warn!("Ticker info not found for {ticker:?} on {exchange:?}");
+                }
+            }
+            Message::ToggleTable => {
+                self.is_show = !self.is_show;
+            }
+            Message::FetchForTickerStats(exchange) => {
+                let task = if let Some(exchange) = exchange {
+                    Task::perform(fetch_ticker_prices(exchange), move |result| match result {
+                        Ok(ticker_stats) => Message::UpdateTickerStats(exchange, ticker_stats),
+                        Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
+                    })
+                } else {
+                    let fetch_tasks = {
+                        Exchange::ALL
+                            .iter()
+                            .map(|exchange| {
+                                Task::perform(fetch_ticker_prices(*exchange), move |result| {
+                                    match result {
+                                        Ok(ticker_stats) => {
+                                            Message::UpdateTickerStats(*exchange, ticker_stats)
+                                        }
+
+                                        Err(err) => Message::ErrorOccurred(InternalError::Fetch(
+                                            err.to_string(),
+                                        )),
+                                    }
+                                })
+                            })
+                            .collect::<Vec<Task<Message>>>()
+                    };
+
+                    Task::batch(fetch_tasks)
+                };
+
+                return Action::Fetch(task);
+            }
+            Message::UpdateTickerStats(exchange, stats) => {
+                self.update_ticker_stats(exchange, stats);
+            }
+            Message::UpdateTickersInfo(exchange, info) => {
+                self.update_ticker_info(exchange, info);
+
+                let task =
+                    Task::perform(fetch_ticker_prices(exchange), move |result| match result {
+                        Ok(ticker_stats) => Message::UpdateTickerStats(exchange, ticker_stats),
+
+                        Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
+                    });
+
+                return Action::Fetch(task);
+            }
+            Message::ErrorOccurred(err) => {
+                log::error!("Error occurred: {err}");
+                return Action::ErrorOccurred(err);
+            }
         }
-        Task::none()
+
+        Action::None
     }
 
     pub fn view(&self, bounds: Size) -> Element<'_, Message> {
@@ -562,6 +681,15 @@ impl TickersTable {
         .on_scroll(Message::Scrolled)
         .style(style::scroll_bar)
         .into()
+    }
+
+    pub fn subscription(&self) -> Subscription<Message> {
+        iced::time::every(std::time::Duration::from_secs(if self.is_open() {
+            25
+        } else {
+            300
+        }))
+        .map(|_| Message::FetchForTickerStats(None))
     }
 }
 

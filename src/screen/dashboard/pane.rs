@@ -147,14 +147,14 @@ impl PaneState {
         &mut self,
         content: &str,
         exchange: Exchange,
-        ticker: (Ticker, TickerInfo),
+        ticker_info: TickerInfo,
         pane: pane_grid::Pane,
     ) -> Task<Message> {
         let streams = match content {
             "heatmap" | "time&sales" => {
                 vec![StreamType::DepthAndTrades {
                     exchange,
-                    ticker: ticker.0,
+                    ticker: ticker_info.ticker,
                 }]
             }
             "footprint" => {
@@ -168,11 +168,11 @@ impl PaneState {
                         vec![
                             StreamType::DepthAndTrades {
                                 exchange,
-                                ticker: ticker.0,
+                                ticker: ticker_info.ticker,
                             },
                             StreamType::Kline {
                                 exchange,
-                                ticker: ticker.0,
+                                ticker: ticker_info.ticker,
                                 timeframe: interval.into(),
                             },
                         ]
@@ -180,7 +180,7 @@ impl PaneState {
                     Basis::Tick(_) => {
                         vec![StreamType::DepthAndTrades {
                             exchange,
-                            ticker: ticker.0,
+                            ticker: ticker_info.ticker,
                         }]
                     }
                 }
@@ -195,14 +195,14 @@ impl PaneState {
                     Basis::Time(interval) => {
                         vec![StreamType::Kline {
                             exchange,
-                            ticker: ticker.0,
+                            ticker: ticker_info.ticker,
                             timeframe: interval.into(),
                         }]
                     }
                     Basis::Tick(_) => {
                         vec![StreamType::DepthAndTrades {
                             exchange,
-                            ticker: ticker.0,
+                            ticker: ticker_info.ticker,
                         }]
                     }
                 }
@@ -216,7 +216,7 @@ impl PaneState {
             content.to_string(),
             Some(pane),
             streams,
-            ticker.1,
+            ticker_info,
         ))
     }
 

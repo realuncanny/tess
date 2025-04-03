@@ -37,7 +37,7 @@ pub enum Message {
     Pane(window::Id, pane::Message),
     SavePopoutSpecs(HashMap<window::Id, WindowSpec>),
     ErrorOccurred(Option<uuid::Uuid>, DashboardError),
-    GlobalNotification(Toast),
+    Notification(Toast),
 
     LayoutFetchAll,
     RefreshStreams,
@@ -175,7 +175,7 @@ impl Dashboard {
                     }
                 }
                 _ => {
-                    return Task::done(Message::GlobalNotification(Toast::error(err.to_string())));
+                    return Task::done(Message::Notification(Toast::error(err.to_string())));
                 }
             },
             Message::Pane(window, message) => {
@@ -558,7 +558,12 @@ impl Dashboard {
                     pane_state.status = status;
                 }
             }
-            _ => {}
+            Message::DistributeFetchedData(_, _, _, _) => {
+                // this is handled by the parent `State`
+            }
+            Message::Notification(_) => {
+                // this is handled by the parent `State`
+            }
         }
 
         Task::none()
@@ -885,18 +890,18 @@ impl Dashboard {
     pub fn init_pane_task(
         &mut self,
         main_window: window::Id,
-        ticker: (Ticker, TickerInfo),
+        ticker_info: TickerInfo,
         exchange: Exchange,
         content: &str,
     ) -> Task<Message> {
         if let Some((window, selected_pane)) = self.focus {
             if let Some(pane_state) = self.get_mut_pane(main_window, window, selected_pane) {
                 return pane_state
-                    .init_content_task(content, exchange, ticker, selected_pane)
+                    .init_content_task(content, exchange, ticker_info, selected_pane)
                     .map(move |msg| Message::Pane(window, msg));
             }
         } else {
-            return Task::done(Message::GlobalNotification(Toast::warn(
+            return Task::done(Message::Notification(Toast::warn(
                 "Select a pane first".to_string(),
             )));
         }
@@ -1293,11 +1298,11 @@ impl Dashboard {
                         adapter::fetch_klines(exchange, ticker, timeframe, None)
                             .map_err(|err| format!("{err}")),
                         move |result| match result {
-                            Ok(_) => Message::GlobalNotification(Toast::warn(format!(
+                            Ok(_) => Message::Notification(Toast::warn(format!(
                                 "Fetched klines for stream with no matching panes: {exchange:?} {:?} {timeframe:?}",
                                 ticker.to_full_symbol_and_type(),
                             ))),
-                            Err(err) => Message::GlobalNotification(Toast::error(format!(
+                            Err(err) => Message::Notification(Toast::error(format!(
                                 "Failed to fetch klines for stream: {exchange:?} {:?} {timeframe:?} {err}",
                                 ticker.to_full_symbol_and_type(),
                             ))),
