@@ -11,7 +11,7 @@ use data::chart::{
 };
 use iced::widget::canvas::{self, Event, Geometry, Path};
 use iced::{
-    Alignment, Color, Element, Point, Rectangle, Renderer, Size, Task, Theme, Vector, mouse,
+    Alignment, Color, Element, Point, Rectangle, Renderer, Size, Theme, Vector, mouse,
     theme::palette::Extended,
 };
 
@@ -32,11 +32,9 @@ impl Chart for HeatmapChart {
         &mut self.chart
     }
 
-    fn update_chart(&mut self, message: &Message) -> Task<Message> {
-        let task = update_chart(self, message);
+    fn update_chart(&mut self, message: &Message) {
+        update_chart(self, message);
         self.render_start();
-
-        task
     }
 
     fn canvas_interaction(
@@ -496,7 +494,7 @@ impl HeatmapChart {
         None
     }
 
-    pub fn update(&mut self, message: &Message) -> Task<Message> {
+    pub fn update(&mut self, message: &Message) {
         self.update_chart(message)
     }
 
