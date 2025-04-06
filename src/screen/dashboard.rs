@@ -1,7 +1,7 @@
 pub mod pane;
 pub mod tickers_table;
 
-use data::{UserTimezone, chart::Basis, get_data_path, layout::WindowSpec};
+use data::{UserTimezone, chart::Basis, layout::WindowSpec};
 pub use pane::{PaneContent, PaneState};
 
 use crate::{
@@ -12,7 +12,7 @@ use crate::{
 
 use exchange::{
     Kline, TickMultiplier, Ticker, TickerInfo, Timeframe, Trade,
-    adapter::{self, Event as ExchangeEvent, Exchange, StreamConfig, binance, bybit},
+    adapter::{self, Exchange, StreamConfig, StreamError, binance, bybit},
     depth::Depth,
     fetcher::{FetchRange, FetchedData},
 };
@@ -21,6 +21,7 @@ use super::DashboardError;
 
 use iced::{
     Element, Length, Subscription, Task, Vector,
+    task::{Straw, sipper},
     widget::{
         PaneGrid, center, container,
         pane_grid::{self, Configuration},
@@ -29,6 +30,7 @@ use iced::{
 use iced_futures::futures::TryFutureExt;
 use std::{
     collections::{HashMap, HashSet},
+    path::PathBuf,
     vec,
 };
 
@@ -42,8 +44,7 @@ pub enum Message {
     LayoutFetchAll,
     RefreshStreams,
 
-    ChartRequest(pane_grid::Pane, window::Id, uuid::Uuid, FetchRange),
-    FetchTrades(uuid::Uuid, u64, u64, StreamType),
+    ChartRequestedFetch(pane_grid::Pane, window::Id, uuid::Uuid, FetchRange),
     DistributeFetchedData(uuid::Uuid, uuid::Uuid, FetchedData, StreamType),
     ChangePaneStatus(uuid::Uuid, pane::Status),
 }
@@ -471,54 +472,10 @@ impl Dashboard {
                     None,
                 );
             }
-            Message::FetchTrades(pane_id, from_time, to_time, stream_type) => {
-                if let StreamType::DepthAndTrades { exchange, ticker } = stream_type {
-                    if exchange == Exchange::BinanceSpot
-                        || exchange == Exchange::BinanceLinear
-                        || exchange == Exchange::BinanceInverse
-                    {
-                        let data_path = get_data_path("market_data/binance/");
-
-                        let dashboard_id = *layout_id;
-
-                        return (
-                            Task::perform(
-                                binance::fetch_trades(ticker, from_time, data_path),
-                                move |result| match result {
-                                    Ok(trades) => {
-                                        let data = FetchedData::Trades(trades.clone(), to_time);
-                                        Message::DistributeFetchedData(
-                                            dashboard_id,
-                                            pane_id,
-                                            data,
-                                            stream_type,
-                                        )
-                                    }
-                                    Err(err) => Message::ErrorOccurred(
-                                        Some(pane_id),
-                                        DashboardError::Fetch(err.to_string()),
-                                    ),
-                                },
-                            ),
-                            None,
-                        );
-                    } else {
-                        return (
-                            Task::done(Message::ErrorOccurred(
-                                None,
-                                DashboardError::Fetch(format!(
-                                    "No trade fetch support for {exchange:?}"
-                                )),
-                            )),
-                            None,
-                        );
-                    }
-                }
-            }
             Message::RefreshStreams => {
                 self.pane_streams = self.get_all_diff_streams(main_window.id);
             }
-            Message::ChartRequest(pane, window, req_id, fetch) => match fetch {
+            Message::ChartRequestedFetch(pane, window, req_id, fetch) => match fetch {
                 FetchRange::Kline(from, to) => {
                     let kline_stream =
                         self.get_mut_pane(main_window.id, window, pane)
@@ -567,32 +524,67 @@ impl Dashboard {
                         );
                     }
                 }
-                FetchRange::Trades(from, to) => {
+                FetchRange::Trades(from_time, to_time) => {
                     if !self.trade_fetch_enabled {
                         return (Task::none(), None);
                     }
 
-                    let trade_stream =
+                    let trade_info =
                         self.get_pane(main_window.id, window, pane)
                             .and_then(|state| {
-                                state
-                                    .streams
-                                    .iter()
-                                    .find(|stream| {
-                                        matches!(stream, StreamType::DepthAndTrades { .. })
-                                    })
-                                    .map(|stream| (*stream, state.id))
+                                state.streams.iter().find_map(|stream| {
+                                    if let StreamType::DepthAndTrades { exchange, ticker } = stream
+                                    {
+                                        Some((*exchange, *ticker, state.id, *stream))
+                                    } else {
+                                        None
+                                    }
+                                })
                             });
 
-                    if let Some((stream, pane_uid)) = trade_stream {
-                        return (
-                            Task::done(Message::ChangePaneStatus(
-                                pane_uid,
-                                pane::Status::Loading(pane::InfoType::FetchingTrades(0)),
-                            ))
-                            .chain(Task::done(Message::FetchTrades(pane_uid, from, to, stream))),
-                            None,
+                    if let Some((exchange, ticker, pane_uid, stream)) = trade_info {
+                        let is_binance = matches!(
+                            exchange,
+                            Exchange::BinanceSpot
+                                | Exchange::BinanceLinear
+                                | Exchange::BinanceInverse
                         );
+
+                        if is_binance {
+                            let data_path = data::get_data_path("market_data/binance/");
+                            let dashboard_id = *layout_id;
+
+                            let (task, handle) = Task::sip(
+                                fetch_trades_batched(ticker, from_time, to_time, data_path),
+                                move |batch| {
+                                    let data = FetchedData::Trades(batch, to_time);
+                                    Message::DistributeFetchedData(
+                                        dashboard_id,
+                                        pane_uid,
+                                        data,
+                                        stream,
+                                    )
+                                },
+                                move |result| match result {
+                                    Ok(_) => {
+                                        Message::ChangePaneStatus(pane_uid, pane::Status::Ready)
+                                    }
+                                    Err(err) => Message::ErrorOccurred(
+                                        Some(pane_uid),
+                                        DashboardError::Fetch(err.to_string()),
+                                    ),
+                                },
+                            )
+                            .abortable();
+
+                            if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
+                                if let PaneContent::Footprint(chart, _) = &mut state.content {
+                                    chart.set_handle(handle.abort_on_drop());
+                                }
+                            };
+
+                            return (task, None);
+                        }
                     }
                 }
             },
@@ -970,18 +962,10 @@ impl Dashboard {
                 let last_trade_time = trades.last().map_or(0, |trade| trade.time);
 
                 if last_trade_time < to_time {
-                    match self.insert_fetched_trades(main_window, pane_uid, &trades, false) {
-                        Ok(()) => {
-                            return Task::done(Message::FetchTrades(
-                                pane_uid,
-                                last_trade_time,
-                                to_time,
-                                stream_type,
-                            ));
-                        }
-                        Err(reason) => {
-                            return Task::done(Message::ErrorOccurred(Some(pane_uid), reason));
-                        }
+                    if let Err(reason) =
+                        self.insert_fetched_trades(main_window, pane_uid, &trades, false)
+                    {
+                        return Task::done(Message::ErrorOccurred(Some(pane_uid), reason));
                     }
                 } else if let Err(reason) =
                     self.insert_fetched_trades(main_window, pane_uid, &trades, true)
@@ -1079,7 +1063,7 @@ impl Dashboard {
                             )));
                         }
                         charts::Action::FetchRequested(req_id, range) => {
-                            tasks.push(Task::done(Message::ChartRequest(
+                            tasks.push(Task::done(Message::ChartRequestedFetch(
                                 pane, window, req_id, range,
                             )));
                         }
@@ -1142,7 +1126,7 @@ impl Dashboard {
 
     pub fn get_market_subscriptions<M>(
         &self,
-        market_msg: impl Fn(ExchangeEvent) -> M + Clone + Send + 'static,
+        market_msg: impl Fn(exchange::Event) -> M + Clone + Send + 'static,
     ) -> Subscription<M>
     where
         M: 'static,
@@ -1407,4 +1391,32 @@ fn get_kline_fetch_task(
     };
 
     update_status.chain(fetch_task)
+}
+
+pub fn fetch_trades_batched(
+    ticker: Ticker,
+    from_time: u64,
+    to_time: u64,
+    data_path: PathBuf,
+) -> impl Straw<(), Vec<Trade>, StreamError> {
+    sipper(async move |mut progress| {
+        let mut latest_trade_t = from_time;
+
+        while latest_trade_t < to_time {
+            match binance::fetch_trades(ticker, latest_trade_t, data_path.clone()).await {
+                Ok(batch) => {
+                    if batch.is_empty() {
+                        break;
+                    }
+
+                    latest_trade_t = batch.last().map_or(latest_trade_t, |trade| trade.time);
+
+                    let _ = progress.send(batch).await;
+                }
+                Err(err) => return Err(err),
+            }
+        }
+
+        Ok(())
+    })
 }
