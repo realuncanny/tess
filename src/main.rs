@@ -38,33 +38,32 @@ use std::{collections::HashMap, vec};
 fn main() {
     logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
 
-    let saved_state = layout::load_saved_state();
-
     std::thread::spawn(data::cleanup_old_market_data);
 
-    let main_window_cfg = window::Settings {
-        size: saved_state
-            .main_window
-            .map_or_else(window::default_size, |w| w.get_size()),
-        position: saved_state.main_window.map(|w| w.get_position()).map_or(
-            iced::window::Position::Centered,
-            iced::window::Position::Specific,
-        ),
-        exit_on_close_request: false,
-        ..window::settings()
-    };
-
-    let _ = iced::daemon("Flowsurface", State::update, State::view)
+    let _ = iced::daemon(Flowsurface::new, Flowsurface::update, Flowsurface::view)
         .settings(iced::Settings {
             default_text_size: iced::Pixels(12.0),
             antialiasing: true,
             ..Default::default()
         })
         .font(style::ICON_BYTES)
-        .theme(State::theme)
-        .scale_factor(State::scale_factor)
-        .subscription(State::subscription)
-        .run_with(move || State::new(saved_state, main_window_cfg));
+        .title(Flowsurface::title)
+        .theme(Flowsurface::theme)
+        .scale_factor(Flowsurface::scale_factor)
+        .subscription(Flowsurface::subscription)
+        .run();
+}
+
+struct Flowsurface {
+    main_window: Window,
+    layout_manager: LayoutManager,
+    tickers_table: TickersTable,
+    confirm_dialog: Option<(String, Box<Message>)>,
+    scale_factor: data::ScaleFactor,
+    timezone: data::UserTimezone,
+    sidebar: data::Sidebar,
+    theme: data::Theme,
+    notifications: Vec<Toast>,
 }
 
 #[derive(Debug, Clone)]
@@ -82,7 +81,7 @@ enum Message {
 
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
     TickersTable(tickers_table::Message),
-    FetchForTickersInfo,
+    FetchTickersInfo,
 
     ThemeSelected(data::Theme),
     ScaleFactorChanged(f64),
@@ -95,26 +94,24 @@ enum Message {
     DeleteNotification(usize),
 }
 
-struct State {
-    main_window: Window,
-    layout_manager: LayoutManager,
-    tickers_table: TickersTable,
-    confirm_dialog: Option<(String, Box<Message>)>,
-    scale_factor: data::ScaleFactor,
-    timezone: data::UserTimezone,
-    sidebar: data::Sidebar,
-    theme: data::Theme,
-    notifications: Vec<Toast>,
-}
+impl Flowsurface {
+    fn new() -> (Self, Task<Message>) {
+        let saved_state = layout::load_saved_state();
 
-impl State {
-    fn new(
-        saved_state: layout::SavedState,
-        main_window_cfg: window::Settings,
-    ) -> (Self, Task<Message>) {
-        let (main_window_id, open_main_window) = window::open(main_window_cfg);
+        let main_window_cfg = window::Settings {
+            size: saved_state
+                .main_window
+                .map_or_else(window::default_size, |w| w.get_size()),
+            position: saved_state.main_window.map(|w| w.get_position()).map_or(
+                iced::window::Position::Centered,
+                iced::window::Position::Specific,
+            ),
+            exit_on_close_request: false,
+            ..window::settings()
+        };
 
         let active_layout = saved_state.layout_manager.get_active_layout();
+        let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
         (
             Self {
@@ -133,14 +130,14 @@ impl State {
                 .chain(Task::batch(vec![
                     Task::done(Message::LoadLayout(active_layout)),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
-                    Task::done(Message::FetchForTickersInfo),
+                    Task::done(Message::FetchTickersInfo),
                 ])),
         )
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchForTickersInfo => {
+            Message::FetchTickersInfo => {
                 let fetch_tasks = Exchange::ALL
                     .iter()
                     .map(|exchange| {
@@ -795,6 +792,10 @@ impl State {
 
     fn theme(&self, _window: window::Id) -> iced_core::Theme {
         self.theme.clone().into()
+    }
+
+    fn title(&self, _window: window::Id) -> String {
+        format!("Flowsurface [{}]", self.layout_manager.active_layout.name)
     }
 
     fn scale_factor(&self, _window: window::Id) -> f64 {

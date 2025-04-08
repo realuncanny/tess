@@ -808,11 +808,11 @@ impl PriceInfoLabel {
         }
     }
 
-    pub fn get_with_color(&self, palette: &Extended) -> (f32, iced::Color) {
+    pub fn get_with_color(self, palette: &Extended) -> (f32, iced::Color) {
         match self {
-            PriceInfoLabel::Up(p) => (*p, palette.success.base.color),
-            PriceInfoLabel::Down(p) => (*p, palette.danger.base.color),
-            PriceInfoLabel::Neutral(p) => (*p, palette.secondary.strong.color),
+            PriceInfoLabel::Up(p) => (p, palette.success.base.color),
+            PriceInfoLabel::Down(p) => (p, palette.danger.base.color),
+            PriceInfoLabel::Neutral(p) => (p, palette.secondary.strong.color),
         }
     }
 }

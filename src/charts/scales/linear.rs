@@ -1,5 +1,7 @@
 use super::{super::abbr_large_numbers, AxisLabel, Label, calc_label_rect};
 
+const MAX_ITERATIONS: usize = 1000;
+
 fn calc_optimal_ticks(
     highest: f32,
     lowest: f32,
@@ -76,7 +78,6 @@ pub fn generate_labels(
     let mut labels = Vec::with_capacity((labels_can_fit + 2) as usize);
 
     let mut safety_counter = 0;
-    const MAX_ITERATIONS: usize = 1000;
 
     let mut value = max;
     while value >= lowest && safety_counter < MAX_ITERATIONS {

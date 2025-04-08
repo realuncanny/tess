@@ -310,8 +310,7 @@ impl LayoutManager {
                 match &self.edit_mode {
                     Editing::ConfirmingDelete(delete_id) => {
                         if *delete_id == layout.id {
-                            let (confirm_btn, cancel_btn) =
-                                self.create_confirm_delete_buttons(layout);
+                            let (confirm_btn, cancel_btn) = create_confirm_delete_buttons(layout);
 
                             layout_row = layout_row
                                 .push(center(text(format!("Delete {}?", layout.name)).size(12)))
@@ -327,7 +326,7 @@ impl LayoutManager {
                                 .on_input(|new_name| Message::Renaming(new_name.clone()))
                                 .on_submit(Message::SetLayoutName(*id, name.clone()));
 
-                            let (_, cancel_btn) = self.create_confirm_delete_buttons(layout);
+                            let (_, cancel_btn) = create_confirm_delete_buttons(layout);
 
                             layout_row = layout_row
                                 .push(center(input_box).padding(padding::left(4)))
@@ -346,7 +345,7 @@ impl LayoutManager {
                                 Some("Clone layout"),
                                 TooltipPosition::Top,
                             ))
-                            .push(self.create_rename_button(layout));
+                            .push(create_rename_button(layout));
 
                         if self.active_layout.id != layout.id {
                             layout_row = layout_row.push(self.create_delete_button(layout.id));
@@ -416,39 +415,38 @@ impl LayoutManager {
             .into()
         }
     }
+}
 
-    fn create_rename_button<'a>(&self, layout: &Layout) -> button::Button<'a, Message> {
-        create_icon_button(
-            style::Icon::Edit,
-            12,
-            |theme, status| style::button::layout_name(theme, *status),
-            Some(Message::ToggleEditMode(Editing::Renaming(
-                layout.id,
-                layout.name.clone(),
-            ))),
-        )
-    }
+fn create_rename_button<'a>(layout: &Layout) -> button::Button<'a, Message> {
+    create_icon_button(
+        style::Icon::Edit,
+        12,
+        |theme, status| style::button::layout_name(theme, *status),
+        Some(Message::ToggleEditMode(Editing::Renaming(
+            layout.id,
+            layout.name.clone(),
+        ))),
+    )
+}
 
-    fn create_confirm_delete_buttons<'a>(
-        &'a self,
-        layout: &Layout,
-    ) -> (button::Button<'a, Message>, button::Button<'a, Message>) {
-        let confirm = create_icon_button(
-            style::Icon::Checkmark,
-            12,
-            |theme, status| style::button::confirm(theme, *status, true),
-            Some(Message::RemoveLayout(layout.id)),
-        );
+fn create_confirm_delete_buttons<'a>(
+    layout: &Layout,
+) -> (button::Button<'a, Message>, button::Button<'a, Message>) {
+    let confirm = create_icon_button(
+        style::Icon::Checkmark,
+        12,
+        |theme, status| style::button::confirm(theme, *status, true),
+        Some(Message::RemoveLayout(layout.id)),
+    );
 
-        let cancel = create_icon_button(
-            style::Icon::Close,
-            12,
-            |theme, status| style::button::cancel(theme, *status, true),
-            Some(Message::ToggleEditMode(Editing::Preview)),
-        );
+    let cancel = create_icon_button(
+        style::Icon::Close,
+        12,
+        |theme, status| style::button::cancel(theme, *status, true),
+        Some(Message::ToggleEditMode(Editing::Preview)),
+    );
 
-        (confirm, cancel)
-    }
+    (confirm, cancel)
 }
 
 fn create_layout_button<'a>(layout: &Layout, on_press: Option<Message>) -> Element<'a, Message> {

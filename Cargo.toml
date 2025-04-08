@@ -24,7 +24,7 @@ rust_decimal = "1.36.0"
 uuid = { version = "1.11.0", features = ["v4"] }
 
 [dependencies]
-iced = { version = "0.14.0-dev", default-features = false, features = [
+iced = { version = "0.14.0-dev", default-features = false, features = [  
     "wgpu", 
     "lazy", 
     "tokio", 
@@ -48,6 +48,6 @@ exchange = { version = "0.1.0", path = "exchange" }
 data = { version = "0.1.0", path = "data" }
 
 [patch.crates-io]
-iced = { git = "https://github.com/iced-rs/iced", rev = "cd27dae8abdecc5ff751e1e201ade79bc6b8e23a" }
-iced_core = { git = "https://github.com/iced-rs/iced", rev = "cd27dae8abdecc5ff751e1e201ade79bc6b8e23a", package = "iced_core" }
+iced = { git = "https://github.com/iced-rs/iced", rev = "bc66866bb81d0d477c7d0dd96cd54d1d7b443801" }
+iced_core = { git = "https://github.com/iced-rs/iced", rev = "bc66866bb81d0d477c7d0dd96cd54d1d7b443801"}
 

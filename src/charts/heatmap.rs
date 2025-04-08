@@ -555,7 +555,7 @@ impl HeatmapChart {
     }
 
     pub fn update(&mut self, message: &Message) {
-        self.update_chart(message)
+        self.update_chart(message);
     }
 
     pub fn view<'a, I: Indicator>(
@@ -824,9 +824,7 @@ impl canvas::Program<Message> for HeatmapChart {
                 let max_bar_width = (bounds.width / chart.scaling) * 0.1;
 
                 let min_segment_width = 2.0;
-                let segments = ((max_bar_width / min_segment_width).floor() as usize)
-                    .max(10)
-                    .min(40);
+                let segments = ((max_bar_width / min_segment_width).floor() as usize).clamp(10, 40);
 
                 for i in 0..segments {
                     let segment_width = max_bar_width / segments as f32;

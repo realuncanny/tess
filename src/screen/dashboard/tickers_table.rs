@@ -363,7 +363,7 @@ impl TickersTable {
                     .tickers_info
                     .get(&exchange)
                     .and_then(|info| info.get(&ticker))
-                    .cloned()
+                    .copied()
                     .flatten();
 
                 if let Some(ticker_info) = ticker_info {

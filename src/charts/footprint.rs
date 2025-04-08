@@ -727,7 +727,7 @@ impl FootprintChart {
     }
 
     pub fn update(&mut self, message: &Message) {
-        self.update_chart(message)
+        self.update_chart(message);
     }
 
     pub fn view<'a, I: Indicator>(

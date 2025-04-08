@@ -105,8 +105,8 @@ impl PaneState {
         settings: PaneSettings,
     ) -> Self {
         Self {
-            streams,
             content,
+            streams,
             settings,
             ..Default::default()
         }
@@ -584,7 +584,7 @@ impl PaneState {
                 None,
                 tooltip_pos,
                 modal_btn_style(PaneModal::Settings),
-            ))
+            ));
         }
 
         if matches!(
