@@ -253,13 +253,15 @@ impl PaneState {
                     indicators_split: None,
                 });
 
+                let basis = self.settings.selected_basis.unwrap_or(Basis::Time(100));
+
                 let config = self.settings.visual_config.and_then(|cfg| cfg.heatmap());
 
                 PaneContent::Heatmap(
                     HeatmapChart::new(
                         layout,
+                        basis,
                         tick_size,
-                        100,
                         &enabled_indicators,
                         Some(ticker_info),
                         config,

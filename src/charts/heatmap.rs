@@ -110,10 +110,13 @@ struct Orderbook {
 }
 
 impl Orderbook {
-    fn new(tick_size: f32, aggr_time: u64) -> Self {
+    fn new(tick_size: f32, basis: Basis) -> Self {
         Self {
             price_levels: BTreeMap::new(),
-            aggr_time,
+            aggr_time: match basis {
+                Basis::Time(interval) => interval,
+                Basis::Tick(_) => unimplemented!(),
+            },
             tick_size,
         }
     }
@@ -236,6 +239,7 @@ pub struct HeatmapChart {
     chart: CommonChartData,
     timeseries: Vec<(u64, Box<[GroupedTrade]>, (f32, f32))>,
     indicators: HashMap<HeatmapIndicator, IndicatorData>,
+    pause_buffer: Vec<(u64, Box<[Trade]>, Depth)>,
     orderbook: Orderbook,
     visual_config: Config,
 }
@@ -243,8 +247,8 @@ pub struct HeatmapChart {
 impl HeatmapChart {
     pub fn new(
         layout: ChartLayout,
+        basis: Basis,
         tick_size: f32,
-        aggr_time: u64,
         enabled_indicators: &[HeatmapIndicator],
         ticker_info: Option<TickerInfo>,
         config: Option<Config>,
@@ -258,7 +262,7 @@ impl HeatmapChart {
                 crosshair: layout.crosshair,
                 indicators_split: layout.indicators_split,
                 ticker_info,
-                basis: Basis::Time(aggr_time),
+                basis,
                 ..Default::default()
             },
             indicators: {
@@ -275,13 +279,42 @@ impl HeatmapChart {
                     })
                     .collect()
             },
-            orderbook: Orderbook::new(tick_size, aggr_time),
+            pause_buffer: vec![],
+            orderbook: Orderbook::new(tick_size, basis),
             timeseries: vec![],
             visual_config: config.unwrap_or_default(),
         }
     }
 
     pub fn insert_datapoint(&mut self, trades_buffer: &[Trade], depth_update: u64, depth: &Depth) {
+        let chart = &mut self.chart;
+
+        // if current orderbook not visible, pause the data insertion and buffer them instead
+        let is_paused = chart.translation.x * chart.scaling > chart.bounds.width / 2.0;
+
+        if is_paused {
+            self.pause_buffer.push((
+                depth_update,
+                trades_buffer.to_vec().into_boxed_slice(),
+                depth.clone(),
+            ));
+        } else if !self.pause_buffer.is_empty() {
+            self.pause_buffer.sort_by_key(|(time, _, _)| *time);
+
+            let buffered_data: Vec<_> = self.pause_buffer.drain(..).collect();
+
+            for (buffered_time, buffered_trades, buffered_depth) in buffered_data {
+                self.process_datapoint(&buffered_trades, buffered_time, &buffered_depth);
+            }
+
+            self.process_datapoint(trades_buffer, depth_update, depth);
+        } else {
+            self.process_datapoint(trades_buffer, depth_update, depth);
+            self.render_start();
+        }
+    }
+
+    fn process_datapoint(&mut self, trades_buffer: &[Trade], depth_update: u64, depth: &Depth) {
         let chart = &mut self.chart;
 
         if self.timeseries.len() > 2400 {
@@ -384,14 +417,7 @@ impl HeatmapChart {
         };
 
         chart.last_price = Some(PriceInfoLabel::Neutral(mid_price));
-
-        if chart.translation.x * chart.scaling > chart.bounds.width / 2.0 {
-            chart.translation.x += chart.cell_width;
-        } else {
-            chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size);
-        }
-
-        self.render_start();
+        chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size);
     }
 
     pub fn get_visual_config(&self) -> Config {
@@ -409,13 +435,7 @@ impl HeatmapChart {
     pub fn change_tick_size(&mut self, new_tick_size: f32) {
         let chart_state = self.get_common_data_mut();
 
-        let aggregate_time: u64 = match chart_state.basis {
-            Basis::Time(interval) => interval,
-            Basis::Tick(_) => {
-                // TODO: implement
-                unimplemented!()
-            }
-        };
+        let basis = chart_state.basis;
 
         chart_state.cell_height = 4.0;
         chart_state.tick_size = new_tick_size;
@@ -430,7 +450,7 @@ impl HeatmapChart {
 
         self.timeseries.clear();
 
-        self.orderbook = Orderbook::new(new_tick_size, aggregate_time);
+        self.orderbook = Orderbook::new(new_tick_size, basis);
     }
 
     pub fn toggle_indicator(&mut self, indicator: HeatmapIndicator) {

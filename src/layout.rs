@@ -673,12 +673,14 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
 
                 let config = settings.visual_config.and_then(|cfg| cfg.heatmap());
 
+                let basis = settings.selected_basis.unwrap_or(Basis::Time(100));
+
                 Configuration::Pane(PaneState::from_config(
                     PaneContent::Heatmap(
                         HeatmapChart::new(
                             layout,
+                            basis,
                             tick_size,
-                            100,
                             &indicators,
                             settings.ticker_info,
                             config,
