@@ -163,16 +163,48 @@ fn canvas_interaction<T: Chart>(
                     }
 
                     let cursor_to_center = cursor.position_from(bounds.center())?;
-
                     let y = match delta {
                         mouse::ScrollDelta::Lines { y, .. }
                         | mouse::ScrollDelta::Pixels { y, .. } => y,
                     };
 
-                    // at max scaling, but the cell width can still be increased
-                    if (*y > 0.0 && chart_state.scaling == T::MAX_SCALING)
-                        && (chart_state.cell_width < T::MAX_CELL_WIDTH)
-                    {
+                    let should_adjust_cell_width = match (y.signum(), chart_state.scaling) {
+                        // zooming out at max scaling with increased cell width
+                        (-1.0, scaling)
+                            if scaling == T::MAX_SCALING
+                                && chart_state.cell_width > T::DEFAULT_CELL_WIDTH =>
+                        {
+                            true
+                        }
+
+                        // zooming in at min scaling with decreased cell width
+                        (1.0, scaling)
+                            if scaling == T::MIN_SCALING
+                                && chart_state.cell_width < T::DEFAULT_CELL_WIDTH =>
+                        {
+                            true
+                        }
+
+                        // zooming in at max scaling with room to increase cell width
+                        (1.0, scaling)
+                            if scaling == T::MAX_SCALING
+                                && chart_state.cell_width < T::MAX_CELL_WIDTH =>
+                        {
+                            true
+                        }
+
+                        // zooming out at min scaling with room to decrease cell width
+                        (-1.0, scaling)
+                            if scaling == T::MIN_SCALING
+                                && chart_state.cell_width > T::MIN_CELL_WIDTH =>
+                        {
+                            true
+                        }
+
+                        _ => false,
+                    };
+
+                    if should_adjust_cell_width {
                         return Some(
                             canvas::Action::publish(Message::XScaling(
                                 y / 2.0,
@@ -183,21 +215,7 @@ fn canvas_interaction<T: Chart>(
                         );
                     }
 
-                    // at min scaling, but the cell width can still be decreased
-                    if (*y < 0.0 && chart_state.scaling == T::MIN_SCALING)
-                        && (chart_state.cell_width > T::MIN_CELL_WIDTH)
-                    {
-                        return Some(
-                            canvas::Action::publish(Message::XScaling(
-                                y / 2.0,
-                                cursor_to_center.x,
-                                true,
-                            ))
-                            .and_capture(),
-                        );
-                    }
-
-                    // normal scaling case
+                    // normal scaling cases
                     if (*y < 0.0 && chart_state.scaling > T::MIN_SCALING)
                         || (*y > 0.0 && chart_state.scaling < T::MAX_SCALING)
                     {
