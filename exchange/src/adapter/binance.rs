@@ -18,13 +18,13 @@ use super::{
         Timeframe, Trade,
         connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
         de_string_to_f32,
-        depth::{LocalDepthCache, Order, TempLocalDepth},
+        depth::{DepthPayload, DepthUpdate, LocalDepthCache, Order},
         str_f32_parse,
     },
     Connection, Event, StreamError,
 };
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct FetchedPerpDepth {
     #[serde(rename = "lastUpdateId")]
     update_id: u64,
@@ -36,7 +36,7 @@ pub struct FetchedPerpDepth {
     asks: Vec<Order>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Deserialize, Clone)]
 pub struct FetchedSpotDepth {
     #[serde(rename = "lastUpdateId")]
     update_id: u64,
@@ -86,13 +86,12 @@ struct SonicTrade {
     is_sell: bool,
 }
 
-#[derive(Debug)]
 enum SonicDepth {
     Spot(SpotDepth),
     Perp(PerpDepth),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 struct SpotDepth {
     #[serde(rename = "E")]
     time: u64,
@@ -106,7 +105,7 @@ struct SpotDepth {
     asks: Vec<Order>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 struct PerpDepth {
     #[serde(rename = "T")]
     time: u64,
@@ -122,7 +121,6 @@ struct PerpDepth {
     asks: Vec<Order>,
 }
 
-#[derive(Debug)]
 enum StreamData {
     Trade(SonicTrade),
     Depth(SonicDepth),
@@ -233,7 +231,7 @@ async fn try_resync(
 
     match rx.await {
         Ok(Ok(depth)) => {
-            orderbook.fetched(&depth);
+            orderbook.update(DepthUpdate::Snapshot(depth));
         }
         Ok(Err(e)) => {
             let _ = output
@@ -301,7 +299,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                         });
                         match rx.await {
                             Ok(Ok(depth)) => {
-                                orderbook.fetched(&depth);
+                                orderbook.update(DepthUpdate::Snapshot(depth));
                                 prev_id = 0;
 
                                 state = State::Connected(websocket);
@@ -360,7 +358,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                 continue;
                                             }
 
-                                            let last_update_id = orderbook.get_fetch_id();
+                                            let last_update_id = orderbook.last_update_id;
 
                                             match depth_type {
                                                 SonicDepth::Perp(ref de_depth) => {
@@ -392,12 +390,12 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                     if (prev_id == 0)
                                                         || (prev_id == de_depth.prev_final_id)
                                                     {
-                                                        orderbook.update_depth_cache(
-                                                            &new_depth_cache(
+                                                        orderbook.update(DepthUpdate::Diff(
+                                                            new_depth_cache(
                                                                 &depth_type,
                                                                 contract_size,
                                                             ),
-                                                        );
+                                                        ));
 
                                                         let _ = output
                                                             .send(Event::DepthReceived(
@@ -406,7 +404,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                                     ticker,
                                                                 },
                                                                 de_depth.time,
-                                                                orderbook.get_depth(),
+                                                                orderbook.depth.clone(),
                                                                 std::mem::take(&mut trades_buffer)
                                                                     .into_boxed_slice(),
                                                             ))
@@ -452,12 +450,12 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                     if (prev_id == 0)
                                                         || (prev_id == de_depth.first_id - 1)
                                                     {
-                                                        orderbook.update_depth_cache(
-                                                            &new_depth_cache(
+                                                        orderbook.update(DepthUpdate::Diff(
+                                                            new_depth_cache(
                                                                 &depth_type,
                                                                 contract_size,
                                                             ),
-                                                        );
+                                                        ));
 
                                                         let _ = output
                                                             .send(Event::DepthReceived(
@@ -466,7 +464,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                                     ticker,
                                                                 },
                                                                 de_depth.time,
-                                                                orderbook.get_depth(),
+                                                                orderbook.depth.clone(),
                                                                 std::mem::take(&mut trades_buffer)
                                                                     .into_boxed_slice(),
                                                             ))
@@ -646,13 +644,13 @@ fn get_contract_size(ticker: &Ticker, market_type: MarketType) -> Option<f32> {
     }
 }
 
-fn new_depth_cache(depth: &SonicDepth, contract_size: Option<f32>) -> TempLocalDepth {
+fn new_depth_cache(depth: &SonicDepth, contract_size: Option<f32>) -> DepthPayload {
     let (time, final_id, bids, asks) = match depth {
         SonicDepth::Spot(de) => (de.time, de.final_id, &de.bids, &de.asks),
         SonicDepth::Perp(de) => (de.time, de.final_id, &de.bids, &de.asks),
     };
 
-    TempLocalDepth {
+    DepthPayload {
         last_update_id: final_id,
         time,
         bids: bids
@@ -672,7 +670,7 @@ fn new_depth_cache(depth: &SonicDepth, contract_size: Option<f32>) -> TempLocalD
     }
 }
 
-async fn fetch_depth(ticker: &Ticker) -> Result<TempLocalDepth, StreamError> {
+async fn fetch_depth(ticker: &Ticker) -> Result<DepthPayload, StreamError> {
     let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
 
     let base_url = match market_type {
@@ -695,7 +693,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<TempLocalDepth, StreamError> {
             let fetched_depth: FetchedSpotDepth =
                 serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
 
-            let depth = TempLocalDepth {
+            let depth = DepthPayload {
                 last_update_id: fetched_depth.update_id,
                 time: chrono::Utc::now().timestamp_millis() as u64,
                 bids: fetched_depth.bids,
@@ -708,7 +706,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<TempLocalDepth, StreamError> {
             let fetched_depth: FetchedPerpDepth =
                 serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
 
-            let depth = TempLocalDepth {
+            let depth = DepthPayload {
                 last_update_id: fetched_depth.update_id,
                 time: fetched_depth.time,
                 bids: fetched_depth.bids,

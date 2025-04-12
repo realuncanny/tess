@@ -19,12 +19,12 @@ use super::{
         Timeframe, Trade,
         connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
         de_string_to_f32, de_string_to_u64,
-        depth::{LocalDepthCache, Order, TempLocalDepth},
+        depth::{DepthPayload, DepthUpdate, LocalDepthCache, Order},
     },
     Connection, Event, StreamError,
 };
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize)]
 struct SonicDepth {
     #[serde(rename = "u")]
     pub update_id: u64,
@@ -64,7 +64,6 @@ pub struct SonicKline {
     pub interval: String,
 }
 
-#[derive(Debug)]
 enum StreamData {
     Trade(Vec<SonicTrade>),
     Depth(SonicDepth, String, u64),
@@ -316,7 +315,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                         }
                                     }
                                     StreamData::Depth(de_depth, data_type, time) => {
-                                        let depth_update = TempLocalDepth {
+                                        let depth = DepthPayload {
                                             last_update_id: de_depth.update_id,
                                             time,
                                             bids: de_depth
@@ -337,18 +336,17 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                                 .collect(),
                                         };
 
-                                        if (data_type == "snapshot")
-                                            || (depth_update.last_update_id == 1)
+                                        if (data_type == "snapshot") || (depth.last_update_id == 1)
                                         {
-                                            orderbook.fetched(&depth_update);
+                                            orderbook.update(DepthUpdate::Snapshot(depth));
                                         } else if data_type == "delta" {
-                                            orderbook.update_depth_cache(&depth_update);
+                                            orderbook.update(DepthUpdate::Diff(depth));
 
                                             let _ = output
                                                 .send(Event::DepthReceived(
                                                     StreamType::DepthAndTrades { exchange, ticker },
                                                     time,
-                                                    orderbook.get_depth(),
+                                                    orderbook.depth.clone(),
                                                     std::mem::take(&mut trades_buffer)
                                                         .into_boxed_slice(),
                                                 ))
@@ -356,7 +354,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
                                         }
                                     }
                                     _ => {
-                                        log::warn!("Unknown data: {:?}", &data);
+                                        log::warn!("Unknown data received");
                                     }
                                 }
                             }
