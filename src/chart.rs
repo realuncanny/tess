@@ -760,20 +760,8 @@ impl CommonChartData {
     }
 }
 
-fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Action {
-    match handler.add_request(range) {
-        Ok(req_id) => Action::FetchRequested(req_id, range),
-        Err(e) => {
-            match e {
-                ReqError::Overlaps => {
-                    log::debug!("Request overlaps with existing request: {range:?}");
-                }
-                ReqError::Failed(msg) => log::debug!("Request already failed: {msg}: {range:?}"),
-                ReqError::Completed => log::debug!("Request already completed: {range:?}"),
-            }
-            Action::None
-        }
-    }
+fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Result<uuid::Uuid, ReqError> {
+    handler.add_request(range)
 }
 
 fn count_decimals(value: f32) -> usize {

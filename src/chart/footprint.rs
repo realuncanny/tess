@@ -294,10 +294,16 @@ impl FootprintChart {
 
                 // priority 1, basic kline data fetch
                 if visible_earliest < kline_earliest {
-                    return request_fetch(
-                        &mut self.request_handler,
-                        FetchRange::Kline(earliest, kline_earliest),
-                    );
+                    let range = FetchRange::Kline(earliest, kline_earliest);
+
+                    match request_fetch(&mut self.request_handler, range) {
+                        Ok(req_id) => {
+                            return Action::FetchRequested(req_id, range);
+                        }
+                        Err(reason) => {
+                            log::error!("Failed to request kline data: {}", reason);
+                        }
+                    }
                 }
 
                 if !self.fetching_trades.0 {
@@ -322,17 +328,19 @@ impl FootprintChart {
                             .min_by_key(|(time, _)| *time)
                             .map_or(kline_latest, |(time, _)| *time);
 
-                        let request = request_fetch(
-                            &mut self.request_handler,
-                            FetchRange::Trades(
-                                last_kline_before_gap.max(visible_earliest),
-                                first_kline_after_gap.min(visible_latest),
-                            ),
+                        let range = FetchRange::Trades(
+                            last_kline_before_gap.max(visible_earliest),
+                            first_kline_after_gap.min(visible_latest),
                         );
 
-                        if !matches!(request, Action::None) {
-                            self.fetching_trades = (true, None);
-                            return request;
+                        match request_fetch(&mut self.request_handler, range) {
+                            Ok(req_id) => {
+                                self.fetching_trades = (true, None);
+                                return Action::FetchRequested(req_id, range);
+                            }
+                            Err(reason) => {
+                                log::error!("Failed to request trades data: {}", reason);
+                            }
                         }
                     }
                 }
@@ -346,17 +354,36 @@ impl FootprintChart {
                             let (oi_earliest, oi_latest) = self.get_oi_timerange(kline_latest);
 
                             if visible_earliest < oi_earliest {
-                                return request_fetch(
-                                    &mut self.request_handler,
-                                    FetchRange::OpenInterest(earliest, oi_earliest),
-                                );
+                                let range = FetchRange::OpenInterest(earliest, oi_earliest);
+
+                                match request_fetch(&mut self.request_handler, range) {
+                                    Ok(req_id) => {
+                                        return Action::FetchRequested(req_id, range);
+                                    }
+                                    Err(reason) => {
+                                        log::error!(
+                                            "Failed to request open interest data: {}",
+                                            reason
+                                        );
+                                    }
+                                }
                             }
 
                             if oi_latest < kline_latest {
-                                return request_fetch(
-                                    &mut self.request_handler,
-                                    FetchRange::OpenInterest(oi_latest.max(earliest), kline_latest),
-                                );
+                                let range =
+                                    FetchRange::OpenInterest(oi_latest.max(earliest), kline_latest);
+
+                                match request_fetch(&mut self.request_handler, range) {
+                                    Ok(req_id) => {
+                                        return Action::FetchRequested(req_id, range);
+                                    }
+                                    Err(reason) => {
+                                        log::error!(
+                                            "Failed to request open interest data: {}",
+                                            reason
+                                        );
+                                    }
+                                }
                             }
                         }
                     }
@@ -370,10 +397,16 @@ impl FootprintChart {
                     let earliest =
                         missing_keys.iter().min().unwrap_or(&visible_earliest) - timeframe;
 
-                    return request_fetch(
-                        &mut self.request_handler,
-                        FetchRange::Kline(earliest, latest),
-                    );
+                    let range = FetchRange::Kline(earliest, latest);
+
+                    match request_fetch(&mut self.request_handler, range) {
+                        Ok(req_id) => {
+                            return Action::FetchRequested(req_id, range);
+                        }
+                        Err(reason) => {
+                            log::error!("Failed to request kline data: {}", reason);
+                        }
+                    }
                 }
             }
             ChartData::TickBased(_) => {
