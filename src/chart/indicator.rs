@@ -7,8 +7,8 @@ use iced::{
     widget::canvas::{self, Cache, Frame, Geometry},
 };
 
-use super::{abbr_large_numbers, round_to_tick, scales::linear};
-use crate::charts::scales::{AxisLabel, Label, calc_label_rect};
+use super::{abbr_large_numbers, round_to_tick, scale::linear};
+use crate::chart::scale::{AxisLabel, Label, calc_label_rect};
 
 use super::{Interaction, Message};
 

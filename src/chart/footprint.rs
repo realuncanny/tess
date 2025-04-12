@@ -19,10 +19,10 @@ use data::aggr::{ticks::TickAggr, time::TimeSeries};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
 
-use super::scales::PriceInfoLabel;
+use super::scale::PriceInfoLabel;
 use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
-    indicators,
+    indicator,
 };
 use super::{
     abbr_large_numbers, canvas_interaction, count_decimals, request_fetch, round_to_tick,
@@ -690,14 +690,13 @@ impl FootprintChart {
                         if let Some(IndicatorData::Volume(cache, data)) =
                             self.indicators.get(&FootprintIndicator::Volume)
                         {
-                            indicators =
-                                indicators.push(indicators::volume::create_indicator_elem(
-                                    chart_state,
-                                    cache,
-                                    data,
-                                    earliest,
-                                    latest,
-                                ));
+                            indicators = indicators.push(indicator::volume::create_indicator_elem(
+                                chart_state,
+                                cache,
+                                data,
+                                earliest,
+                                latest,
+                            ));
                         }
                     }
                     FootprintIndicator::OpenInterest => {
@@ -705,7 +704,7 @@ impl FootprintChart {
                             self.indicators.get(&FootprintIndicator::OpenInterest)
                         {
                             indicators =
-                                indicators.push(indicators::open_interest::create_indicator_elem(
+                                indicators.push(indicator::open_interest::create_indicator_elem(
                                     chart_state,
                                     cache,
                                     data,

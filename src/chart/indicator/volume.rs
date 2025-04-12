@@ -5,7 +5,7 @@ use iced::widget::{Canvas, container, row};
 use iced::{Element, Length};
 use iced::{Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
-use crate::charts::{
+use crate::chart::{
     Basis, Caches, CommonChartData, Interaction, Message, format_with_commas, round_to_tick,
 };
 use crate::style::get_dashed_line;

@@ -5,7 +5,7 @@ use data::{UserTimezone, chart::Basis, layout::WindowSpec};
 pub use pane::{PaneContent, PaneState};
 
 use crate::{
-    StreamType, charts, style,
+    StreamType, chart, style,
     widget::notification::Toast,
     window::{self, Window},
 };
@@ -1052,22 +1052,22 @@ impl Dashboard {
                     let action = match &mut pane_state.content {
                         PaneContent::Candlestick(chart, _) => chart.update_latest_kline(kline),
                         PaneContent::Footprint(chart, _) => chart.update_latest_kline(kline),
-                        _ => charts::Action::None,
+                        _ => chart::Action::None,
                     };
 
                     match action {
-                        charts::Action::ErrorOccurred(err) => {
+                        chart::Action::ErrorOccurred(err) => {
                             tasks.push(Task::done(Message::ErrorOccurred(
                                 Some(pane_state.id),
                                 DashboardError::Unknown(err.to_string()),
                             )));
                         }
-                        charts::Action::FetchRequested(req_id, range) => {
+                        chart::Action::FetchRequested(req_id, range) => {
                             tasks.push(Task::done(Message::ChartRequestedFetch(
                                 pane, window, req_id, range,
                             )));
                         }
-                        charts::Action::None => {}
+                        chart::Action::None => {}
                     }
 
                     found_match = true;

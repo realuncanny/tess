@@ -1,4 +1,4 @@
-use crate::charts::{
+use crate::chart::{
     candlestick::CandlestickChart, footprint::FootprintChart, heatmap::HeatmapChart,
     timeandsales::TimeAndSales,
 };

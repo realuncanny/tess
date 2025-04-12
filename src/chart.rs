@@ -8,7 +8,7 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use scales::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
+use scale::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
 
 use crate::{style, widget::hsplit::HSplit, widget::tooltip};
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
@@ -20,8 +20,8 @@ pub mod candlestick;
 pub mod config;
 pub mod footprint;
 pub mod heatmap;
-pub mod indicators;
-mod scales;
+pub mod indicator;
+mod scale;
 pub mod timeandsales;
 
 #[derive(Default, Debug, Clone, Copy)]

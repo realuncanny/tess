@@ -1,6 +1,6 @@
 use crate::{
     StreamType,
-    charts::{
+    chart::{
         self, candlestick::CandlestickChart, config, footprint::FootprintChart,
         heatmap::HeatmapChart, timeandsales::TimeAndSales,
     },
@@ -76,7 +76,7 @@ pub enum Message {
     ToggleModal(pane_grid::Pane, PaneModal),
     InitPaneContent(String, Option<pane_grid::Pane>, Vec<StreamType>, TickerInfo),
     ReplacePane(pane_grid::Pane),
-    ChartUserUpdate(pane_grid::Pane, charts::Message),
+    ChartUserUpdate(pane_grid::Pane, chart::Message),
     VisualConfigChanged(Option<pane_grid::Pane>, VisualConfig),
     ToggleIndicator(pane_grid::Pane, String),
     Popout,

@@ -17,7 +17,7 @@ use iced::{
 
 use exchange::{TickerInfo, Trade, adapter::MarketType, depth::Depth};
 
-use super::scales::PriceInfoLabel;
+use super::scale::PriceInfoLabel;
 use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
 use super::{abbr_large_numbers, canvas_interaction, count_decimals, update_chart, view_chart};
 
