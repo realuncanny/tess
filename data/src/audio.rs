@@ -3,14 +3,17 @@ use exchange::SerTicker;
 use rodio::{Decoder, OutputStream, OutputStreamHandle, Source};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::fs::File;
-use std::io::BufReader;
 
-pub const BUY_SOUND: &str = "assets/sounds/hard-typewriter-click.wav";
-pub const HARD_BUY_SOUND: &str = "assets/sounds/dry-pop-up.wav";
+pub const BUY_SOUND_DATA: &[u8] = include_bytes!("../../assets/sounds/hard-typewriter-click.wav");
+pub const HARD_BUY_SOUND_DATA: &[u8] = include_bytes!("../../assets/sounds/dry-pop-up.wav");
+pub const SELL_SOUND_DATA: &[u8] = include_bytes!("../../assets/sounds/hard-typewriter-hit.wav");
+pub const HARD_SELL_SOUND_DATA: &[u8] =
+    include_bytes!("../../assets/sounds/fall-on-foam-splash.wav");
 
-pub const SELL_SOUND: &str = "assets/sounds/hard-typewriter-hit.wav";
-pub const HARD_SELL_SOUND: &str = "assets/sounds/fall-on-foam-splash.wav";
+pub const BUY_SOUND: &str = "hard-typewriter-click.wav";
+pub const HARD_BUY_SOUND: &str = "dry-pop-up.wav";
+pub const SELL_SOUND: &str = "hard-typewriter-hit.wav";
+pub const HARD_SELL_SOUND: &str = "fall-on-foam-splash.wav";
 
 pub const DEFAULT_SOUNDS: &[&str] = &[BUY_SOUND, SELL_SOUND, HARD_BUY_SOUND, HARD_SELL_SOUND];
 
@@ -40,34 +43,32 @@ impl SoundCache {
         let mut cache = Self::new(volume)?;
 
         for path in DEFAULT_SOUNDS {
-            if let Err(e) = cache.load_sound(path) {
-                log::error!("Failed to load sound {}: {}", path, e);
+            if let Err(e) = cache.load_sound_from_memory(
+                path,
+                match *path {
+                    BUY_SOUND => BUY_SOUND_DATA,
+                    HARD_BUY_SOUND => HARD_BUY_SOUND_DATA,
+                    SELL_SOUND => SELL_SOUND_DATA,
+                    HARD_SELL_SOUND => HARD_SELL_SOUND_DATA,
+                    _ => unreachable!(),
+                },
+            ) {
+                return Err(format!("Failed to load default sound '{}': {}", path, e));
             }
         }
 
         Ok(cache)
     }
 
-    pub fn load_sound(&mut self, path: &str) -> Result<(), String> {
+    pub fn load_sound_from_memory(&mut self, path: &str, data: &[u8]) -> Result<(), String> {
         if self.sample_buffers.contains_key(path) {
             return Ok(());
         }
 
-        let file = match File::open(path) {
-            Ok(file) => file,
-            Err(err) => return Err(format!("Failed to open sound file '{}': {}", path, err)),
-        };
-
-        let mut buf_reader = BufReader::new(file);
-        let mut buffer = vec![];
-        if let Err(err) = std::io::Read::read_to_end(&mut buf_reader, &mut buffer) {
-            return Err(format!("Failed to read sound file '{}': {}", path, err));
-        }
-
-        let cursor = std::io::Cursor::new(buffer);
+        let cursor = std::io::Cursor::new(data.to_vec());
         let decoder = match Decoder::new(cursor) {
             Ok(decoder) => decoder,
-            Err(err) => return Err(format!("Failed to decode sound file '{}': {}", path, err)),
+            Err(err) => return Err(format!("Failed to decode sound data: {}", err)),
         };
 
         let sample_buffer = rodio::buffer::SamplesBuffer::new(
@@ -77,7 +78,6 @@ impl SoundCache {
         );
 
         self.sample_buffers.insert(path.to_string(), sample_buffer);
-
         Ok(())
     }
 
