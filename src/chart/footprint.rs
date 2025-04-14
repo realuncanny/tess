@@ -555,21 +555,19 @@ impl FootprintChart {
         }
     }
 
-    pub fn insert_new_klines(&mut self, req_id: uuid::Uuid, klines_raw: &Vec<Kline>) {
+    pub fn insert_new_klines(&mut self, req_id: uuid::Uuid, klines_raw: &[Kline]) {
         match self.data_source {
             ChartData::TimeBased(ref mut timeseries) => {
-                let mut volume_data = BTreeMap::new();
-
                 timeseries.insert_klines(klines_raw);
-
-                for kline in klines_raw {
-                    volume_data.insert(kline.time, (kline.volume.0, kline.volume.1));
-                }
 
                 if let Some(IndicatorData::Volume(_, data)) =
                     self.indicators.get_mut(&FootprintIndicator::Volume)
                 {
-                    data.extend(volume_data.clone());
+                    data.extend(
+                        klines_raw
+                            .iter()
+                            .map(|kline| (kline.time, (kline.volume.0, kline.volume.1))),
+                    );
                 };
 
                 if klines_raw.is_empty() {
@@ -684,8 +682,15 @@ impl FootprintChart {
 
                             IndicatorData::Volume(Caches::default(), volume_data)
                         }
-                        ChartData::TickBased(_) => {
-                            IndicatorData::Volume(Caches::default(), BTreeMap::new())
+                        ChartData::TickBased(tick_aggr) => {
+                            let volume_data = tick_aggr
+                                .data_points
+                                .iter()
+                                .enumerate()
+                                .map(|(idx, dp)| (idx as u64, (dp.volume_buy, dp.volume_sell)))
+                                .collect();
+
+                            IndicatorData::Volume(Caches::default(), volume_data)
                         }
                     },
                     FootprintIndicator::OpenInterest => {

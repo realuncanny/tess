@@ -373,7 +373,7 @@ impl PaneState {
         &mut self,
         req_id: Option<uuid::Uuid>,
         timeframe: Timeframe,
-        klines: &Vec<Kline>,
+        klines: &[Kline],
     ) {
         match &mut self.content {
             PaneContent::Candlestick(chart, indicators) => {
