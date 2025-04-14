@@ -19,6 +19,8 @@ use data::aggr::{ticks::TickAggr, time::TimeSeries};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
 
+use crate::style;
+
 use super::scale::PriceInfoLabel;
 use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
@@ -53,7 +55,7 @@ impl Chart for FootprintChart {
         canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
-    fn view_indicator<I: Indicator>(&self, indicators: &[I]) -> Option<Element<Message>> {
+    fn view_indicators<I: Indicator>(&self, indicators: &[I]) -> Option<Element<Message>> {
         self.view_indicators(indicators)
     }
 
@@ -821,7 +823,9 @@ impl canvas::Program<Message> for FootprintChart {
             let cell_height_unscaled = cell_height * chart.scaling;
             let cell_width_unscaled = cell_width * chart.scaling;
 
-            let text_size = cell_height_unscaled.round().min(16.0) - 4.0;
+            let text_size_from_height = cell_height_unscaled.round().min(16.0) - 3.0;
+            let text_size_from_width = (cell_width_unscaled * 0.1).round().min(16.0) - 3.0;
+            let text_size = text_size_from_height.min(text_size_from_width);
 
             let candle_width = 0.1 * cell_width;
 
@@ -938,7 +942,7 @@ impl canvas::Program<Message> for FootprintChart {
                                 .find(|(time, _)| **time == rounded_aggregation)
                             {
                                 let tooltip_text = format!(
-                                    "O: {}   H: {}   L: {}   C: {}",
+                                    "O: {}  H: {}  L: {}  C: {}",
                                     dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close,
                                 );
 
@@ -947,6 +951,7 @@ impl canvas::Program<Message> for FootprintChart {
                                     position: Point::new(8.0, 8.0),
                                     size: iced::Pixels(12.0),
                                     color: palette.background.base.text,
+                                    font: style::AZERET_MONO,
                                     ..canvas::Text::default()
                                 };
                                 frame.fill_text(text);
@@ -960,7 +965,7 @@ impl canvas::Program<Message> for FootprintChart {
                                     &tick_aggr.data_points[tick_aggr.data_points.len() - 1 - index];
 
                                 let tooltip_text = format!(
-                                    "O: {}   H: {}   L: {}   C: {}",
+                                    "O: {}  H: {}  L: {}  C: {}",
                                     dp.open_price, dp.high_price, dp.low_price, dp.close_price
                                 );
 
@@ -969,6 +974,7 @@ impl canvas::Program<Message> for FootprintChart {
                                     position: Point::new(8.0, 8.0),
                                     size: iced::Pixels(12.0),
                                     color: palette.background.base.text,
+                                    font: style::AZERET_MONO,
                                     ..canvas::Text::default()
                                 };
                                 frame.fill_text(text);
@@ -1067,7 +1073,7 @@ fn draw_data_point(
         let mut bar_color_alpha = 1.0;
 
         if trade.1.0 > 0.0 {
-            if cell_height_unscaled > 12.0 && cell_width_unscaled > 108.0 {
+            if cell_height_unscaled > 10.0 && cell_width_unscaled > 120.0 {
                 // cell is large enough, display the trade quantity
                 let text_content = abbr_large_numbers(trade.1.0);
 
@@ -1080,6 +1086,7 @@ fn draw_data_point(
                     color: trade_qty_text_color,
                     align_x: Alignment::Start.into(),
                     align_y: Alignment::Center.into(),
+                    font: style::AZERET_MONO,
                     ..canvas::Text::default()
                 });
 
@@ -1098,7 +1105,7 @@ fn draw_data_point(
             );
         }
         if trade.1.1 > 0.0 {
-            if cell_height_unscaled > 12.0 && cell_width_unscaled > 108.0 {
+            if cell_height_unscaled > 10.0 && cell_width_unscaled > 120.0 {
                 let text_content = abbr_large_numbers(trade.1.1);
 
                 let text_position = Point::new(x_position - (candle_width / 4.0), y_position);
@@ -1110,6 +1117,7 @@ fn draw_data_point(
                     color: trade_qty_text_color,
                     align_x: Alignment::End.into(),
                     align_y: Alignment::Center.into(),
+                    font: style::AZERET_MONO,
                     ..canvas::Text::default()
                 });
 

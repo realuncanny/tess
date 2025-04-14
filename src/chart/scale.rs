@@ -1,6 +1,8 @@
 pub mod linear;
 pub mod timeseries;
 
+use crate::style::AZERET_MONO;
+
 use super::{Basis, Interaction, Message, round_to_tick};
 use chrono::DateTime;
 use data::UserTimezone;
@@ -89,10 +91,11 @@ impl AxisLabel {
                 let label = canvas::Text {
                     content: label.content.clone(),
                     position: rect.center(),
+                    size: label.text_size.into(),
                     color: label.text_color,
                     align_y: Alignment::Center.into(),
                     align_x: Alignment::Center.into(),
-                    size: label.text_size.into(),
+                    font: AZERET_MONO,
                     ..canvas::Text::default()
                 };
 
@@ -114,6 +117,7 @@ impl AxisLabel {
                         color: value_label.text_color,
                         size: value_label.text_size.into(),
                         align_y: Alignment::Center.into(),
+                        font: AZERET_MONO,
                         ..canvas::Text::default()
                     };
 
@@ -125,6 +129,7 @@ impl AxisLabel {
                         color: timer_label.text_color,
                         size: timer_label.text_size.into(),
                         align_y: Alignment::Center.into(),
+                        font: AZERET_MONO,
                         ..canvas::Text::default()
                     };
 
@@ -136,6 +141,7 @@ impl AxisLabel {
                         color: value_label.text_color,
                         size: value_label.text_size.into(),
                         align_y: Alignment::Center.into(),
+                        font: AZERET_MONO,
                         ..canvas::Text::default()
                     };
 
@@ -171,7 +177,7 @@ impl AxisLabelsX<'_> {
         is_crosshair: bool,
         palette: &Extended,
     ) -> AxisLabel {
-        let content_width = text.len() as f32 * (TEXT_SIZE / 3.0);
+        let content_width = text.len() as f32 * (TEXT_SIZE / 2.6);
 
         let rect = Rectangle {
             x: position - content_width,
@@ -657,12 +663,6 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
 
         let labels = self.labels_cache.draw(renderer, bounds.size(), |frame| {
             let region = self.visible_region(frame.size());
-
-            frame.fill_rectangle(
-                Point::new(0.0, 0.0),
-                Size::new(1.0, bounds.height),
-                palette.background.strong.color.scale_alpha(0.4),
-            );
 
             let highest = self.y_to_price(region.y);
             let lowest = self.y_to_price(region.y + region.height);
