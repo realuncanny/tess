@@ -1,17 +1,17 @@
 <div align="center">
-  <img width="2657" alt="overview" src="https://github.com/user-attachments/assets/10a9ed6a-ade2-45b9-bf9f-b10840a51fe1" />
+  <img width="2554" alt="overview-layout" src="https://github.com/user-attachments/assets/50fc7fe5-2bd6-4d6f-8040-19e9fd194e25" />
 </div>
 
 ### Some of the features:
 
 - Customizable and savable grid layouts, selectable themes
-- Supports most of the spot(USDT) and linear perp pairs from Binance & Bybit
+- Supports most of the spot(USDT) and linear/inverse perp pairs from Binance & Bybit
 - Tick size multipliers for price grouping on `FootprintChart` & `HeatmapChart`
-- `CandlestickChart` & `FootprintChart` supports ticks(based on trade counts) to be used as intervals, alongside traditional time(timeseries) intervals
+- Alongside traditional Time-based charts, `CandlestickChart` & `FootprintChart` supports "ticks"(based on aggregated trade streams) to be used as intervals to create Tick-based charts
 
 <div align="center">
-  <img width="284" alt="layouts" src="https://github.com/user-attachments/assets/cca84a96-1fe5-4286-85e9-f4f26c5b1dc0" />
-  <img width="245" alt="tickers-table" src="https://github.com/user-attachments/assets/51b84aef-ed45-4a73-90e8-e77d8ab80438" />
+  <img width="283" alt="layout-manager" src="https://github.com/user-attachments/assets/6ffac895-5f8c-4d9e-a1e8-a8bd41bd7fc3" />
+  <img width="242" alt="expanded-ticker-card" src="https://github.com/user-attachments/assets/c75161bc-e572-4737-a315-115545e27bbe" />
 </div>
 
 ##### User receives market data directly from exchanges' public REST APIs & Websockets over TLS
@@ -35,15 +35,17 @@ So, when a chart instance signal the exchange connector after a data integrity c
 
 ## Build from source
 
-The releases might not be up-to-date with newest features.<sup>or bugs :)</sup>
-
-- For that you could
-  clone the repository into a directory of your choice and build with cargo.
-
 Requirements:
 
 - [Rust toolchain](https://www.rust-lang.org/tools/install)
 - [Git version control system](https://git-scm.com/)
+- System dependencies:
+  - **Linux**:
+    - Debian/Ubuntu: `sudo apt install build-essential pkg-config libasound2-dev`
+    - Arch: `sudo pacman -S base-devel alsa-lib`
+    - Fedora: `sudo dnf install gcc make alsa-lib-devel`
+  - **macOS**: Install Xcode Command Line Tools: `xcode-select --install`
+  - **Windows**: No additional dependencies required
 
 ```bash
 # Clone the repository
