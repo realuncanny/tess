@@ -73,23 +73,23 @@ struct Flowsurface {
 
 #[derive(Debug, Clone)]
 enum Message {
-    ErrorOccurred(InternalError),
-
-    MarketWsEvent(exchange::Event),
-    ToggleTradeFetch(bool),
-
-    WindowEvent(window::Event),
-    ExitRequested(HashMap<window::Id, WindowSpec>),
-
     LoadLayout(Layout),
     Layouts(layout::Message),
 
+    MarketWsEvent(exchange::Event),
+    AudioStream(audio::Message),
+    FetchTickersInfo,
+    ToggleTradeFetch(bool),
+
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
     TickersTable(tickers_table::Message),
-    FetchTickersInfo,
+
+    WindowEvent(window::Event),
+    ExitRequested(HashMap<window::Id, WindowSpec>),
+    ErrorOccurred(InternalError),
 
     ThemeSelected(data::Theme),
-    ScaleFactorChanged(f64),
+    ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
     SetSidebarPosition(sidebar::Position),
     ToggleSidebarMenu(sidebar::Menu),
@@ -97,8 +97,6 @@ enum Message {
 
     AddNotification(Toast),
     DeleteNotification(usize),
-
-    AudioStream(audio::Message),
 }
 
 impl Flowsurface {
@@ -218,10 +216,13 @@ impl Flowsurface {
                         return window::close(window);
                     }
 
-                    let mut opened_windows: Vec<window::Id> =
-                        dashboard.popout.keys().copied().collect::<Vec<_>>();
+                    let mut opened_windows = dashboard
+                        .popout
+                        .keys()
+                        .copied()
+                        .collect::<Vec<window::Id>>();
 
-                    opened_windows.push(self.main_window.id);
+                    opened_windows.push(main_window);
 
                     return window::collect_window_specs(opened_windows, Message::ExitRequested);
                 }
@@ -439,7 +440,6 @@ impl Flowsurface {
 
                 match action {
                     audio::Action::None => {}
-                    audio::Action::Select => {}
                 }
             }
         }
@@ -656,15 +656,17 @@ impl Flowsurface {
                             let current_value: f64 = self.scale_factor.into();
 
                             let decrease_btn = if current_value > 0.8 {
-                                button(text("-"))
-                                    .on_press(Message::ScaleFactorChanged(current_value - 0.1))
+                                button(text("-")).on_press(Message::ScaleFactorChanged(
+                                    (current_value - 0.1).into(),
+                                ))
                             } else {
                                 button(text("-"))
                             };
 
                             let increase_btn = if current_value < 1.8 {
-                                button(text("+"))
-                                    .on_press(Message::ScaleFactorChanged(current_value + 0.1))
+                                button(text("+")).on_press(Message::ScaleFactorChanged(
+                                    (current_value + 0.1).into(),
+                                ))
                             } else {
                                 button(text("+"))
                             };
