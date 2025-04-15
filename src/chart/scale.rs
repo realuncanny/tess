@@ -113,10 +113,9 @@ impl AxisLabel {
                 if let Some(timer_label) = timer_label {
                     let value_label = canvas::Text {
                         content: value_label.content.clone(),
-                        position: Point::new(rect.x + 4.0, rect.center_y() - 6.0),
+                        position: Point::new(rect.x + 4.0, rect.y + 2.0),
                         color: value_label.text_color,
                         size: value_label.text_size.into(),
-                        align_y: Alignment::Center.into(),
                         font: AZERET_MONO,
                         ..canvas::Text::default()
                     };
@@ -125,10 +124,9 @@ impl AxisLabel {
 
                     let timer_label = canvas::Text {
                         content: timer_label.content.clone(),
-                        position: Point::new(rect.x + 4.0, rect.center_y() + 6.0),
+                        position: Point::new(rect.x + 4.0, rect.y + 15.0),
                         color: timer_label.text_color,
                         size: timer_label.text_size.into(),
-                        align_y: Alignment::Center.into(),
                         font: AZERET_MONO,
                         ..canvas::Text::default()
                     };
@@ -137,10 +135,9 @@ impl AxisLabel {
                 } else {
                     let value_label = canvas::Text {
                         content: value_label.content.clone(),
-                        position: Point::new(rect.x + 4.0, rect.center_y()),
+                        position: Point::new(rect.x + 4.0, rect.y + 4.0),
                         color: value_label.text_color,
                         size: value_label.text_size.into(),
-                        align_y: Alignment::Center.into(),
                         font: AZERET_MONO,
                         ..canvas::Text::default()
                     };
@@ -499,7 +496,8 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
 
         let labels = self.labels_cache.draw(renderer, bounds.size(), |frame| {
             let region = self.visible_region(frame.size());
-            let x_labels_can_fit = (bounds.width / 192.0) as i32;
+
+            let x_labels_can_fit = (bounds.width / (TEXT_SIZE * 16.0)) as i32;
             let mut all_labels: Vec<AxisLabel> = Vec::with_capacity(x_labels_can_fit as usize + 1);
 
             let x_min = self.x_to_interval(region.x);
@@ -675,7 +673,6 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                 highest,
                 text_size,
                 palette.background.base.text,
-                self.tick_size,
                 Some(self.decimals),
             );
 
@@ -707,7 +704,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                                 } else {
                                     Color::WHITE.scale_alpha(0.8)
                                 },
-                                text_size: 11.0,
+                                text_size: 10.0,
                             })
                         } else {
                             None

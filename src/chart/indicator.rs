@@ -56,7 +56,6 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
                 self.max,
                 text_size,
                 palette.background.base.text,
-                tick_size,
                 None,
             );
 
