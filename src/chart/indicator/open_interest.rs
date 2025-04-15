@@ -277,7 +277,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
                         frame.fill_rectangle(
                             Point::new(4.0, 0.0),
                             Size::new(tooltip_bg_width, 28.0),
-                            palette.background.base.color,
+                            palette.background.weakest.color.scale_alpha(0.9),
                         );
 
                         let text = canvas::Text {

@@ -363,7 +363,7 @@ impl Flowsurface {
                 self.sidebar.set_position(position);
             }
             Message::ScaleFactorChanged(value) => {
-                self.scale_factor = data::ScaleFactor::from(value);
+                self.scale_factor = value;
             }
             Message::ToggleSidebarMenu(menu) => {
                 let new_menu = if self.sidebar.is_menu_active(menu) {

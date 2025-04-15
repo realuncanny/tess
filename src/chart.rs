@@ -675,8 +675,13 @@ impl CommonChartData {
         self.base_price_y - (y / self.cell_height) * self.tick_size
     }
 
-    fn draw_dp_tooltip(data: &ChartData, frame: &mut Frame, palette: &Extended, at_interval: u64) {
-        match data {
+    fn draw_crosshair_tooltip(
+        data: &ChartData,
+        frame: &mut Frame,
+        palette: &Extended,
+        at_interval: u64,
+    ) {
+        let tooltip = match data {
             ChartData::TimeBased(timeseries) => {
                 let dp_opt = timeseries
                     .data_points
@@ -706,19 +711,16 @@ impl CommonChartData {
                         dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close, change_pct
                     );
 
-                    let text = canvas::Text {
-                        content: tooltip_text,
-                        position: Point::new(8.0, 8.0),
-                        size: iced::Pixels(12.0),
-                        color: if change_pct >= 0.0 {
+                    Some((
+                        tooltip_text,
+                        if change_pct >= 0.0 {
                             palette.success.base.color
                         } else {
                             palette.danger.base.color
                         },
-                        font: style::AZERET_MONO,
-                        ..canvas::Text::default()
-                    };
-                    frame.fill_text(text);
+                    ))
+                } else {
+                    None
                 }
             }
             ChartData::TickBased(tick_aggr) => {
@@ -734,21 +736,45 @@ impl CommonChartData {
                         dp.open_price, dp.high_price, dp.low_price, dp.close_price, change_pct
                     );
 
-                    let text = canvas::Text {
-                        content: tooltip_text,
-                        position: Point::new(8.0, 8.0),
-                        size: iced::Pixels(12.0),
-                        color: if change_pct >= 0.0 {
+                    Some((
+                        tooltip_text,
+                        if change_pct >= 0.0 {
                             palette.success.base.color
                         } else {
                             palette.danger.base.color
                         },
-                        font: style::AZERET_MONO,
-                        ..canvas::Text::default()
-                    };
-                    frame.fill_text(text);
+                    ))
+                } else {
+                    None
                 }
             }
+        };
+
+        if let Some((content, color)) = tooltip {
+            let position = Point::new(8.0, 8.0);
+
+            let tooltip_rect = Rectangle {
+                x: position.x,
+                y: position.y,
+                width: content.len() as f32 * 8.0,
+                height: 16.0,
+            };
+
+            frame.fill_rectangle(
+                tooltip_rect.position(),
+                tooltip_rect.size(),
+                palette.background.weakest.color.scale_alpha(0.9),
+            );
+
+            let text = canvas::Text {
+                content,
+                position,
+                size: iced::Pixels(12.0),
+                color,
+                font: style::AZERET_MONO,
+                ..canvas::Text::default()
+            };
+            frame.fill_text(text);
         }
     }
 

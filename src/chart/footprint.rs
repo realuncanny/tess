@@ -939,7 +939,7 @@ impl canvas::Program<Message> for FootprintChart {
                     let (_, rounded_aggregation) =
                         chart.draw_crosshair(frame, theme, bounds_size, cursor_position);
 
-                    CommonChartData::draw_dp_tooltip(
+                    CommonChartData::draw_crosshair_tooltip(
                         &self.data_source,
                         frame,
                         palette,
