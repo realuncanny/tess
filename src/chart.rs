@@ -14,7 +14,7 @@ use scale::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
 use crate::{style, widget::hsplit::HSplit, widget::tooltip};
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
 use data::chart::{Basis, ChartLayout, indicators::Indicator};
-use exchange::fetcher::{FetchRange, ReqError, RequestHandler};
+use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{TickerInfo, Timeframe};
 
 pub mod candlestick;
@@ -866,8 +866,16 @@ impl CommonChartData {
     }
 }
 
-fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Result<uuid::Uuid, ReqError> {
-    handler.add_request(range)
+fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Option<Action> {
+    match handler.add_request(range) {
+        Ok(Some(req_id)) => Some(Action::FetchRequested(req_id, range)),
+        Ok(None) => None,
+        Err(reason) => {
+            log::error!("Failed to request {:?}: {}", range, reason);
+            // TODO: handle this more explicitly, maybe by returning Action::ErrorOccurred
+            None
+        }
+    }
 }
 
 fn count_decimals(value: f32) -> usize {

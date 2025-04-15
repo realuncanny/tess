@@ -37,7 +37,7 @@ impl RequestHandler {
         }
     }
 
-    pub fn add_request(&mut self, fetch: FetchRange) -> Result<Uuid, ReqError> {
+    pub fn add_request(&mut self, fetch: FetchRange) -> Result<Option<Uuid>, ReqError> {
         let request = FetchRequest::new(fetch);
         let id = Uuid::new_v4();
 
@@ -54,9 +54,9 @@ impl RequestHandler {
                     // retry completed requests after a cooldown
                     // to handle data source failures or outdated results gracefully
                     if chrono::Utc::now().timestamp_millis() as u64 - ts > 30_000 {
-                        Ok(existing_id)
+                        Ok(Some(existing_id))
                     } else {
-                        Err(ReqError::Completed)
+                        Ok(None)
                     }
                 }
                 RequestStatus::Pending => Err(ReqError::Overlaps),
@@ -64,7 +64,7 @@ impl RequestHandler {
         }
 
         self.requests.insert(id, request);
-        Ok(id)
+        Ok(Some(id))
     }
 
     pub fn mark_completed(&mut self, id: Uuid) {
