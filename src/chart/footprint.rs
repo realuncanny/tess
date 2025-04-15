@@ -939,53 +939,12 @@ impl canvas::Program<Message> for FootprintChart {
                     let (_, rounded_aggregation) =
                         chart.draw_crosshair(frame, theme, bounds_size, cursor_position);
 
-                    match &self.data_source {
-                        ChartData::TimeBased(timeseries) => {
-                            if let Some((_, dp)) = timeseries
-                                .data_points
-                                .iter()
-                                .find(|(time, _)| **time == rounded_aggregation)
-                            {
-                                let tooltip_text = format!(
-                                    "O: {}  H: {}  L: {}  C: {}",
-                                    dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close,
-                                );
-
-                                let text = canvas::Text {
-                                    content: tooltip_text,
-                                    position: Point::new(8.0, 8.0),
-                                    size: iced::Pixels(12.0),
-                                    color: palette.background.base.text,
-                                    font: style::AZERET_MONO,
-                                    ..canvas::Text::default()
-                                };
-                                frame.fill_text(text);
-                            }
-                        }
-                        ChartData::TickBased(tick_aggr) => {
-                            let index = (rounded_aggregation / tick_aggr.interval) as usize;
-
-                            if index < tick_aggr.data_points.len() {
-                                let dp =
-                                    &tick_aggr.data_points[tick_aggr.data_points.len() - 1 - index];
-
-                                let tooltip_text = format!(
-                                    "O: {}  H: {}  L: {}  C: {}",
-                                    dp.open_price, dp.high_price, dp.low_price, dp.close_price
-                                );
-
-                                let text = canvas::Text {
-                                    content: tooltip_text,
-                                    position: Point::new(8.0, 8.0),
-                                    size: iced::Pixels(12.0),
-                                    color: palette.background.base.text,
-                                    font: style::AZERET_MONO,
-                                    ..canvas::Text::default()
-                                };
-                                frame.fill_text(text);
-                            }
-                        }
-                    }
+                    CommonChartData::draw_dp_tooltip(
+                        &self.data_source,
+                        frame,
+                        palette,
+                        rounded_aggregation,
+                    );
                 }
             });
 

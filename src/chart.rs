@@ -1,3 +1,4 @@
+use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Cache, Canvas, Event, Frame};
 use iced::widget::{center, horizontal_rule, mouse_area, vertical_rule};
 use iced::{
@@ -672,6 +673,83 @@ impl CommonChartData {
 
     fn y_to_price(&self, y: f32) -> f32 {
         self.base_price_y - (y / self.cell_height) * self.tick_size
+    }
+
+    fn draw_dp_tooltip(data: &ChartData, frame: &mut Frame, palette: &Extended, at_interval: u64) {
+        match data {
+            ChartData::TimeBased(timeseries) => {
+                let dp_opt = timeseries
+                    .data_points
+                    .iter()
+                    .find(|(time, _)| **time == at_interval)
+                    .map(|(_, dp)| dp);
+
+                let dp_opt = if dp_opt.is_none() && !timeseries.data_points.is_empty() {
+                    if let Some((last_time, _)) = timeseries.data_points.last_key_value() {
+                        if at_interval > *last_time {
+                            timeseries.data_points.last_key_value().map(|(_, dp)| dp)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    dp_opt
+                };
+
+                if let Some(dp) = dp_opt {
+                    let change_pct = ((dp.kline.close - dp.kline.open) / dp.kline.open) * 100.0;
+
+                    let tooltip_text = format!(
+                        "O:{} H:{} L:{} C:{} Δ:{:+.2}%",
+                        dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close, change_pct
+                    );
+
+                    let text = canvas::Text {
+                        content: tooltip_text,
+                        position: Point::new(8.0, 8.0),
+                        size: iced::Pixels(12.0),
+                        color: if change_pct >= 0.0 {
+                            palette.success.base.color
+                        } else {
+                            palette.danger.base.color
+                        },
+                        font: style::AZERET_MONO,
+                        ..canvas::Text::default()
+                    };
+                    frame.fill_text(text);
+                }
+            }
+            ChartData::TickBased(tick_aggr) => {
+                let index = (at_interval / tick_aggr.interval) as usize;
+
+                if index < tick_aggr.data_points.len() {
+                    let dp = &tick_aggr.data_points[tick_aggr.data_points.len() - 1 - index];
+
+                    let change_pct = ((dp.close_price - dp.open_price) / dp.open_price) * 100.0;
+
+                    let tooltip_text = format!(
+                        "O:{} H:{} L:{} C:{} Δ:{:+.2}%",
+                        dp.open_price, dp.high_price, dp.low_price, dp.close_price, change_pct
+                    );
+
+                    let text = canvas::Text {
+                        content: tooltip_text,
+                        position: Point::new(8.0, 8.0),
+                        size: iced::Pixels(12.0),
+                        color: if change_pct >= 0.0 {
+                            palette.success.base.color
+                        } else {
+                            palette.danger.base.color
+                        },
+                        font: style::AZERET_MONO,
+                        ..canvas::Text::default()
+                    };
+                    frame.fill_text(text);
+                }
+            }
+        }
     }
 
     fn draw_crosshair(
