@@ -704,7 +704,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                                 } else {
                                     Color::WHITE.scale_alpha(0.8)
                                 },
-                                text_size: 10.0,
+                                text_size: 11.0,
                             })
                         } else {
                             None

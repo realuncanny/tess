@@ -136,14 +136,18 @@ impl AudioStream {
                             move |is_checked| Message::ToggleStream(is_checked, (exchange, ticker)),
                         );
 
+                    let mut stream_row = row![stream_checkbox, horizontal_space(),]
+                        .height(36)
+                        .align_y(iced::Alignment::Center)
+                        .padding(4)
+                        .spacing(4);
+
                     let is_expanded = self
                         .expanded_card
                         .is_some_and(|(ex, tk)| ex == exchange && tk == ticker);
 
-                    let stream_row = row![
-                        stream_checkbox,
-                        horizontal_space(),
-                        tooltip(
+                    if is_audio_enabled {
+                        stream_row = stream_row.push(tooltip(
                             button(get_icon_text(style::Icon::Cog, 12))
                                 .on_press(Message::ToggleCard(exchange, ticker))
                                 .style(move |theme, status| {
@@ -151,15 +155,12 @@ impl AudioStream {
                                 }),
                             Some("Toggle filters for triggering a sound"),
                             TooltipPosition::Top,
-                        )
-                    ]
-                    .align_y(iced::Alignment::Center)
-                    .padding(4)
-                    .spacing(4);
+                        ));
+                    }
 
                     column = column.push(stream_row);
 
-                    if is_expanded {
+                    if is_expanded && is_audio_enabled {
                         if let Some(cfg) = self.streams.get(&exchange).and_then(|s| s.get(&ticker))
                         {
                             match cfg.threshold {
@@ -198,7 +199,7 @@ impl AudioStream {
                 }
             }
 
-            column![text(format!("Audio streams")).size(14), available_streams,].spacing(8)
+            column![text("Audio streams").size(14), available_streams,].spacing(8)
         };
 
         container(column![volume_container, audio_contents,].spacing(20))
