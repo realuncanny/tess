@@ -84,6 +84,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "250f629c0161ad8107cf89319e990051fae62832fd343083bea452d93e2205fd"
 
 [[package]]
+name = "alloc-no-stdlib"
+version = "2.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc7bb162ec39d46ab1ca8c77bf72e890535becd1751bb45f64c597edb4c8c6b3"
+
+[[package]]
+name = "alloc-stdlib"
+version = "0.2.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "94fb8275041c72129eb51b7d0322c29b8387a0386127718b096429201a5d6ece"
+dependencies = [
+ "alloc-no-stdlib",
+]
+
+[[package]]
 name = "alsa"
 version = "0.9.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -190,6 +205,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0bb44936d800fea8f016d7f2311c6a4f97aebd5dc86f09906139ec848cf3a46f"
 dependencies = [
  "libloading",
+]
+
+[[package]]
+name = "async-compression"
+version = "0.4.22"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "59a194f9d963d8099596278594b3107448656ba73831c9d8c783e613ce86da64"
+dependencies = [
+ "brotli",
+ "futures-core",
+ "memchr",
+ "pin-project-lite",
+ "tokio",
 ]
 
 [[package]]
@@ -336,6 +364,27 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.98",
+]
+
+[[package]]
+name = "brotli"
+version = "7.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "cc97b8f16f944bba54f0433f07e30be199b6dc2bd25937444bbad560bcea29bd"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
+ "brotli-decompressor",
+]
+
+[[package]]
+name = "brotli-decompressor"
+version = "4.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "74fa05ad7d803d413eb8380983b092cbbaf9a85f151b871360e7b00cd7060b37"
+dependencies = [
+ "alloc-no-stdlib",
+ "alloc-stdlib",
 ]
 
 [[package]]
@@ -3500,6 +3549,7 @@ version = "0.12.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "43e734407157c3c2034e0258f5e4473ddb361b1e85f95a66690d67264d7cd1da"
 dependencies = [
+ "async-compression",
  "base64 0.22.1",
  "bytes",
  "futures-core",
@@ -3527,6 +3577,7 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-rustls 0.26.2",
+ "tokio-util",
  "tower",
  "tower-service",
  "url",
@@ -4395,6 +4446,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "8e727b36a1a0e8b74c376ac2211e40c2c8af09fb4013c60d910495810f008e9b"
 dependencies = [
  "rustls 0.23.23",
+ "tokio",
+]
+
+[[package]]
+name = "tokio-util"
+version = "0.7.14"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6b9590b93e6fcc1739458317cccd391ad3955e2bde8913edf6f95f9e65a8f034"
+dependencies = [
+ "bytes",
+ "futures-core",
+ "futures-sink",
+ "pin-project-lite",
  "tokio",
 ]
 
