@@ -30,14 +30,14 @@ pub enum InternalError {
 }
 
 pub fn write_json_to_file(json: &str, file_name: &str) -> std::io::Result<()> {
-    let path = get_data_path(file_name);
+    let path = data_path(Some(file_name));
     let mut file = File::create(path)?;
     file.write_all(json.as_bytes())?;
     Ok(())
 }
 
 pub fn read_from_file(file_name: &str) -> Result<State, Box<dyn std::error::Error>> {
-    let path = get_data_path(file_name);
+    let path = data_path(Some(file_name));
 
     let file_open_result = File::open(&path);
     let mut file = match file_open_result {
@@ -63,7 +63,7 @@ pub fn read_from_file(file_name: &str) -> Result<State, Box<dyn std::error::Erro
                 format!("{}_old", file_name)
             };
 
-            let backup_path = get_data_path(&backup_file_name);
+            let backup_path = data_path(Some(&backup_file_name));
 
             if let Err(rename_err) = std::fs::rename(&path, &backup_path) {
                 warn!(
@@ -84,12 +84,37 @@ pub fn read_from_file(file_name: &str) -> Result<State, Box<dyn std::error::Erro
     }
 }
 
-pub fn get_data_path(path_name: &str) -> PathBuf {
+pub fn open_data_folder() -> Result<(), InternalError> {
+    let pathbuf = data_path(None);
+
+    if pathbuf.exists() {
+        if let Err(err) = open::that(&pathbuf) {
+            return Err(InternalError::Layout(format!(
+                "Failed to open data folder: {:?}, error: {}",
+                pathbuf, err
+            )));
+        } else {
+            info!("Opened data folder: {:?}", pathbuf);
+            return Ok(());
+        }
+    } else {
+        return Err(InternalError::Layout(format!(
+            "Data folder does not exist: {:?}",
+            pathbuf
+        )));
+    }
+}
+
+pub fn data_path(path_name: Option<&str>) -> PathBuf {
     if let Ok(path) = std::env::var("FLOWSURFACE_DATA_PATH") {
         PathBuf::from(path)
     } else {
         let data_dir = dirs_next::data_dir().unwrap_or_else(|| PathBuf::from("."));
-        data_dir.join("flowsurface").join(path_name)
+        if let Some(path_name) = path_name {
+            data_dir.join("flowsurface").join(path_name)
+        } else {
+            data_dir.join("flowsurface")
+        }
     }
 }
 
@@ -148,10 +173,10 @@ fn cleanup_directory(data_path: &PathBuf) -> usize {
 
 pub fn cleanup_old_market_data() -> usize {
     let paths = ["um", "cm"].map(|market_type| {
-        get_data_path(&format!(
+        data_path(Some(&format!(
             "market_data/binance/data/futures/{}/daily/aggTrades",
             market_type
-        ))
+        )))
     });
 
     let total_deleted: usize = paths.iter().map(|path| cleanup_directory(&path)).sum();

@@ -94,6 +94,7 @@ enum Message {
     SetSidebarPosition(sidebar::Position),
     ToggleSidebarMenu(sidebar::Menu),
     ToggleDialogModal(Option<(String, Box<Message>)>),
+    DataFolderRequested,
 
     AddNotification(Toast),
     DeleteNotification(usize),
@@ -442,6 +443,14 @@ impl Flowsurface {
                     audio::Action::None => {}
                 }
             }
+            Message::DataFolderRequested => {
+                if let Err(err) = data::open_data_folder() {
+                    return Task::done(Message::AddNotification(Toast::error(format!(
+                        "Failed to open data folder: {}",
+                        err
+                    ))));
+                }
+            }
         }
         Task::none()
     }
@@ -684,8 +693,20 @@ impl Flowsurface {
                             .style(style::modal_container)
                         };
 
+                        let open_data_folder = {
+                            let button = button(text("Open data folder"))
+                                .on_press(Message::DataFolderRequested);
+
+                            tooltip(
+                                button,
+                                Some("Open the folder where the data & config is stored"),
+                                TooltipPosition::Top,
+                            )
+                        };
+
                         container(
                             column![
+                                column![open_data_folder,].spacing(8),
                                 column![text("Sidebar position").size(14), sidebar_pos,].spacing(8),
                                 column![text("Time zone").size(14), timezone_picklist,].spacing(8),
                                 column![text("Theme").size(14), theme_picklist,].spacing(8),

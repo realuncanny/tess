@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::{fs, io};
 
-use crate::get_data_path;
+use crate::data_path;
 
 const LOG_FILE: &str = "flowsurface-current.log";
 
@@ -17,7 +17,7 @@ pub fn file() -> Result<fs::File, Error> {
 }
 
 pub fn path() -> Result<PathBuf, Error> {
-    let full_path = get_data_path(LOG_FILE);
+    let full_path = data_path(Some(LOG_FILE));
 
     let parent = full_path
         .parent()

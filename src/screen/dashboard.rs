@@ -547,7 +547,7 @@ impl Dashboard {
                         );
 
                         if is_binance {
-                            let data_path = data::get_data_path("market_data/binance/");
+                            let data_path = data::data_path(Some("market_data/binance/"));
                             let dashboard_id = *layout_id;
 
                             let (task, handle) = Task::sip(
