@@ -19,7 +19,7 @@ impl Window {
 }
 
 pub fn default_size() -> Size {
-    WindowSpec::default().get_size()
+    WindowSpec::default().size()
 }
 
 #[derive(Debug, Clone, Copy)]

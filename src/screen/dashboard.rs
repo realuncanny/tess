@@ -137,8 +137,8 @@ impl Dashboard {
         // remove keys and open new windows
         for (old_window_id, window_spec) in keys_to_remove {
             let (window, task) = window::open(window::Settings {
-                position: window::Position::Specific(window_spec.get_position()),
-                size: window_spec.get_size(),
+                position: window::Position::Specific(window_spec.position()),
+                size: window_spec.size(),
                 exit_on_close_request: false,
                 ..window::settings()
             });
@@ -311,7 +311,7 @@ impl Dashboard {
                             for stream in &pane_stream {
                                 if let StreamType::Kline { .. } = stream {
                                     return (
-                                        get_kline_fetch_task(
+                                        kline_fetch_task(
                                             *layout_id,
                                             pane_state.id,
                                             *stream,
@@ -393,7 +393,7 @@ impl Dashboard {
                                 ) {
                                     Ok((stream, pane_uid)) => {
                                         if let StreamType::Kline { .. } = stream {
-                                            let task = get_kline_fetch_task(
+                                            let task = kline_fetch_task(
                                                 *layout_id, pane_uid, *stream, None, None,
                                             );
 
@@ -485,7 +485,7 @@ impl Dashboard {
 
                     if let Some((stream, pane_uid)) = kline_stream {
                         return (
-                            get_kline_fetch_task(
+                            kline_fetch_task(
                                 *layout_id,
                                 pane_uid,
                                 stream,
@@ -509,7 +509,7 @@ impl Dashboard {
 
                     if let Some((stream, pane_uid)) = kline_stream {
                         return (
-                            get_oi_fetch_task(
+                            oi_fetch_task(
                                 *layout_id,
                                 pane_uid,
                                 stream,
@@ -1113,7 +1113,7 @@ impl Dashboard {
         }
     }
 
-    pub fn get_market_subscriptions<M>(
+    pub fn market_subscriptions<M>(
         &self,
         market_msg: impl Fn(exchange::Event) -> M + Clone + Send + 'static,
     ) -> Subscription<M>
@@ -1280,7 +1280,7 @@ impl Dashboard {
                     tasks.push(fetch_task);
                 } else {
                     for pane_uid in matching_panes {
-                        tasks.push(get_kline_fetch_task(
+                        tasks.push(kline_fetch_task(
                             layout_id,
                             pane_uid,
                             *stream_type,
@@ -1296,7 +1296,7 @@ impl Dashboard {
     }
 }
 
-fn get_oi_fetch_task(
+fn oi_fetch_task(
     layout_id: uuid::Uuid,
     pane_uid: uuid::Uuid,
     stream: StreamType,
@@ -1330,7 +1330,7 @@ fn get_oi_fetch_task(
     update_status.chain(fetch_task)
 }
 
-fn get_kline_fetch_task(
+fn kline_fetch_task(
     layout_id: uuid::Uuid,
     pane_uid: uuid::Uuid,
     stream: StreamType,

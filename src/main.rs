@@ -17,7 +17,7 @@ use screen::{
         tickers_table::{self, TickersTable},
     },
 };
-use style::{Icon, get_icon_text};
+use style::{Icon, icon_text};
 use widget::{
     confirm_dialog_container, dashboard_modal, main_dialog_modal,
     notification::{self, Toast},
@@ -106,8 +106,8 @@ impl Flowsurface {
         let main_window_cfg = window::Settings {
             size: saved_state
                 .main_window
-                .map_or_else(window::default_size, |w| w.get_size()),
-            position: saved_state.main_window.map(|w| w.get_position()).map_or(
+                .map_or_else(window::default_size, |w| w.size()),
+            position: saved_state.main_window.map(|w| w.position()).map_or(
                 iced::window::Position::Centered,
                 iced::window::Position::Specific,
             ),
@@ -115,7 +115,7 @@ impl Flowsurface {
             ..window::settings()
         };
 
-        let active_layout = saved_state.layout_manager.get_active_layout();
+        let active_layout = saved_state.layout_manager.active_layout();
         let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
         (
@@ -163,7 +163,7 @@ impl Flowsurface {
             Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
 
-                if let Some(dashboard) = self.get_active_dashboard_mut() {
+                if let Some(dashboard) = self.active_dashboard_mut() {
                     match event {
                         exchange::Event::Connected(exchange, _) => {
                             log::info!("a stream connected to {exchange} WS");
@@ -207,7 +207,7 @@ impl Flowsurface {
                 window::Event::CloseRequested(window) => {
                     let main_window = self.main_window.id;
 
-                    let Some(dashboard) = self.get_active_dashboard_mut() else {
+                    let Some(dashboard) = self.active_dashboard_mut() else {
                         return iced::exit();
                     };
 
@@ -228,9 +228,7 @@ impl Flowsurface {
                 }
             },
             Message::ExitRequested(windows) => {
-                let dashboard = self
-                    .get_active_dashboard_mut()
-                    .expect("No active dashboard");
+                let dashboard = self.active_dashboard_mut().expect("No active dashboard");
 
                 dashboard
                     .popout
@@ -269,7 +267,7 @@ impl Flowsurface {
                 let layout = data::State::from_parts(
                     layouts,
                     self.theme.clone(),
-                    self.tickers_table.get_favorited_tickers(),
+                    self.tickers_table.favorited_tickers(),
                     main_window,
                     self.timezone,
                     self.sidebar,
@@ -306,7 +304,7 @@ impl Flowsurface {
                 let main_window = self.main_window;
                 let layout_id = id.unwrap_or(self.layout_manager.active_layout.id);
 
-                if let Some(dashboard) = self.layout_manager.get_mut_dashboard(&layout_id) {
+                if let Some(dashboard) = self.layout_manager.mut_dashboard(&layout_id) {
                     let (task, event) = dashboard.update(message, &main_window, &layout_id);
 
                     let event_task = match event {
@@ -336,7 +334,7 @@ impl Flowsurface {
                     tickers_table::Action::TickerSelected(ticker_info, exchange, content) => {
                         let main_window_id = self.main_window.id;
 
-                        if let Some(dashboard) = self.get_active_dashboard_mut() {
+                        if let Some(dashboard) = self.active_dashboard_mut() {
                             let task = dashboard.init_pane_task(
                                 main_window_id,
                                 ticker_info,
@@ -392,7 +390,7 @@ impl Flowsurface {
 
                 match action {
                     layout::Action::Select(layout) => {
-                        if let Some(dashboard) = self.get_active_dashboard() {
+                        if let Some(dashboard) = self.active_dashboard() {
                             let active_popout_keys =
                                 dashboard.popout.keys().copied().collect::<Vec<_>>();
 
@@ -422,7 +420,7 @@ impl Flowsurface {
             }
             Message::LoadLayout(layout) => {
                 self.layout_manager.active_layout = layout.clone();
-                if let Some(dashboard) = self.get_active_dashboard_mut() {
+                if let Some(dashboard) = self.active_dashboard_mut() {
                     dashboard.focus = None;
                     return dashboard
                         .load_layout()
@@ -449,7 +447,7 @@ impl Flowsurface {
     }
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
-        let Some(dashboard) = self.get_active_dashboard() else {
+        let Some(dashboard) = self.active_dashboard() else {
             return center(
                 column![
                     text("No dashboard available").size(20),
@@ -479,7 +477,7 @@ impl Flowsurface {
                         let is_active = self.sidebar.is_menu_active(sidebar::Menu::Settings);
 
                         create_button(
-                            get_icon_text(Icon::Cog, 14)
+                            icon_text(Icon::Cog, 14)
                                 .width(24)
                                 .align_x(Alignment::Center),
                             Message::ToggleSidebarMenu(sidebar::Menu::Settings),
@@ -494,7 +492,7 @@ impl Flowsurface {
                         let is_active = self.sidebar.is_menu_active(sidebar::Menu::Layout);
 
                         create_button(
-                            get_icon_text(Icon::Layout, 14)
+                            icon_text(Icon::Layout, 14)
                                 .width(24)
                                 .align_x(Alignment::Center),
                             Message::ToggleSidebarMenu(sidebar::Menu::Layout),
@@ -507,7 +505,7 @@ impl Flowsurface {
                     };
                     let ticker_search_button = {
                         create_button(
-                            get_icon_text(Icon::Search, 14)
+                            icon_text(Icon::Search, 14)
                                 .width(24)
                                 .align_x(Alignment::Center),
                             Message::TickersTable(tickers_table::Message::ToggleTable),
@@ -522,14 +520,14 @@ impl Flowsurface {
                     let audio_btn = {
                         let is_active = self.sidebar.is_menu_active(sidebar::Menu::Audio);
 
-                        let icon = match self.audio_stream.get_volume().unwrap_or(0.0) {
+                        let icon = match self.audio_stream.volume().unwrap_or(0.0) {
                             v if v >= 40.0 => Icon::SpeakerHigh,
                             v if v > 0.0 => Icon::SpeakerLow,
                             _ => Icon::SpeakerOff,
                         };
 
                         create_button(
-                            get_icon_text(icon, 14).width(24).align_x(Alignment::Center),
+                            icon_text(icon, 14).width(24).align_x(Alignment::Center),
                             Message::ToggleSidebarMenu(sidebar::Menu::Audio),
                             None,
                             tooltip_position,
@@ -890,22 +888,22 @@ impl Flowsurface {
     fn subscription(&self) -> Subscription<Message> {
         let window_events = window_events().map(Message::WindowEvent);
 
-        let Some(dashboard) = self.get_active_dashboard() else {
+        let Some(dashboard) = self.active_dashboard() else {
             return window_events;
         };
 
-        let exchange_streams = dashboard.get_market_subscriptions(Message::MarketWsEvent);
+        let exchange_streams = dashboard.market_subscriptions(Message::MarketWsEvent);
 
         let tickers_table_fetch = self.tickers_table.subscription().map(Message::TickersTable);
 
         Subscription::batch(vec![exchange_streams, tickers_table_fetch, window_events])
     }
 
-    fn get_active_dashboard(&self) -> Option<&Dashboard> {
-        self.layout_manager.get_active_dashboard()
+    fn active_dashboard(&self) -> Option<&Dashboard> {
+        self.layout_manager.active_dashboard()
     }
 
-    fn get_active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
-        self.layout_manager.get_active_dashboard_mut()
+    fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
+        self.layout_manager.active_dashboard_mut()
     }
 }

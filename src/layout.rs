@@ -1,6 +1,6 @@
 use crate::chart::{heatmap::HeatmapChart, kline::KlineChart, timeandsales::TimeAndSales};
 use crate::screen::dashboard::{Dashboard, PaneContent, PaneState};
-use crate::style::get_icon_text;
+use crate::style::icon_text;
 use crate::widget::column_drag::{self, DragEvent, DropPosition};
 use crate::widget::dragger_row;
 use crate::{style, tooltip};
@@ -113,24 +113,24 @@ impl LayoutManager {
         self.layouts.values_mut().map(|(_, d)| d)
     }
 
-    pub fn get_mut_dashboard(&mut self, id: &Uuid) -> Option<&mut Dashboard> {
+    pub fn mut_dashboard(&mut self, id: &Uuid) -> Option<&mut Dashboard> {
         self.layouts.get_mut(id).map(|(_, d)| d)
     }
 
-    pub fn get_dashboard(&self, id: &Uuid) -> Option<&Dashboard> {
+    pub fn dashboard(&self, id: &Uuid) -> Option<&Dashboard> {
         self.layouts.get(id).map(|(_, d)| d)
     }
 
-    pub fn get_active_dashboard(&self) -> Option<&Dashboard> {
-        self.get_dashboard(&self.active_layout.id)
+    pub fn active_dashboard(&self) -> Option<&Dashboard> {
+        self.dashboard(&self.active_layout.id)
     }
 
-    pub fn get_active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
+    pub fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
         let id = self.active_layout.id;
-        self.get_mut_dashboard(&id)
+        self.mut_dashboard(&id)
     }
 
-    pub fn get_active_layout(&self) -> Layout {
+    pub fn active_layout(&self) -> Layout {
         self.active_layout.clone()
     }
 
@@ -265,7 +265,7 @@ impl LayoutManager {
                 Editing::None => {
                     button(text("Edit")).on_press(Message::ToggleEditMode(Editing::Preview))
                 }
-                _ => button(get_icon_text(style::Icon::Return, 12))
+                _ => button(icon_text(style::Icon::Return, 12))
                     .on_press(Message::ToggleEditMode(Editing::Preview)),
             }
         };
@@ -337,7 +337,7 @@ impl LayoutManager {
                         layout_row = layout_row
                             .push(layout_btn(layout, None))
                             .push(tooltip(
-                                button(get_icon_text(style::Icon::Clone, 12))
+                                button(icon_text(style::Icon::Clone, 12))
                                     .on_press(Message::CloneLayout(layout.id))
                                     .style(move |t, s| style::button::transparent(t, s, true)),
                                 Some("Clone layout"),
@@ -469,7 +469,7 @@ fn create_icon_button<'a>(
     on_press: Option<Message>,
 ) -> button::Button<'a, Message> {
     let mut btn =
-        button(get_icon_text(icon, size)).style(move |theme, status| style_fn(theme, &status));
+        button(icon_text(icon, size)).style(move |theme, status| style_fn(theme, &status));
 
     if let Some(msg) = on_press {
         btn = btn.on_press(msg);

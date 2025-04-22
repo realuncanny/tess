@@ -1,5 +1,5 @@
 use crate::TooltipPosition;
-use crate::style::{self, get_icon_text};
+use crate::style::{self, icon_text};
 use crate::widget::{create_slider_row, tooltip};
 use data::audio::{SoundCache, StreamCfg};
 use exchange::adapter::{Exchange, StreamType};
@@ -148,7 +148,7 @@ impl AudioStream {
 
                     if is_audio_enabled {
                         stream_row = stream_row.push(tooltip(
-                            button(get_icon_text(style::Icon::Cog, 12))
+                            button(icon_text(style::Icon::Cog, 12))
                                 .on_press(Message::ToggleCard(exchange, ticker))
                                 .style(move |theme, status| {
                                     style::button::transparent(theme, status, is_expanded)
@@ -209,7 +209,7 @@ impl AudioStream {
             .into()
     }
 
-    pub fn get_volume(&self) -> Option<f32> {
+    pub fn volume(&self) -> Option<f32> {
         self.cache.get_volume()
     }
 

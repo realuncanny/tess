@@ -29,14 +29,14 @@ pub struct Window<T = f32> {
 }
 
 impl<T: Copy> Window<T> {
-    pub fn get_size(&self) -> iced_core::Size<T> {
+    pub fn size(&self) -> iced_core::Size<T> {
         iced_core::Size {
             width: self.width,
             height: self.height,
         }
     }
 
-    pub fn get_position(&self) -> iced_core::Point<T> {
+    pub fn position(&self) -> iced_core::Point<T> {
         iced_core::Point {
             x: self.pos_x,
             y: self.pos_y,

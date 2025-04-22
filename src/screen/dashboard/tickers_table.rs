@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::style::{self, ICONS_FONT, Icon, get_icon_text};
+use crate::style::{self, ICONS_FONT, Icon, icon_text};
 use data::InternalError;
 use exchange::{
     Ticker, TickerInfo, TickerStats,
@@ -204,7 +204,7 @@ impl TickersTable {
             .collect();
     }
 
-    pub fn get_favorited_tickers(&self) -> Vec<(Exchange, Ticker)> {
+    pub fn favorited_tickers(&self) -> Vec<(Exchange, Ticker)> {
         self.combined_tickers
             .iter()
             .filter(|(_, _, _, is_fav)| *is_fav)
@@ -431,7 +431,7 @@ impl TickersTable {
     }
 
     pub fn view(&self, bounds: Size) -> Element<'_, Message> {
-        let show_sorting_button = button(get_icon_text(Icon::Sort, 14).align_x(Horizontal::Center))
+        let show_sorting_button = button(icon_text(Icon::Sort, 14).align_x(Horizontal::Center))
             .on_press(Message::ShowSortingOptions);
 
         let search_bar_row = row![
@@ -467,7 +467,7 @@ impl TickersTable {
             let volume_sort_button = button(
                 row![
                     text("Volume"),
-                    get_icon_text(
+                    icon_text(
                         if self.selected_sort_option == SortOptions::VolumeDesc {
                             Icon::SortDesc
                         } else {
@@ -484,7 +484,7 @@ impl TickersTable {
             let change_sort_button = button(
                 row![
                     text("Change"),
-                    get_icon_text(
+                    icon_text(
                         if self.selected_sort_option == SortOptions::ChangeDesc {
                             Icon::SortDesc
                         } else {
@@ -709,10 +709,10 @@ fn create_ticker_card<'a>(
                             match exchange {
                                 Exchange::BybitInverse
                                 | Exchange::BybitLinear
-                                | Exchange::BybitSpot => get_icon_text(Icon::BybitLogo, 12),
+                                | Exchange::BybitSpot => icon_text(Icon::BybitLogo, 12),
                                 Exchange::BinanceInverse
                                 | Exchange::BinanceLinear
-                                | Exchange::BinanceSpot => get_icon_text(Icon::BinanceLogo, 12),
+                                | Exchange::BinanceSpot => icon_text(Icon::BinanceLogo, 12),
                             },
                             text(&display_data.display_ticker),
                         ]
@@ -752,13 +752,13 @@ fn create_expanded_ticker_card<'a>(
 
     column![
         row![
-            button(get_icon_text(Icon::Return, 11))
+            button(icon_text(Icon::Return, 11))
                 .on_press(Message::ExpandTickerCard(None))
                 .style(move |theme, status| style::button::transparent(theme, status, false)),
             button(if is_fav {
-                get_icon_text(Icon::StarFilled, 11)
+                icon_text(Icon::StarFilled, 11)
             } else {
-                get_icon_text(Icon::Star, 11)
+                icon_text(Icon::Star, 11)
             })
             .on_press(Message::FavoriteTicker(exchange, *ticker))
             .style(move |theme, status| style::button::transparent(theme, status, false)),
@@ -767,9 +767,9 @@ fn create_expanded_ticker_card<'a>(
         row![
             match exchange {
                 Exchange::BybitInverse | Exchange::BybitLinear | Exchange::BybitSpot =>
-                    get_icon_text(Icon::BybitLogo, 12),
+                    icon_text(Icon::BybitLogo, 12),
                 Exchange::BinanceInverse | Exchange::BinanceLinear | Exchange::BinanceSpot =>
-                    get_icon_text(Icon::BinanceLogo, 12),
+                    icon_text(Icon::BinanceLogo, 12),
             },
             text(
                 ticker_str

@@ -2,7 +2,7 @@ use crate::{
     StreamType,
     chart::{self, config, heatmap::HeatmapChart, kline::KlineChart, timeandsales::TimeAndSales},
     screen::{DashboardError, create_button},
-    style::{self, Icon, get_icon_text},
+    style::{self, Icon, icon_text},
     widget::{self, column_drag, dragger_row, notification::Toast, pane_modal},
     window::{self, Window},
 };
@@ -395,10 +395,10 @@ impl PaneState {
         if let Some((exchange, ticker)) = self.get_ticker_exchange() {
             let exchange_info = match exchange {
                 Exchange::BinanceSpot | Exchange::BinanceLinear | Exchange::BinanceInverse => {
-                    get_icon_text(Icon::BinanceLogo, 14)
+                    icon_text(Icon::BinanceLogo, 14)
                 }
                 Exchange::BybitSpot | Exchange::BybitLinear | Exchange::BybitInverse => {
-                    get_icon_text(Icon::BybitLogo, 14)
+                    icon_text(Icon::BybitLogo, 14)
                 }
             };
 
@@ -533,7 +533,7 @@ impl PaneState {
 
         if !matches!(&self.content, PaneContent::Starter) {
             buttons = buttons.push(create_button(
-                get_icon_text(Icon::Cog, 12),
+                icon_text(Icon::Cog, 12),
                 Message::ToggleModal(pane, PaneModal::Settings),
                 None,
                 tooltip_pos,
@@ -546,7 +546,7 @@ impl PaneState {
             PaneContent::Heatmap(_, _) | PaneContent::Kline(_, _)
         ) {
             buttons = buttons.push(create_button(
-                get_icon_text(Icon::ChartOutline, 12),
+                icon_text(Icon::ChartOutline, 12),
                 Message::ToggleModal(pane, PaneModal::Indicators),
                 Some("Indicators"),
                 tooltip_pos,
@@ -556,7 +556,7 @@ impl PaneState {
 
         if is_popout {
             buttons = buttons.push(create_button(
-                get_icon_text(Icon::Popout, 12),
+                icon_text(Icon::Popout, 12),
                 Message::Merge,
                 Some("Merge"),
                 tooltip_pos,
@@ -564,7 +564,7 @@ impl PaneState {
             ));
         } else if total_panes > 1 {
             buttons = buttons.push(create_button(
-                get_icon_text(Icon::Popout, 12),
+                icon_text(Icon::Popout, 12),
                 Message::Popout,
                 Some("Pop out"),
                 tooltip_pos,
@@ -580,7 +580,7 @@ impl PaneState {
             };
 
             buttons = buttons.push(create_button(
-                get_icon_text(resize_icon, 12),
+                icon_text(resize_icon, 12),
                 message,
                 None,
                 tooltip_pos,
@@ -588,7 +588,7 @@ impl PaneState {
             ));
 
             buttons = buttons.push(create_button(
-                get_icon_text(Icon::Close, 12),
+                icon_text(Icon::Close, 12),
                 Message::ClosePane(pane),
                 None,
                 tooltip_pos,
@@ -812,7 +812,7 @@ fn indicators_view<I: Indicator>(
                 row![
                     text(indicator.to_string()),
                     horizontal_space(),
-                    container(get_icon_text(Icon::Checkmark, 12)),
+                    container(icon_text(Icon::Checkmark, 12)),
                 ]
                 .width(Length::Fill),
             )
