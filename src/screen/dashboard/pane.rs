@@ -1,12 +1,9 @@
 use crate::{
     StreamType,
-    chart::{
-        self, candlestick::CandlestickChart, config, footprint::FootprintChart,
-        heatmap::HeatmapChart, timeandsales::TimeAndSales,
-    },
+    chart::{self, config, heatmap::HeatmapChart, kline::KlineChart, timeandsales::TimeAndSales},
     screen::{DashboardError, create_button},
     style::{self, Icon, get_icon_text},
-    widget::{self, notification::Toast, pane_modal},
+    widget::{self, column_drag, dragger_row, notification::Toast, pane_modal},
     window::{self, Window},
 };
 use data::{
@@ -14,7 +11,7 @@ use data::{
     aggr::ticks::TickCount,
     chart::{
         Basis, ChartLayout, VisualConfig,
-        indicators::{CandlestickIndicator, FootprintIndicator, HeatmapIndicator, Indicator},
+        indicators::{HeatmapIndicator, Indicator, KlineIndicator},
     },
     layout::pane::PaneSettings,
 };
@@ -58,8 +55,7 @@ pub enum PaneModal {
 
 enum ExistingIndicators {
     Heatmap(Vec<HeatmapIndicator>),
-    Footprint(Vec<FootprintIndicator>),
-    Candlestick(Vec<CandlestickIndicator>),
+    Kline(Vec<KlineIndicator>),
 }
 
 #[derive(Debug, Clone)]
@@ -82,6 +78,7 @@ pub enum Message {
     Popout,
     Merge,
     DeleteNotification(pane_grid::Pane, usize),
+    ReorderIndicator(pane_grid::Pane, column_drag::DragEvent),
 }
 
 pub struct PaneState {
@@ -106,8 +103,8 @@ impl PaneState {
     ) -> Self {
         Self {
             content,
-            streams,
             settings,
+            streams,
             ..Default::default()
         }
     }
@@ -230,12 +227,8 @@ impl PaneState {
                 Some(ExistingIndicators::Heatmap(indicators.clone())),
                 Some(chart.get_chart_layout()),
             ),
-            (PaneContent::Footprint(chart, indicators), "footprint") => (
-                Some(ExistingIndicators::Footprint(indicators.clone())),
-                Some(chart.get_chart_layout()),
-            ),
-            (PaneContent::Candlestick(chart, indicators), "candlestick") => (
-                Some(ExistingIndicators::Candlestick(indicators.clone())),
+            (PaneContent::Kline(chart, indicators), "footprint" | "candlestick") => (
+                Some(ExistingIndicators::Kline(indicators.clone())),
                 Some(chart.get_chart_layout()),
             ),
             _ => (None, None),
@@ -250,11 +243,10 @@ impl PaneState {
                 };
                 let layout = existing_layout.unwrap_or(ChartLayout {
                     crosshair: true,
-                    indicators_split: None,
+                    splits: vec![],
                 });
 
                 let basis = self.settings.selected_basis.unwrap_or(Basis::Time(100));
-
                 let config = self.settings.visual_config.and_then(|cfg| cfg.heatmap());
 
                 PaneContent::Heatmap(
@@ -269,79 +261,64 @@ impl PaneState {
                     enabled_indicators,
                 )
             }
-            "footprint" => {
-                let tick_size = self.set_tickers_info(Some(TickMultiplier(50)), ticker_info);
-
-                let basis = self
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M5.into()));
-
-                let enabled_indicators = match existing_indicators {
-                    Some(ExistingIndicators::Footprint(indicators)) => indicators,
-                    _ => vec![FootprintIndicator::Volume, FootprintIndicator::OpenInterest],
-                };
-
-                let layout = existing_layout.unwrap_or(ChartLayout {
-                    crosshair: true,
-                    indicators_split: Some(0.8),
-                });
-
-                PaneContent::Footprint(
-                    FootprintChart::new(
-                        layout,
-                        basis,
-                        tick_size,
-                        &[],
-                        vec![],
-                        &enabled_indicators,
-                        Some(ticker_info),
+            "footprint" | "candlestick" => {
+                let (tick_mltp, default_tf, chart_kind) = match content_str {
+                    "footprint" => (
+                        Some(TickMultiplier(50)),
+                        Timeframe::M5,
+                        data::chart::KlineChartKind::Footprint,
                     ),
-                    enabled_indicators,
-                )
-            }
-            "candlestick" => {
-                let tick_size = self.set_tickers_info(None, ticker_info);
+                    _ => (None, Timeframe::M15, data::chart::KlineChartKind::Candles),
+                };
 
+                let tick_size = self.set_tickers_info(tick_mltp, ticker_info);
                 let basis = self
                     .settings
                     .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M15.into()));
+                    .unwrap_or(Basis::Time(default_tf.into()));
 
                 let enabled_indicators = match existing_indicators {
-                    Some(ExistingIndicators::Candlestick(indicators)) => indicators,
-                    _ => vec![
-                        CandlestickIndicator::Volume,
-                        CandlestickIndicator::OpenInterest,
-                    ],
+                    Some(ExistingIndicators::Kline(indicators)) => indicators,
+                    _ => KlineIndicator::get_available(ticker_info.get_market_type()).to_vec(),
+                };
+
+                let splits = {
+                    let main_chart_split: f32 = 0.7;
+                    let mut splits = vec![main_chart_split];
+
+                    if !enabled_indicators.is_empty() {
+                        let indicator_split = main_chart_split
+                            + (1.0 - main_chart_split) / (enabled_indicators.len()) as f32;
+                        splits.extend(vec![indicator_split; enabled_indicators.len() - 1]);
+                    }
+                    splits
                 };
 
                 let layout = existing_layout.unwrap_or(ChartLayout {
                     crosshair: true,
-                    indicators_split: Some(0.8),
+                    splits,
                 });
 
-                PaneContent::Candlestick(
-                    CandlestickChart::new(
+                PaneContent::Kline(
+                    KlineChart::new(
                         layout,
                         basis,
+                        tick_size,
                         &[],
                         vec![],
-                        tick_size,
                         &enabled_indicators,
                         Some(ticker_info),
+                        chart_kind,
                     ),
                     enabled_indicators,
                 )
             }
             "time&sales" => {
                 let _ = self.set_tickers_info(None, ticker_info);
-
                 let config = self
                     .settings
                     .visual_config
                     .and_then(|cfg| cfg.time_and_sales());
-
                 PaneContent::TimeAndSales(TimeAndSales::new(config, Some(ticker_info)))
             }
             _ => {
@@ -357,10 +334,7 @@ impl PaneState {
 
     pub fn insert_oi_vec(&mut self, req_id: Option<uuid::Uuid>, oi: &[OpenInterest]) {
         match &mut self.content {
-            PaneContent::Candlestick(chart, _) => {
-                chart.insert_open_interest(req_id, oi);
-            }
-            PaneContent::Footprint(chart, _) => {
+            PaneContent::Kline(chart, _) => {
                 chart.insert_open_interest(req_id, oi);
             }
             _ => {
@@ -376,7 +350,7 @@ impl PaneState {
         klines: &[Kline],
     ) {
         match &mut self.content {
-            PaneContent::Candlestick(chart, indicators) => {
+            PaneContent::Kline(chart, indicators) => {
                 if let Some(id) = req_id {
                     chart.insert_new_klines(id, klines);
                 } else {
@@ -384,26 +358,7 @@ impl PaneState {
                     let layout = chart.get_chart_layout();
                     let ticker_info = self.settings.ticker_info;
 
-                    *chart = CandlestickChart::new(
-                        layout,
-                        Basis::Time(timeframe.into()),
-                        klines,
-                        raw_trades,
-                        tick_size,
-                        indicators,
-                        ticker_info,
-                    );
-                }
-            }
-            PaneContent::Footprint(chart, indicators) => {
-                if let Some(id) = req_id {
-                    chart.insert_new_klines(id, klines);
-                } else {
-                    let (raw_trades, tick_size) = (chart.get_raw_trades(), chart.get_tick_size());
-                    let layout = chart.get_chart_layout();
-                    let ticker_info = self.settings.ticker_info;
-
-                    *chart = FootprintChart::new(
+                    *chart = KlineChart::new(
                         layout,
                         Basis::Time(timeframe.into()),
                         tick_size,
@@ -411,6 +366,7 @@ impl PaneState {
                         raw_trades,
                         indicators,
                         ticker_info,
+                        chart.get_kind(),
                     );
                 }
             }
@@ -463,8 +419,8 @@ impl PaneState {
 
         let is_stream_modifier = self.modal == PaneModal::StreamModifier;
 
-        match self.content {
-            PaneContent::Starter => {}
+        match &self.content {
+            PaneContent::Starter | PaneContent::TimeAndSales(_) => {}
             PaneContent::Heatmap(_, _) => {
                 stream_info_element = stream_info_element.push(
                     button(text(
@@ -479,36 +435,37 @@ impl PaneState {
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
             }
-            PaneContent::Footprint(_, _) => {
-                stream_info_element = stream_info_element.push(
-                    button(text(format!(
-                        "{} - {}",
-                        self.settings
-                            .selected_basis
-                            .unwrap_or(Basis::Time(Timeframe::M5.into())),
-                        self.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
-                    )))
-                    .style(move |theme, status| {
-                        style::button::modifier(theme, status, !is_stream_modifier)
-                    })
-                    .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
-                );
-            }
-            PaneContent::Candlestick(_, _) => {
-                stream_info_element = stream_info_element.push(
-                    button(text(
-                        self.settings
-                            .selected_basis
-                            .unwrap_or(Basis::Time(Timeframe::M15.into()))
-                            .to_string(),
-                    ))
-                    .style(move |theme, status| {
-                        style::button::modifier(theme, status, !is_stream_modifier)
-                    })
-                    .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
-                );
-            }
-            PaneContent::TimeAndSales(_) => {}
+            PaneContent::Kline(chart, _) => match chart.get_kind() {
+                data::chart::KlineChartKind::Footprint => {
+                    stream_info_element = stream_info_element.push(
+                        button(text(format!(
+                            "{} - {}",
+                            self.settings
+                                .selected_basis
+                                .unwrap_or(Basis::Time(Timeframe::M5.into())),
+                            self.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
+                        )))
+                        .style(move |theme, status| {
+                            style::button::modifier(theme, status, !is_stream_modifier)
+                        })
+                        .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
+                    );
+                }
+                data::chart::KlineChartKind::Candles => {
+                    stream_info_element = stream_info_element.push(
+                        button(text(
+                            self.settings
+                                .selected_basis
+                                .unwrap_or(Basis::Time(Timeframe::M15.into()))
+                                .to_string(),
+                        ))
+                        .style(move |theme, status| {
+                            style::button::modifier(theme, status, !is_stream_modifier)
+                        })
+                        .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
+                    );
+                }
+            },
         }
 
         match &self.status {
@@ -533,10 +490,7 @@ impl PaneState {
             PaneContent::Heatmap(content, indicators) => {
                 view_chart(id, self, content, indicators, timezone)
             }
-            PaneContent::Footprint(content, indicators) => {
-                view_chart(id, self, content, indicators, timezone)
-            }
-            PaneContent::Candlestick(content, indicators) => {
+            PaneContent::Kline(content, indicators) => {
                 view_chart(id, self, content, indicators, timezone)
             }
             PaneContent::TimeAndSales(content) => view_panel(id, self, content, timezone),
@@ -589,9 +543,7 @@ impl PaneState {
 
         if matches!(
             &self.content,
-            PaneContent::Heatmap(_, _)
-                | PaneContent::Footprint(_, _)
-                | PaneContent::Candlestick(_, _)
+            PaneContent::Heatmap(_, _) | PaneContent::Kline(_, _)
         ) {
             buttons = buttons.push(create_button(
                 get_icon_text(Icon::ChartOutline, 12),
@@ -742,6 +694,45 @@ where
     }
 }
 
+impl ChartView for KlineChart {
+    fn view<'a, I: Indicator>(
+        &'a self,
+        pane: pane_grid::Pane,
+        state: &'a PaneState,
+        indicators: &'a [I],
+        timezone: UserTimezone,
+    ) -> Element<'a, Message> {
+        let base = self
+            .view(indicators, timezone)
+            .map(move |message| Message::ChartUserUpdate(pane, message));
+
+        let settings_view = || blank_settings_view();
+
+        handle_chart_view(
+            base,
+            state,
+            pane,
+            indicators,
+            settings_view,
+            match self.get_kind() {
+                data::chart::KlineChartKind::Footprint => StreamModifier::FootprintChart(
+                    state
+                        .settings
+                        .selected_basis
+                        .unwrap_or(Basis::Time(Timeframe::M5.into())),
+                    state.settings.tick_multiply.unwrap_or(TickMultiplier(50)),
+                ),
+                data::chart::KlineChartKind::Candles => StreamModifier::CandlestickChart(
+                    state
+                        .settings
+                        .selected_basis
+                        .unwrap_or(Basis::Time(Timeframe::M15.into())),
+                ),
+            },
+        )
+    }
+}
+
 impl ChartView for HeatmapChart {
     fn view<'a, I: Indicator>(
         &'a self,
@@ -764,67 +755,6 @@ impl ChartView for HeatmapChart {
             settings_view,
             StreamModifier::HeatmapChart(
                 state.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
-            ),
-        )
-    }
-}
-
-impl ChartView for FootprintChart {
-    fn view<'a, I: Indicator>(
-        &'a self,
-        pane: pane_grid::Pane,
-        state: &'a PaneState,
-        indicators: &'a [I],
-        timezone: UserTimezone,
-    ) -> Element<'a, Message> {
-        let base = self
-            .view(indicators, timezone)
-            .map(move |message| Message::ChartUserUpdate(pane, message));
-
-        let settings_view = || blank_settings_view();
-
-        handle_chart_view(
-            base,
-            state,
-            pane,
-            indicators,
-            settings_view,
-            StreamModifier::FootprintChart(
-                state
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M5.into())),
-                state.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
-            ),
-        )
-    }
-}
-
-impl ChartView for CandlestickChart {
-    fn view<'a, I: Indicator>(
-        &'a self,
-        pane: pane_grid::Pane,
-        state: &'a PaneState,
-        indicators: &'a [I],
-        timezone: UserTimezone,
-    ) -> Element<'a, Message> {
-        let base = self
-            .view(indicators, timezone)
-            .map(move |message| Message::ChartUserUpdate(pane, message));
-
-        let settings_view = || blank_settings_view();
-
-        handle_chart_view(
-            base,
-            state,
-            pane,
-            indicators,
-            settings_view,
-            StreamModifier::CandlestickChart(
-                state
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M15.into())),
             ),
         )
     }
@@ -872,26 +802,43 @@ fn indicators_view<I: Indicator>(
     market_type: Option<MarketType>,
     selected: &[I],
 ) -> Element<Message> {
-    let mut content_row =
-        column![container(text("Indicators").size(14)).padding(padding::bottom(8)),].spacing(4);
+    let mut indicators_column = column_drag::Column::new()
+        .on_drag(move |event| Message::ReorderIndicator(pane, event))
+        .spacing(4);
 
-    for indicator in I::get_available(market_type) {
-        content_row = content_row.push(if selected.contains(indicator) {
-            button(row![
-                text(indicator.to_string()),
-                horizontal_space(),
-                container(get_icon_text(Icon::Checkmark, 12)),
-            ])
+    if let Some(market) = market_type {
+        for indicator in selected {
+            let indicator_row = button(
+                row![
+                    text(indicator.to_string()),
+                    horizontal_space(),
+                    container(get_icon_text(Icon::Checkmark, 12)),
+                ]
+                .width(Length::Fill),
+            )
             .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
-            .width(Length::Fill)
-            .style(move |theme, status| style::button::modifier(theme, status, true))
-        } else {
-            button(text(indicator.to_string()))
-                .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
-                .width(Length::Fill)
-                .style(move |theme, status| style::button::modifier(theme, status, false))
-        });
+            .style(move |theme, status| style::button::modifier(theme, status, true));
+
+            indicators_column = indicators_column.push(dragger_row(indicator_row.into()));
+        }
+
+        for indicator in I::get_available(market) {
+            if !selected.contains(indicator) {
+                let indicator_row = button(text(indicator.to_string()))
+                    .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
+                    .width(Length::Fill)
+                    .style(move |theme, status| style::button::modifier(theme, status, false));
+
+                indicators_column = indicators_column.push(dragger_row(indicator_row.into()));
+            }
+        }
     }
+
+    let content_row = column![
+        container(text("Indicators").size(14)).padding(padding::bottom(8)),
+        indicators_column
+    ]
+    .spacing(4);
 
     container(content_row)
         .max_width(200)
@@ -1070,12 +1017,18 @@ fn view_chart<'a, C: ChartView, I: Indicator>(
 pub enum PaneContent {
     Starter,
     Heatmap(HeatmapChart, Vec<HeatmapIndicator>),
-    Footprint(FootprintChart, Vec<FootprintIndicator>),
-    Candlestick(CandlestickChart, Vec<CandlestickIndicator>),
+    Kline(KlineChart, Vec<KlineIndicator>),
     TimeAndSales(TimeAndSales),
 }
 
 impl PaneContent {
+    pub fn chart_kind(&self) -> Option<data::chart::KlineChartKind> {
+        match self {
+            PaneContent::Kline(chart, _) => Some(chart.get_kind()),
+            _ => None,
+        }
+    }
+
     pub fn toggle_indicator(&mut self, indicator_str: &str) {
         match self {
             PaneContent::Heatmap(chart, indicators) => {
@@ -1096,28 +1049,10 @@ impl PaneContent {
 
                 chart.toggle_indicator(indicator);
             }
-            PaneContent::Footprint(chart, indicators) => {
+            PaneContent::Kline(chart, indicators) => {
                 let indicator = match indicator_str {
-                    "Volume" => FootprintIndicator::Volume,
-                    "Open Interest" => FootprintIndicator::OpenInterest,
-                    _ => {
-                        log::error!("indicator not found: {}", indicator_str);
-                        return;
-                    }
-                };
-
-                if indicators.contains(&indicator) {
-                    indicators.retain(|i| i != &indicator);
-                } else {
-                    indicators.push(indicator);
-                }
-
-                chart.toggle_indicator(indicator);
-            }
-            PaneContent::Candlestick(chart, indicators) => {
-                let indicator = match indicator_str {
-                    "Volume" => CandlestickIndicator::Volume,
-                    "Open Interest" => CandlestickIndicator::OpenInterest,
+                    "Volume" => KlineIndicator::Volume,
+                    "Open Interest" => KlineIndicator::OpenInterest,
                     _ => {
                         log::error!("indicator not found: {}", indicator_str);
                         return;
@@ -1136,6 +1071,16 @@ impl PaneContent {
         }
     }
 
+    pub fn reorder_indicators(&mut self, event: column_drag::DragEvent) {
+        match self {
+            PaneContent::Heatmap(_, indicator) => column_drag::reorder_vec(indicator, &event),
+            PaneContent::Kline(_, indicator) => column_drag::reorder_vec(indicator, &event),
+            PaneContent::TimeAndSales(_) | PaneContent::Starter => {
+                panic!("indicator reorder on {} pane", self)
+            }
+        }
+    }
+
     pub fn change_visual_config(&mut self, config: VisualConfig) {
         match (self, config) {
             (PaneContent::Heatmap(chart, _), VisualConfig::Heatmap(cfg)) => {
@@ -1145,6 +1090,17 @@ impl PaneContent {
                 panel.set_config(cfg);
             }
             _ => {}
+        }
+    }
+}
+
+impl std::fmt::Display for PaneContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PaneContent::Starter => write!(f, "Starter pane"),
+            PaneContent::Heatmap(_, _) => write!(f, "Heatmap chart"),
+            PaneContent::Kline(_, _) => write!(f, "Kline chart"),
+            PaneContent::TimeAndSales(_) => write!(f, "Time&Sales pane"),
         }
     }
 }

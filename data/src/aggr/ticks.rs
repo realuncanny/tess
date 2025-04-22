@@ -201,12 +201,8 @@ impl TickAggr {
             .map(|dp| (dp, self.data_points.len() - 1))
     }
 
-    pub fn get_volume_data(&self) -> BTreeMap<u64, (f32, f32)> {
-        self.data_points
-            .iter()
-            .enumerate()
-            .map(|(idx, dp)| (idx as u64, (dp.volume_buy, dp.volume_sell)))
-            .collect()
+    pub fn volume_data(&self) -> BTreeMap<u64, (f32, f32)> {
+        self.into()
     }
 
     pub fn insert_trades(&mut self, buffer: &[Trade]) {
@@ -224,6 +220,31 @@ impl TickAggr {
                     self.data_points[last_idx].update_with_trade(trade, self.tick_size);
                 }
             }
+        }
+    }
+}
+
+impl From<&TickAggr> for BTreeMap<u64, (f32, f32)> {
+    /// Converts datapoints into a map of timestamps and volume data
+    fn from(tick_aggr: &TickAggr) -> Self {
+        tick_aggr
+            .data_points
+            .iter()
+            .enumerate()
+            .map(|(idx, dp)| (idx as u64, (dp.volume_buy, dp.volume_sell)))
+            .collect()
+    }
+}
+
+impl From<&TickAccumulation> for exchange::Kline {
+    fn from(dp: &TickAccumulation) -> exchange::Kline {
+        exchange::Kline {
+            time: dp.start_timestamp,
+            open: dp.open_price,
+            high: dp.high_price,
+            low: dp.low_price,
+            close: dp.close_price,
+            volume: (dp.volume_buy, dp.volume_sell),
         }
     }
 }

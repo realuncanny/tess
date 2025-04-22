@@ -2,7 +2,10 @@ use serde::{Deserialize, Serialize};
 
 pub mod heatmap;
 pub mod indicators;
+pub mod kline;
 pub mod timeandsales;
+
+pub use kline::KlineChartKind;
 
 pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
     (value / tick_size).round() * tick_size
@@ -11,7 +14,7 @@ pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChartLayout {
     pub crosshair: bool,
-    pub indicators_split: Option<f32>,
+    pub splits: Vec<f32>,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]

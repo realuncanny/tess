@@ -46,6 +46,7 @@ pub enum Icon {
     SpeakerOff,
     SpeakerLow,
     SpeakerHigh,
+    DragHandle,
 }
 
 impl From<Icon> for char {
@@ -77,6 +78,7 @@ impl From<Icon> for char {
             Icon::SpeakerOff => '\u{E814}',
             Icon::SpeakerHigh => '\u{E815}',
             Icon::SpeakerLow => '\u{E816}',
+            Icon::DragHandle => '\u{E817}',
         }
     }
 }
@@ -424,7 +426,7 @@ pub fn modal_container(theme: &Theme) -> Style {
     }
 }
 
-pub fn layout_row_container(theme: &Theme) -> Style {
+pub fn dragger_row_container(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
@@ -601,21 +603,18 @@ pub fn split_ruler(theme: &Theme) -> iced::widget::rule::Style {
     let palette = theme.extended_palette();
 
     iced::widget::rule::Style {
-        color: palette.background.strong.color.scale_alpha(0.4),
+        color: palette.background.strong.color.scale_alpha(0.25),
         width: 1,
         radius: iced::border::Radius::default(),
         fill_mode: iced::widget::rule::FillMode::Full,
     }
 }
 
-pub fn indicator_ruler(theme: &Theme) -> iced::widget::rule::Style {
+pub fn drag_handle(theme: &Theme) -> iced::widget::text::Style {
     let palette = theme.extended_palette();
 
-    iced::widget::rule::Style {
-        color: palette.background.strong.color.scale_alpha(0.2),
-        width: 1,
-        radius: iced::border::Radius::default(),
-        fill_mode: iced::widget::rule::FillMode::Full,
+    iced::widget::text::Style {
+        color: Some(palette.background.strong.color),
     }
 }
 

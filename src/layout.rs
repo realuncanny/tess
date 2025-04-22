@@ -1,10 +1,8 @@
-use crate::chart::{
-    candlestick::CandlestickChart, footprint::FootprintChart, heatmap::HeatmapChart,
-    timeandsales::TimeAndSales,
-};
+use crate::chart::{heatmap::HeatmapChart, kline::KlineChart, timeandsales::TimeAndSales};
 use crate::screen::dashboard::{Dashboard, PaneContent, PaneState};
 use crate::style::get_icon_text;
 use crate::widget::column_drag::{self, DragEvent, DropPosition};
+use crate::widget::dragger_row;
 use crate::{style, tooltip};
 use data::{
     UserTimezone,
@@ -272,19 +270,19 @@ impl LayoutManager {
             }
         };
 
-        content = content.push(
+        content = content.push(row![
+            Space::with_width(iced::Length::Fill),
             row![
-                Space::with_width(iced::Length::Fill),
-                row![
-                    tooltip(
-                        button("i").style(move |theme, status| style::button::modifier(theme, status, true)),
-                        Some("- Drag & drop to reorder layouts\n- Layouts won't be saved if app exits abruptly"),
-                        TooltipPosition::Top,
-                    ),
-                    edit_btn,
-                ].spacing(4),
+                tooltip(
+                    button("i")
+                        .style(move |theme, status| style::button::modifier(theme, status, true)),
+                    Some("Layouts won't be saved if app exits abruptly"),
+                    TooltipPosition::Top,
+                ),
+                edit_btn,
             ]
-        );
+            .spacing(4),
+        ]);
 
         let layout_btn =
             |layout: &Layout, on_press: Option<Message>| create_layout_button(layout, on_press);
@@ -295,7 +293,7 @@ impl LayoutManager {
 
         for id in &self.layout_order {
             if let Some((layout, _)) = self.layouts.get(id) {
-                let mut layout_row = row![].padding(4).height(iced::Length::Fixed(34.0));
+                let mut layout_row = row![].height(iced::Length::Fixed(32.0));
 
                 if self.active_layout.id == layout.id {
                     let color_column = container(column![])
@@ -351,7 +349,7 @@ impl LayoutManager {
                             layout_row = layout_row.push(self.create_delete_button(layout.id));
                         }
                     }
-                    _ => {
+                    Editing::None => {
                         layout_row = layout_row.push(layout_btn(
                             layout,
                             if self.active_layout.id == layout.id {
@@ -363,8 +361,11 @@ impl LayoutManager {
                     }
                 }
 
-                layouts_column =
-                    layouts_column.push(container(layout_row).style(style::layout_row_container));
+                layouts_column = layouts_column.push(dragger_row(
+                    container(layout_row.align_y(iced::Alignment::Center))
+                        .style(style::dragger_row_container)
+                        .into(),
+                ));
             }
         }
 
@@ -559,14 +560,9 @@ impl From<&PaneState> for data::Pane {
                 settings: pane.settings,
                 indicators: indicators.clone(),
             },
-            PaneContent::Footprint(chart, indicators) => data::Pane::FootprintChart {
+            PaneContent::Kline(chart, indicators) => data::Pane::KlineChart {
                 layout: chart.get_chart_layout(),
-                stream_type: streams,
-                settings: pane.settings,
-                indicators: indicators.clone(),
-            },
-            PaneContent::Candlestick(chart, indicators) => data::Pane::CandlestickChart {
-                layout: chart.get_chart_layout(),
+                kind: chart.get_kind(),
                 stream_type: streams,
                 settings: pane.settings,
                 indicators: indicators.clone(),
@@ -591,74 +587,6 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
             b: Box::new(configuration(*b)),
         },
         data::Pane::Starter => Configuration::Pane(PaneState::new()),
-        data::Pane::CandlestickChart {
-            layout,
-            stream_type,
-            settings,
-            indicators,
-        } => {
-            if let Some(ticker_info) = settings.ticker_info {
-                let basis = settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M15.into()));
-
-                Configuration::Pane(PaneState::from_config(
-                    PaneContent::Candlestick(
-                        CandlestickChart::new(
-                            layout,
-                            basis,
-                            &[],
-                            vec![],
-                            ticker_info.min_ticksize,
-                            &indicators,
-                            settings.ticker_info,
-                        ),
-                        indicators,
-                    ),
-                    stream_type,
-                    settings,
-                ))
-            } else {
-                log::info!("Skipping a CandlestickChart initialization due to missing ticker info");
-                Configuration::Pane(PaneState::new())
-            }
-        }
-        data::Pane::FootprintChart {
-            layout,
-            stream_type,
-            settings,
-            indicators,
-        } => {
-            if let Some(ticker_info) = settings.ticker_info {
-                let tick_size = settings
-                    .tick_multiply
-                    .unwrap_or(TickMultiplier(50))
-                    .multiply_with_min_tick_size(ticker_info);
-                let basis = settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M5.into()));
-
-                Configuration::Pane(PaneState::from_config(
-                    PaneContent::Footprint(
-                        FootprintChart::new(
-                            layout,
-                            basis,
-                            tick_size,
-                            &[],
-                            vec![],
-                            &indicators,
-                            settings.ticker_info,
-                        ),
-                        indicators,
-                    ),
-                    stream_type,
-                    settings,
-                ))
-            } else {
-                log::info!("Skipping a FootprintChart initialization due to missing ticker info");
-                Configuration::Pane(PaneState::new())
-            }
-        }
         data::Pane::HeatmapChart {
             layout,
             stream_type,
@@ -695,6 +623,83 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
                 Configuration::Pane(PaneState::new())
             }
         }
+        data::Pane::KlineChart {
+            layout,
+            kind,
+            stream_type,
+            settings,
+            indicators,
+        } => match kind {
+            data::chart::KlineChartKind::Footprint => {
+                if let Some(ticker_info) = settings.ticker_info {
+                    let tick_size = settings
+                        .tick_multiply
+                        .unwrap_or(TickMultiplier(50))
+                        .multiply_with_min_tick_size(ticker_info);
+                    let basis = settings
+                        .selected_basis
+                        .unwrap_or(Basis::Time(Timeframe::M5.into()));
+
+                    Configuration::Pane(PaneState::from_config(
+                        PaneContent::Kline(
+                            KlineChart::new(
+                                layout,
+                                basis,
+                                tick_size,
+                                &[],
+                                vec![],
+                                &indicators,
+                                settings.ticker_info,
+                                kind,
+                            ),
+                            indicators,
+                        ),
+                        stream_type,
+                        settings,
+                    ))
+                } else {
+                    log::info!(
+                        "Skipping a FootprintChart initialization due to missing ticker info"
+                    );
+                    Configuration::Pane(PaneState::new())
+                }
+            }
+            data::chart::KlineChartKind::Candles => {
+                if let Some(ticker_info) = settings.ticker_info {
+                    let basis = settings
+                        .selected_basis
+                        .unwrap_or(Basis::Time(Timeframe::M15.into()));
+
+                    let tick_size = settings
+                        .tick_multiply
+                        .unwrap_or(TickMultiplier(50))
+                        .multiply_with_min_tick_size(ticker_info);
+
+                    Configuration::Pane(PaneState::from_config(
+                        PaneContent::Kline(
+                            KlineChart::new(
+                                layout,
+                                basis,
+                                tick_size,
+                                &[],
+                                vec![],
+                                &indicators,
+                                settings.ticker_info,
+                                kind,
+                            ),
+                            indicators,
+                        ),
+                        stream_type,
+                        settings,
+                    ))
+                } else {
+                    log::info!(
+                        "Skipping a CandlestickChart initialization due to missing ticker info"
+                    );
+                    Configuration::Pane(PaneState::new())
+                }
+            }
+        },
         data::Pane::TimeAndSales {
             stream_type,
             settings,

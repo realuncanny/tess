@@ -1,9 +1,10 @@
 use iced::theme::palette::Extended;
-use iced::widget::canvas::{self, Cache, Canvas, Event, Frame};
+use iced::widget::canvas::{self, Cache, Canvas, Event, Frame, LineDash, Stroke};
 use iced::widget::{center, horizontal_rule, mouse_area, vertical_rule};
 use iced::{
     Element, Length, Point, Rectangle, Size, Theme, Vector, alignment,
     mouse::{self},
+    padding,
     widget::{
         Space, button, canvas::Path, column, container, row, text,
         tooltip::Position as TooltipPosition,
@@ -11,17 +12,17 @@ use iced::{
 };
 use scale::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
 
-use crate::{style, widget::hsplit::HSplit, widget::tooltip};
+use crate::widget::multi_split::MultiSplit;
+use crate::{style, widget::tooltip};
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
 use data::chart::{Basis, ChartLayout, indicators::Indicator};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{TickerInfo, Timeframe};
 
-pub mod candlestick;
 pub mod config;
-pub mod footprint;
 pub mod heatmap;
 pub mod indicator;
+pub mod kline;
 mod scale;
 pub mod timeandsales;
 
@@ -45,13 +46,13 @@ pub enum AxisScaleClicked {
 }
 
 pub trait ChartConstants {
-    const MIN_SCALING: f32;
-    const MAX_SCALING: f32;
-    const MIN_CELL_WIDTH: f32;
-    const MAX_CELL_WIDTH: f32;
-    const MIN_CELL_HEIGHT: f32;
-    const MAX_CELL_HEIGHT: f32;
-    const DEFAULT_CELL_WIDTH: f32;
+    fn min_scaling(&self) -> f32;
+    fn max_scaling(&self) -> f32;
+    fn max_cell_width(&self) -> f32;
+    fn min_cell_width(&self) -> f32;
+    fn max_cell_height(&self) -> f32;
+    fn min_cell_height(&self) -> f32;
+    fn default_cell_width(&self) -> f32;
 }
 
 #[derive(Debug, Clone)]
@@ -64,14 +65,14 @@ pub enum Message {
     YScaling(f32, f32, bool),
     XScaling(f32, f32, bool),
     BoundsChanged(Rectangle),
-    SplitDragged(f32),
+    SplitDragged(usize, f32),
     DoubleClick(AxisScaleClicked),
 }
 
 trait Chart: ChartConstants + canvas::Program<Message> {
-    fn get_common_data(&self) -> &CommonChartData;
+    fn common_data(&self) -> &CommonChartData;
 
-    fn get_common_data_mut(&mut self) -> &mut CommonChartData;
+    fn common_data_mut(&mut self) -> &mut CommonChartData;
 
     fn update_chart(&mut self, message: &Message);
 
@@ -83,11 +84,11 @@ trait Chart: ChartConstants + canvas::Program<Message> {
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>>;
 
-    fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Option<Element<Message>>;
+    fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Vec<Element<Message>>;
 
-    fn get_visible_timerange(&self) -> (u64, u64);
+    fn visible_timerange(&self) -> (u64, u64);
 
-    fn get_interval_keys(&self) -> Vec<u64>;
+    fn interval_keys(&self) -> Vec<u64>;
 
     fn is_empty(&self) -> bool;
 }
@@ -103,7 +104,7 @@ fn canvas_interaction<T: Chart>(
         *interaction = Interaction::None;
     }
 
-    if chart.get_common_data().bounds != bounds {
+    if chart.common_data().bounds != bounds {
         return Some(canvas::Action::publish(Message::BoundsChanged(bounds)));
     }
 
@@ -114,7 +115,7 @@ fn canvas_interaction<T: Chart>(
 
     match event {
         Event::Mouse(mouse_event) => {
-            let chart_state = chart.get_common_data();
+            let chart_state = chart.common_data();
 
             match mouse_event {
                 mouse::Event::ButtonPressed(button) => {
@@ -159,6 +160,12 @@ fn canvas_interaction<T: Chart>(
                     })
                 }
                 mouse::Event::WheelScrolled { delta } => {
+                    let default_cell_width = T::default_cell_width(chart);
+                    let min_cell_width = T::min_cell_width(chart);
+                    let max_cell_width = T::max_cell_width(chart);
+                    let max_scaling = T::max_scaling(chart);
+                    let min_scaling = T::min_scaling(chart);
+
                     if matches!(interaction, Interaction::Panning { .. }) {
                         return Some(canvas::Action::capture());
                     }
@@ -172,32 +179,32 @@ fn canvas_interaction<T: Chart>(
                     let should_adjust_cell_width = match (y.signum(), chart_state.scaling) {
                         // zooming out at max scaling with increased cell width
                         (-1.0, scaling)
-                            if scaling == T::MAX_SCALING
-                                && chart_state.cell_width > T::DEFAULT_CELL_WIDTH =>
+                            if scaling == max_scaling
+                                && chart_state.cell_width > default_cell_width =>
                         {
                             true
                         }
 
                         // zooming in at min scaling with decreased cell width
                         (1.0, scaling)
-                            if scaling == T::MIN_SCALING
-                                && chart_state.cell_width < T::DEFAULT_CELL_WIDTH =>
+                            if scaling == min_scaling
+                                && chart_state.cell_width < default_cell_width =>
                         {
                             true
                         }
 
                         // zooming in at max scaling with room to increase cell width
                         (1.0, scaling)
-                            if scaling == T::MAX_SCALING
-                                && chart_state.cell_width < T::MAX_CELL_WIDTH =>
+                            if scaling == max_scaling
+                                && chart_state.cell_width < max_cell_width =>
                         {
                             true
                         }
 
                         // zooming out at min scaling with room to decrease cell width
                         (-1.0, scaling)
-                            if scaling == T::MIN_SCALING
-                                && chart_state.cell_width > T::MIN_CELL_WIDTH =>
+                            if scaling == min_scaling
+                                && chart_state.cell_width > min_cell_width =>
                         {
                             true
                         }
@@ -217,12 +224,12 @@ fn canvas_interaction<T: Chart>(
                     }
 
                     // normal scaling cases
-                    if (*y < 0.0 && chart_state.scaling > T::MIN_SCALING)
-                        || (*y > 0.0 && chart_state.scaling < T::MAX_SCALING)
+                    if (*y < 0.0 && chart_state.scaling > min_scaling)
+                        || (*y > 0.0 && chart_state.scaling < max_scaling)
                     {
                         let old_scaling = chart_state.scaling;
                         let scaling = (chart_state.scaling * (1.0 + y / 30.0))
-                            .clamp(T::MIN_SCALING, T::MAX_SCALING);
+                            .clamp(min_scaling, max_scaling);
 
                         let translation = {
                             let factor = scaling - old_scaling;
@@ -263,39 +270,52 @@ pub enum Action {
 }
 
 fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
-    let chart_state = chart.get_common_data_mut();
-
     match message {
-        Message::DoubleClick(scale) => match scale {
-            AxisScaleClicked::X => {
-                chart_state.cell_width = T::DEFAULT_CELL_WIDTH;
+        Message::DoubleClick(scale) => {
+            let default_chart_width = T::default_cell_width(chart);
+
+            let chart_state = chart.common_data_mut();
+
+            match scale {
+                AxisScaleClicked::X => {
+                    chart_state.cell_width = default_chart_width;
+                }
+                AxisScaleClicked::Y => {
+                    chart_state.autoscale = true;
+                }
             }
-            AxisScaleClicked::Y => {
-                chart_state.autoscale = true;
-            }
-        },
+        }
         Message::Translated(translation) => {
+            let chart_state = chart.common_data_mut();
             chart_state.translation = *translation;
             chart_state.autoscale = false;
         }
         Message::Scaled(scaling, translation) => {
+            let chart_state = chart.common_data_mut();
             chart_state.scaling = *scaling;
             chart_state.translation = *translation;
 
             chart_state.autoscale = false;
         }
         Message::AutoscaleToggle => {
+            let chart_state = chart.common_data_mut();
             chart_state.autoscale = !chart_state.autoscale;
             if chart_state.autoscale {
                 chart_state.scaling = 1.0;
             }
         }
         Message::CrosshairToggle => {
+            let chart_state = chart.common_data_mut();
             chart_state.crosshair = !chart_state.crosshair;
         }
         Message::XScaling(delta, cursor_to_center_x, is_wheel_scroll) => {
-            if *delta < 0.0 && chart_state.cell_width > T::MIN_CELL_WIDTH
-                || *delta > 0.0 && chart_state.cell_width < T::MAX_CELL_WIDTH
+            let min_cell_width = T::min_cell_width(chart);
+            let max_cell_width = T::max_cell_width(chart);
+
+            let chart_state = chart.common_data_mut();
+
+            if *delta < 0.0 && chart_state.cell_width > min_cell_width
+                || *delta > 0.0 && chart_state.cell_width < max_cell_width
             {
                 let (old_scaling, old_translation_x) =
                     { (chart_state.scaling, chart_state.translation.x) };
@@ -303,7 +323,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
                 let zoom_factor = if *is_wheel_scroll { 30.0 } else { 90.0 };
 
                 let new_width = (chart_state.cell_width * (1.0 + delta / zoom_factor))
-                    .clamp(T::MIN_CELL_WIDTH, T::MAX_CELL_WIDTH);
+                    .clamp(min_cell_width, max_cell_width);
 
                 let latest_x = chart_state.interval_to_x(chart_state.latest_x);
                 let is_interval_x_visible = chart_state.is_interval_x_visible(latest_x);
@@ -341,8 +361,13 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
             }
         }
         Message::YScaling(delta, cursor_to_center_y, is_wheel_scroll) => {
-            if *delta < 0.0 && chart_state.cell_height > T::MIN_CELL_HEIGHT
-                || *delta > 0.0 && chart_state.cell_height < T::MAX_CELL_HEIGHT
+            let min_cell_height = T::min_cell_height(chart);
+            let max_cell_height = T::max_cell_height(chart);
+
+            let chart_state = chart.common_data_mut();
+
+            if *delta < 0.0 && chart_state.cell_height > min_cell_height
+                || *delta > 0.0 && chart_state.cell_height < max_cell_height
             {
                 let (old_scaling, old_translation_y) =
                     { (chart_state.scaling, chart_state.translation.y) };
@@ -350,7 +375,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
                 let zoom_factor = if *is_wheel_scroll { 30.0 } else { 90.0 };
 
                 let new_height = (chart_state.cell_height * (1.0 + delta / zoom_factor))
-                    .clamp(T::MIN_CELL_HEIGHT, T::MAX_CELL_HEIGHT);
+                    .clamp(min_cell_height, max_cell_height);
 
                 let cursor_chart_y = cursor_to_center_y / old_scaling - old_translation_y;
 
@@ -368,6 +393,8 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
             }
         }
         Message::BoundsChanged(bounds) => {
+            let chart_state = chart.common_data_mut();
+
             // calculate how center shifted
             let old_center_x = chart_state.bounds.width / 2.0;
             let new_center_x = bounds.width / 2.0;
@@ -379,8 +406,12 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
                 chart_state.translation.x += center_delta_x;
             }
         }
-        Message::SplitDragged(split) => {
-            chart_state.indicators_split = Some(*split);
+        Message::SplitDragged(split, size) => {
+            let chart_state = chart.common_data_mut();
+
+            if let Some(split) = chart_state.splits.get_mut(*split) {
+                *split = (*size * 100.0).round() / 100.0;
+            }
         }
         Message::CrosshairMoved => {}
     }
@@ -391,7 +422,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
     indicators: &'a [I],
     timezone: data::UserTimezone,
 ) -> Element<'a, Message> {
-    let chart_state = chart.get_common_data();
+    let chart_state = chart.common_data();
 
     if chart.is_empty() {
         return center(text("Waiting for data...").size(16)).into();
@@ -407,23 +438,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
         cell_width: chart_state.cell_width,
         timezone,
         chart_bounds: chart_state.bounds,
-        interval_keys: chart.get_interval_keys(),
-    })
-    .width(Length::Fill)
-    .height(Length::Fill);
-
-    let axis_labels_y = Canvas::new(AxisLabelsY {
-        labels_cache: &chart_state.cache.y_labels,
-        translation_y: chart_state.translation.y,
-        scaling: chart_state.scaling,
-        decimals: chart_state.decimals,
-        min: chart_state.base_price_y,
-        last_price: chart_state.last_price,
-        crosshair: chart_state.crosshair,
-        tick_size: chart_state.tick_size,
-        cell_height: chart_state.cell_height,
-        basis: chart_state.basis,
-        chart_bounds: chart_state.bounds,
+        interval_keys: chart.interval_keys(),
     })
     .width(Length::Fill)
     .height(Length::Fill);
@@ -456,44 +471,62 @@ fn view_chart<'a, T: Chart, I: Indicator>(
         .padding(2)
     };
 
-    let chart_canvas = Canvas::new(chart).width(Length::Fill).height(Length::Fill);
+    let chart_content = {
+        let axis_labels_y = Canvas::new(AxisLabelsY {
+            labels_cache: &chart_state.cache.y_labels,
+            translation_y: chart_state.translation.y,
+            scaling: chart_state.scaling,
+            decimals: chart_state.decimals,
+            min: chart_state.base_price_y,
+            last_price: chart_state.last_price,
+            crosshair: chart_state.crosshair,
+            tick_size: chart_state.tick_size,
+            cell_height: chart_state.cell_height,
+            basis: chart_state.basis,
+            chart_bounds: chart_state.bounds,
+        })
+        .width(Length::Fill)
+        .height(Length::Fill);
 
-    let main_chart = row![
-        container(chart_canvas)
-            .width(Length::FillPortion(10))
-            .height(Length::FillPortion(120)),
-        vertical_rule(1).style(style::split_ruler),
-        container(
-            mouse_area(axis_labels_y).on_double_click(Message::DoubleClick(AxisScaleClicked::Y))
-        )
-        .width(Length::Fixed(60.0 + (chart_state.decimals as f32 * 4.0)))
-        .height(Length::FillPortion(120))
-    ];
+        let main_chart: Element<_> = row![
+            container(Canvas::new(chart).width(Length::Fill).height(Length::Fill))
+                .width(Length::FillPortion(10))
+                .height(Length::FillPortion(120)),
+            vertical_rule(1).style(style::split_ruler),
+            container(
+                mouse_area(axis_labels_y)
+                    .on_double_click(Message::DoubleClick(AxisScaleClicked::Y))
+            )
+            .width(Length::Fixed(60.0 + (chart_state.decimals as f32 * 4.0)))
+            .height(Length::FillPortion(120))
+        ]
+        .into();
 
-    let chart_content = match (chart_state.indicators_split, indicators.is_empty()) {
-        (Some(split_at), false) => {
-            if let Some(indicators) = chart.view_indicators(indicators) {
-                row![HSplit::new(
-                    main_chart,
-                    indicators,
-                    split_at,
-                    Message::SplitDragged,
-                )]
-            } else {
-                main_chart
-            }
+        let indicators = chart.view_indicators(indicators);
+
+        if indicators.is_empty() {
+            main_chart
+        } else {
+            let panels = std::iter::once(main_chart)
+                .chain(indicators)
+                .collect::<Vec<_>>();
+
+            MultiSplit::new(panels, &chart_state.splits, |index, position| {
+                Message::SplitDragged(index, position)
+            })
+            .into()
         }
-        _ => main_chart,
     };
 
     column![
         chart_content,
-        horizontal_rule(1).style(style::indicator_ruler),
+        horizontal_rule(1).style(style::split_ruler),
         row![
             container(
                 mouse_area(axis_labels_x)
                     .on_double_click(Message::DoubleClick(AxisScaleClicked::X))
             )
+            .padding(padding::right(1))
             .width(Length::FillPortion(10))
             .height(Length::Fixed(26.0)),
             chart_controls
@@ -568,7 +601,7 @@ pub struct CommonChartData {
     decimals: usize,
     ticker_info: Option<TickerInfo>,
 
-    indicators_split: Option<f32>,
+    splits: Vec<f32>,
 }
 
 impl Default for CommonChartData {
@@ -588,8 +621,8 @@ impl Default for CommonChartData {
             latest_x: 0,
             tick_size: 0.0,
             decimals: 0,
-            indicators_split: None,
             ticker_info: None,
+            splits: vec![],
         }
     }
 }
@@ -613,7 +646,7 @@ impl CommonChartData {
         interval_x >= region.x && interval_x <= region.x + region.width
     }
 
-    fn get_interval_range(&self, region: Rectangle) -> (u64, u64) {
+    fn interval_range(&self, region: &Rectangle) -> (u64, u64) {
         match self.basis {
             Basis::Tick(_) => (
                 self.x_to_interval(region.x + region.width),
@@ -627,7 +660,7 @@ impl CommonChartData {
         }
     }
 
-    fn get_price_range(&self, region: Rectangle) -> (f32, f32) {
+    fn price_range(&self, region: &Rectangle) -> (f32, f32) {
         let highest = self.y_to_price(region.y);
         let lowest = self.y_to_price(region.y + region.height);
 
@@ -673,109 +706,6 @@ impl CommonChartData {
 
     fn y_to_price(&self, y: f32) -> f32 {
         self.base_price_y - (y / self.cell_height) * self.tick_size
-    }
-
-    fn draw_crosshair_tooltip(
-        data: &ChartData,
-        frame: &mut Frame,
-        palette: &Extended,
-        at_interval: u64,
-    ) {
-        let tooltip = match data {
-            ChartData::TimeBased(timeseries) => {
-                let dp_opt = timeseries
-                    .data_points
-                    .iter()
-                    .find(|(time, _)| **time == at_interval)
-                    .map(|(_, dp)| dp);
-
-                let dp_opt = if dp_opt.is_none() && !timeseries.data_points.is_empty() {
-                    if let Some((last_time, _)) = timeseries.data_points.last_key_value() {
-                        if at_interval > *last_time {
-                            timeseries.data_points.last_key_value().map(|(_, dp)| dp)
-                        } else {
-                            None
-                        }
-                    } else {
-                        None
-                    }
-                } else {
-                    dp_opt
-                };
-
-                if let Some(dp) = dp_opt {
-                    let change_pct = ((dp.kline.close - dp.kline.open) / dp.kline.open) * 100.0;
-
-                    let tooltip_text = format!(
-                        "O:{} H:{} L:{} C:{} Δ:{:+.2}%",
-                        dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close, change_pct
-                    );
-
-                    Some((
-                        tooltip_text,
-                        if change_pct >= 0.0 {
-                            palette.success.base.color
-                        } else {
-                            palette.danger.base.color
-                        },
-                    ))
-                } else {
-                    None
-                }
-            }
-            ChartData::TickBased(tick_aggr) => {
-                let index = (at_interval / tick_aggr.interval) as usize;
-
-                if index < tick_aggr.data_points.len() {
-                    let dp = &tick_aggr.data_points[tick_aggr.data_points.len() - 1 - index];
-
-                    let change_pct = ((dp.close_price - dp.open_price) / dp.open_price) * 100.0;
-
-                    let tooltip_text = format!(
-                        "O:{} H:{} L:{} C:{} Δ:{:+.2}%",
-                        dp.open_price, dp.high_price, dp.low_price, dp.close_price, change_pct
-                    );
-
-                    Some((
-                        tooltip_text,
-                        if change_pct >= 0.0 {
-                            palette.success.base.color
-                        } else {
-                            palette.danger.base.color
-                        },
-                    ))
-                } else {
-                    None
-                }
-            }
-        };
-
-        if let Some((content, color)) = tooltip {
-            let position = Point::new(8.0, 8.0);
-
-            let tooltip_rect = Rectangle {
-                x: position.x,
-                y: position.y,
-                width: content.len() as f32 * 8.0,
-                height: 16.0,
-            };
-
-            frame.fill_rectangle(
-                tooltip_rect.position(),
-                tooltip_rect.size(),
-                palette.background.weakest.color.scale_alpha(0.9),
-            );
-
-            let text = canvas::Text {
-                content,
-                position,
-                size: iced::Pixels(12.0),
-                color,
-                font: style::AZERET_MONO,
-                ..canvas::Text::default()
-            };
-            frame.fill_text(text);
-        }
     }
 
     fn draw_crosshair(
@@ -858,10 +788,42 @@ impl CommonChartData {
         }
     }
 
+    fn draw_last_price_line(
+        &self,
+        frame: &mut canvas::Frame,
+        palette: &Extended,
+        region: Rectangle,
+    ) {
+        if let Some(price) = &self.last_price {
+            let (mut y_pos, line_color) = price.get_with_color(palette);
+            y_pos = self.price_to_y(y_pos);
+
+            let marker_line = Stroke::with_color(
+                Stroke {
+                    width: 1.0,
+                    line_dash: LineDash {
+                        segments: &[2.0, 2.0],
+                        offset: 4,
+                    },
+                    ..Default::default()
+                },
+                line_color.scale_alpha(0.5),
+            );
+
+            frame.stroke(
+                &Path::line(
+                    Point::new(0.0, y_pos),
+                    Point::new(region.x + region.width, y_pos),
+                ),
+                marker_line,
+            );
+        }
+    }
+
     fn get_chart_layout(&self) -> ChartLayout {
         ChartLayout {
             crosshair: self.crosshair,
-            indicators_split: self.indicators_split,
+            splits: self.splits.clone(),
         }
     }
 }
@@ -945,8 +907,7 @@ pub fn format_with_commas(num: f32) -> String {
 
     let num_commas = (integer_part.len() - 1) / 3;
     let decimal_len = decimal_part.map_or(0, str::len);
-    let capacity =
-        (if is_negative { 1 } else { 0 }) + integer_part.len() + num_commas + decimal_len;
+    let capacity = usize::from(is_negative) + integer_part.len() + num_commas + decimal_len;
 
     let mut result = String::with_capacity(capacity);
 
@@ -969,4 +930,19 @@ pub fn format_with_commas(num: f32) -> String {
     }
 
     result
+}
+
+pub fn calc_splits(main_split: f32, active_indicators: usize) -> Vec<f32> {
+    let mut splits = vec![main_split];
+
+    if active_indicators > 1 {
+        let remaining_space = 0.9 - main_split;
+        let section_size = remaining_space / (active_indicators) as f32;
+
+        for i in 1..active_indicators {
+            let split_position = main_split + section_size * (i as f32);
+            splits.push(split_position);
+        }
+    }
+    splits
 }
