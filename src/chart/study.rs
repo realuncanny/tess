@@ -10,8 +10,7 @@ use crate::style::{self, Icon, icon_text};
 pub enum Message {
     CardToggled(FootprintStudy),
     StudyToggled(FootprintStudy, bool),
-    ImbalancePctChanged(usize),
-    LookbackChanged(usize),
+    StudyValueChanged(FootprintStudy),
 }
 
 pub enum Action {
@@ -49,12 +48,7 @@ impl ChartStudy {
             Message::StudyToggled(study, is_checked) => {
                 return Action::ToggleStudy(study, is_checked);
             }
-            Message::ImbalancePctChanged(value) => {
-                let study = FootprintStudy::Imbalance { threshold: value };
-                return Action::ConfigureStudy(study);
-            }
-            Message::LookbackChanged(value) => {
-                let study = FootprintStudy::NPoC { lookback: value };
+            Message::StudyValueChanged(study) => {
                 return Action::ConfigureStudy(study);
             }
         }
@@ -82,97 +76,81 @@ impl ChartStudy {
                 (is_selected, value)
             };
 
-            let checkbox = iced::widget::checkbox(available_study.to_string(), is_selected)
-                .on_toggle(move |value| Message::StudyToggled(available_study, value));
+            content = content.push(self.create_study_row(available_study, is_selected, value));
+        }
 
-            let mut checkbox_row = row![checkbox, horizontal_space()]
-                .height(36)
-                .align_y(iced::Alignment::Center)
-                .padding(4)
-                .spacing(4);
+        content.into()
+    }
 
-            match available_study {
+    fn create_study_row(
+        &self,
+        study: FootprintStudy,
+        is_selected: bool,
+        value: Option<&usize>,
+    ) -> Element<Message> {
+        let checkbox = iced::widget::checkbox(study.to_string(), is_selected)
+            .on_toggle(move |checked| Message::StudyToggled(study, checked));
+
+        let mut checkbox_row = row![checkbox, horizontal_space()]
+            .height(36)
+            .align_y(iced::Alignment::Center)
+            .padding(4)
+            .spacing(4);
+
+        let is_expanded = self
+            .expanded_card
+            .as_ref()
+            .is_some_and(|expanded| expanded.is_same_type(&study));
+
+        if is_selected {
+            checkbox_row = checkbox_row.push(
+                button(icon_text(Icon::Cog, 12))
+                    .on_press(Message::CardToggled(study))
+                    .style(move |theme, status| {
+                        style::button::transparent(theme, status, is_expanded)
+                    }),
+            )
+        }
+
+        let mut column = column![checkbox_row].padding(padding::left(4));
+
+        if is_expanded && value.is_some() {
+            let value = *value.unwrap();
+
+            match study {
                 FootprintStudy::NPoC { .. } => {
-                    let is_expanded = self
-                        .expanded_card
-                        .as_ref()
-                        .is_some_and(|expanded| expanded.is_same_type(&available_study));
-
-                    if is_selected {
-                        checkbox_row = checkbox_row.push(
-                            button(icon_text(Icon::Cog, 12))
-                                .on_press(Message::CardToggled(available_study))
-                                .style(move |theme, status| {
-                                    style::button::transparent(theme, status, is_expanded)
-                                }),
-                        )
-                    }
-
-                    let mut column = column![checkbox_row].padding(padding::left(4));
-
-                    if is_expanded {
-                        if let Some(lookback) = value {
-                            let lookback_slider =
-                                slider(10.0..=600.0, *lookback as f32, move |value| {
-                                    Message::LookbackChanged(value as usize)
-                                })
-                                .step(10.0);
-
-                            column = column.push(
-                                column![
-                                    text(format!("Lookback: {lookback} datapoints")),
-                                    lookback_slider
-                                ]
-                                .padding(8)
-                                .spacing(4),
-                            );
+                    let slider_ui = slider(10.0..=400.0, value as f32, move |new_value| {
+                        let updated_study = FootprintStudy::NPoC {
+                            lookback: new_value as usize,
                         };
-                    }
+                        Message::StudyValueChanged(updated_study)
+                    })
+                    .step(10.0);
 
-                    content = content.push(container(column).style(style::modal_container));
+                    column = column.push(
+                        column![text(format!("Lookback: {value} datapoints")), slider_ui]
+                            .padding(8)
+                            .spacing(4),
+                    );
                 }
                 FootprintStudy::Imbalance { .. } => {
-                    let is_expanded = self
-                        .expanded_card
-                        .as_ref()
-                        .is_some_and(|expanded| expanded.is_same_type(&available_study));
-
-                    if is_selected {
-                        checkbox_row = checkbox_row.push(
-                            button(icon_text(Icon::Cog, 12))
-                                .on_press(Message::CardToggled(available_study))
-                                .style(move |theme, status| {
-                                    style::button::transparent(theme, status, is_expanded)
-                                }),
-                        )
-                    }
-
-                    let mut column = column![checkbox_row].padding(padding::left(4));
-
-                    if is_expanded {
-                        if let Some(threshold) = value {
-                            let threshold_slider =
-                                slider(100.0..=800.0, *threshold as f32, move |value| {
-                                    Message::ImbalancePctChanged(value as usize)
-                                })
-                                .step(25.0);
-
-                            column = column.push(
-                                column![
-                                    text(format!("Ask:Bid threshold: {threshold}%")),
-                                    threshold_slider
-                                ]
-                                .padding(8)
-                                .spacing(4),
-                            );
+                    let slider_ui = slider(100.0..=800.0, value as f32, move |new_value| {
+                        let updated_study = FootprintStudy::Imbalance {
+                            threshold: new_value as usize,
                         };
-                    }
+                        Message::StudyValueChanged(updated_study)
+                    })
+                    .step(25.0);
 
-                    content = content.push(container(column).style(style::modal_container));
+                    column = column.push(
+                        column![text(format!("Ask:Bid threshold: {value}%")), slider_ui]
+                            .padding(8)
+                            .spacing(4),
+                    );
                 }
             }
         }
 
-        content.into()
+        container(column).style(style::modal_container).into()
     }
 }

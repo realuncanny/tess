@@ -505,22 +505,11 @@ impl KlineChart {
                     studies.retain(|s| !s.is_same_type(&study));
                 }
             }
-            super::study::Action::ConfigureStudy(study) => match study {
-                FootprintStudy::Imbalance { threshold } => {
-                    if let Some(existing_study) =
-                        studies.iter_mut().find(|s| s.is_same_type(&study))
-                    {
-                        *existing_study = FootprintStudy::Imbalance { threshold };
-                    }
+            super::study::Action::ConfigureStudy(study) => {
+                if let Some(existing_study) = studies.iter_mut().find(|s| s.is_same_type(&study)) {
+                    *existing_study = study;
                 }
-                FootprintStudy::NPoC { lookback } => {
-                    if let Some(existing_study) =
-                        studies.iter_mut().find(|s| s.is_same_type(&study))
-                    {
-                        *existing_study = FootprintStudy::NPoC { lookback };
-                    }
-                }
-            },
+            }
         }
 
         self.render_start();
