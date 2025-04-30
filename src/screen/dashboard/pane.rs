@@ -8,7 +8,7 @@ use crate::{
 };
 use data::{
     UserTimezone,
-    aggr::ticks::TickCount,
+    aggr::TickCount,
     chart::{
         Basis, ChartLayout, VisualConfig,
         indicators::{HeatmapIndicator, Indicator, KlineIndicator},
@@ -79,6 +79,8 @@ pub enum Message {
     Merge,
     DeleteNotification(pane_grid::Pane, usize),
     ReorderIndicator(pane_grid::Pane, column_drag::DragEvent),
+    ClusterKindSelected(pane_grid::Pane, data::chart::kline::ClusterKind),
+    StudyConfigurator(pane_grid::Pane, chart::study::Message),
 }
 
 pub struct PaneState {
@@ -222,16 +224,25 @@ impl PaneState {
         ticker_info: TickerInfo,
         content_str: &str,
     ) -> Result<(), DashboardError> {
-        let (existing_indicators, existing_layout) = match (&self.content, content_str) {
+        let (existing_indicators, existing_layout, chart_kind) = match (&self.content, content_str)
+        {
             (PaneContent::Heatmap(chart, indicators), "heatmap") => (
                 Some(ExistingIndicators::Heatmap(indicators.clone())),
-                Some(chart.get_chart_layout()),
+                Some(chart.chart_layout()),
+                None,
             ),
             (PaneContent::Kline(chart, indicators), "footprint" | "candlestick") => (
                 Some(ExistingIndicators::Kline(indicators.clone())),
-                Some(chart.get_chart_layout()),
+                Some(chart.chart_layout()),
+                {
+                    let kind = chart.kind();
+                    match kind {
+                        data::chart::KlineChartKind::Footprint { .. } => Some(kind.clone()),
+                        data::chart::KlineChartKind::Candles => None,
+                    }
+                },
             ),
-            _ => (None, None),
+            _ => (None, None, None),
         };
 
         self.content = match content_str {
@@ -266,7 +277,10 @@ impl PaneState {
                     "footprint" => (
                         Some(TickMultiplier(50)),
                         Timeframe::M5,
-                        data::chart::KlineChartKind::Footprint,
+                        chart_kind.unwrap_or(data::chart::KlineChartKind::Footprint {
+                            clusters: data::chart::kline::ClusterKind::default(),
+                            studies: vec![],
+                        }),
                     ),
                     _ => (None, Timeframe::M15, data::chart::KlineChartKind::Candles),
                 };
@@ -308,7 +322,7 @@ impl PaneState {
                         vec![],
                         &enabled_indicators,
                         Some(ticker_info),
-                        chart_kind,
+                        &chart_kind,
                     ),
                     enabled_indicators,
                 )
@@ -354,8 +368,8 @@ impl PaneState {
                 if let Some(id) = req_id {
                     chart.insert_new_klines(id, klines);
                 } else {
-                    let (raw_trades, tick_size) = (chart.get_raw_trades(), chart.get_tick_size());
-                    let layout = chart.get_chart_layout();
+                    let (raw_trades, tick_size) = (chart.raw_trades(), chart.tick_size());
+                    let layout = chart.chart_layout();
                     let ticker_info = self.settings.ticker_info;
 
                     *chart = KlineChart::new(
@@ -366,7 +380,7 @@ impl PaneState {
                         raw_trades,
                         indicators,
                         ticker_info,
-                        chart.get_kind(),
+                        chart.kind(),
                     );
                 }
             }
@@ -435,8 +449,8 @@ impl PaneState {
                     .on_press(Message::ToggleModal(id, PaneModal::StreamModifier)),
                 );
             }
-            PaneContent::Kline(chart, _) => match chart.get_kind() {
-                data::chart::KlineChartKind::Footprint => {
+            PaneContent::Kline(chart, _) => match chart.kind() {
+                data::chart::KlineChartKind::Footprint { .. } => {
                     stream_info_element = stream_info_element.push(
                         button(text(format!(
                             "{} - {}",
@@ -637,9 +651,9 @@ trait ChartView {
 
 #[derive(Debug, Clone, Copy)]
 enum StreamModifier {
-    CandlestickChart(Basis),
-    FootprintChart(Basis, TickMultiplier),
-    HeatmapChart(TickMultiplier),
+    Candlestick(Basis),
+    Footprint(Basis, TickMultiplier),
+    Heatmap(TickMultiplier),
 }
 
 fn handle_chart_view<'a, F>(
@@ -706,7 +720,9 @@ impl ChartView for KlineChart {
             .view(indicators, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
-        let settings_view = || blank_settings_view();
+        let chart_kind = self.kind();
+
+        let settings_view = || config::kline_cfg_view(self.study_configurator(), chart_kind, pane);
 
         handle_chart_view(
             base,
@@ -714,15 +730,15 @@ impl ChartView for KlineChart {
             pane,
             indicators,
             settings_view,
-            match self.get_kind() {
-                data::chart::KlineChartKind::Footprint => StreamModifier::FootprintChart(
+            match chart_kind {
+                data::chart::KlineChartKind::Footprint { .. } => StreamModifier::Footprint(
                     state
                         .settings
                         .selected_basis
                         .unwrap_or(Basis::Time(Timeframe::M5.into())),
                     state.settings.tick_multiply.unwrap_or(TickMultiplier(50)),
                 ),
-                data::chart::KlineChartKind::Candles => StreamModifier::CandlestickChart(
+                data::chart::KlineChartKind::Candles => StreamModifier::Candlestick(
                     state
                         .settings
                         .selected_basis
@@ -745,7 +761,7 @@ impl ChartView for HeatmapChart {
             .view(indicators, timezone)
             .map(move |message| Message::ChartUserUpdate(pane, message));
 
-        let settings_view = || config::heatmap_cfg_view(self.get_visual_config(), pane);
+        let settings_view = || config::heatmap_cfg_view(self.visual_config(), pane);
 
         handle_chart_view(
             base,
@@ -753,9 +769,7 @@ impl ChartView for HeatmapChart {
             pane,
             indicators,
             settings_view,
-            StreamModifier::HeatmapChart(
-                state.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
-            ),
+            StreamModifier::Heatmap(state.settings.tick_multiply.unwrap_or(TickMultiplier(10))),
         )
     }
 }
@@ -852,9 +866,9 @@ fn stream_modifier_view<'a>(
     modifiers: StreamModifier,
 ) -> Element<'a, Message> {
     let (selected_basis, selected_ticksize) = match modifiers {
-        StreamModifier::CandlestickChart(basis) => (Some(basis), None),
-        StreamModifier::FootprintChart(basis, ticksize) => (Some(basis), Some(ticksize)),
-        StreamModifier::HeatmapChart(ticksize) => (None, Some(ticksize)),
+        StreamModifier::Candlestick(basis) => (Some(basis), None),
+        StreamModifier::Footprint(basis, ticksize) => (Some(basis), Some(ticksize)),
+        StreamModifier::Heatmap(ticksize) => (None, Some(ticksize)),
     };
 
     let create_button = |content: String, msg: Option<Message>, active: bool| {
@@ -978,17 +992,6 @@ fn stream_modifier_view<'a>(
     .into()
 }
 
-fn blank_settings_view<'a>() -> Element<'a, Message> {
-    container(text(
-        "This chart type doesn't have any configurations, WIP...",
-    ))
-    .padding(16)
-    .width(Length::Shrink)
-    .max_width(500)
-    .style(style::chart_modal)
-    .into()
-}
-
 // Main pane content views, underlays
 fn view_panel<'a, C: PanelView>(
     pane: pane_grid::Pane,
@@ -1024,7 +1027,7 @@ pub enum PaneContent {
 impl PaneContent {
     pub fn chart_kind(&self) -> Option<data::chart::KlineChartKind> {
         match self {
-            PaneContent::Kline(chart, _) => Some(chart.get_kind()),
+            PaneContent::Kline(chart, _) => Some(chart.kind().clone()),
             _ => None,
         }
     }

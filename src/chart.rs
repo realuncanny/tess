@@ -1,3 +1,4 @@
+use data::chart::round_to_tick;
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Cache, Canvas, Event, Frame, LineDash, Stroke};
 use iced::widget::{center, horizontal_rule, mouse_area, vertical_rule};
@@ -24,6 +25,7 @@ pub mod heatmap;
 pub mod indicator;
 pub mod kline;
 mod scale;
+pub mod study;
 pub mod timeandsales;
 
 #[derive(Default, Debug, Clone, Copy)]
@@ -563,16 +565,14 @@ enum ChartData {
 impl ChartData {
     pub fn get_latest_price_range_y_midpoint(&self, chart_state: &CommonChartData) -> f32 {
         match self {
-            ChartData::TimeBased(timeseries) => {
-                timeseries.get_latest_kline().map_or(0.0, |kline| {
-                    let y_low = chart_state.price_to_y(kline.low);
-                    let y_high = chart_state.price_to_y(kline.high);
-                    -(y_low + y_high) / 2.0
-                })
-            }
-            ChartData::TickBased(tick_aggr) => tick_aggr.get_latest_dp().map_or(0.0, |(dp, _)| {
-                let y_low = chart_state.price_to_y(dp.low_price);
-                let y_high = chart_state.price_to_y(dp.high_price);
+            ChartData::TimeBased(timeseries) => timeseries.latest_kline().map_or(0.0, |kline| {
+                let y_low = chart_state.price_to_y(kline.low);
+                let y_high = chart_state.price_to_y(kline.high);
+                -(y_low + y_high) / 2.0
+            }),
+            ChartData::TickBased(tick_aggr) => tick_aggr.latest_dp().map_or(0.0, |(dp, _)| {
+                let y_low = chart_state.price_to_y(dp.kline.low);
+                let y_high = chart_state.price_to_y(dp.kline.high);
                 -(y_low + y_high) / 2.0
             }),
         }
@@ -840,6 +840,51 @@ fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Option<Acti
     }
 }
 
+pub fn draw_horizontal_volume_bars(
+    frame: &mut canvas::Frame,
+    start_x: f32,
+    y_position: f32,
+    buy_qty: f32,
+    sell_qty: f32,
+    max_qty: f32,
+    bar_height: f32,
+    width_factor: f32,
+    buy_color: iced::Color,
+    sell_color: iced::Color,
+    bar_color_alpha: f32,
+) {
+    let total_qty = buy_qty + sell_qty;
+    if total_qty <= 0.0 {
+        return;
+    }
+
+    let total_bar_width = (total_qty / max_qty) * width_factor;
+
+    let buy_proportion = buy_qty / total_qty;
+    let sell_proportion = sell_qty / total_qty;
+
+    let buy_bar_width = buy_proportion * total_bar_width;
+    let sell_bar_width = sell_proportion * total_bar_width;
+
+    let start_y = y_position - (bar_height / 2.0);
+
+    if sell_qty > 0.0 {
+        frame.fill_rectangle(
+            Point::new(start_x, start_y),
+            Size::new(sell_bar_width, bar_height),
+            sell_color.scale_alpha(bar_color_alpha),
+        );
+    }
+
+    if buy_qty > 0.0 {
+        frame.fill_rectangle(
+            Point::new(start_x + sell_bar_width, start_y),
+            Size::new(buy_bar_width, bar_height),
+            buy_color.scale_alpha(bar_color_alpha),
+        );
+    }
+}
+
 fn count_decimals(value: f32) -> usize {
     let value_str = value.to_string();
     if let Some(pos) = value_str.find('.') {
@@ -850,25 +895,24 @@ fn count_decimals(value: f32) -> usize {
 }
 
 fn abbr_large_numbers(value: f32) -> String {
-    if value >= 1_000_000_000.0 {
-        format!("{:.2}b", value / 1_000_000_000.0)
-    } else if value >= 1_000_000.0 {
-        format!("{:.2}m", value / 1_000_000.0)
-    } else if value >= 1000.0 {
-        format!("{:.1}k", value / 1000.0)
-    } else if value >= 100.0 {
-        format!("{value:.0}")
-    } else if value >= 10.0 {
-        format!("{value:.1}")
-    } else if value >= 1.0 {
-        format!("{value:.2}")
-    } else {
-        format!("{value:.3}")
-    }
-}
+    let abs_value = value.abs();
+    let sign = if value < 0.0 { "-" } else { "" };
 
-pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
-    (value / tick_size).round() * tick_size
+    if abs_value >= 1_000_000_000.0 {
+        format!("{}{:.2}b", sign, abs_value / 1_000_000_000.0)
+    } else if abs_value >= 1_000_000.0 {
+        format!("{}{:.2}m", sign, abs_value / 1_000_000.0)
+    } else if abs_value >= 1000.0 {
+        format!("{}{:.1}k", sign, abs_value / 1000.0)
+    } else if abs_value >= 100.0 {
+        format!("{}{:.0}", sign, abs_value)
+    } else if abs_value >= 10.0 {
+        format!("{}{:.1}", sign, abs_value)
+    } else if abs_value >= 1.0 {
+        format!("{}{:.2}", sign, abs_value)
+    } else {
+        format!("{}{:.3}", sign, abs_value)
+    }
 }
 
 pub fn format_with_commas(num: f32) -> String {

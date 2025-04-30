@@ -361,24 +361,26 @@ impl Dashboard {
                                             }];
                                         }
                                     },
-                                    data::chart::KlineChartKind::Footprint => match new_basis {
-                                        Basis::Time(interval) => {
-                                            state.streams = vec![
-                                                StreamType::Kline {
+                                    data::chart::KlineChartKind::Footprint { .. } => {
+                                        match new_basis {
+                                            Basis::Time(interval) => {
+                                                state.streams = vec![
+                                                    StreamType::Kline {
+                                                        exchange,
+                                                        ticker,
+                                                        timeframe: interval.into(),
+                                                    },
+                                                    StreamType::DepthAndTrades { exchange, ticker },
+                                                ];
+                                            }
+                                            Basis::Tick(_) => {
+                                                state.streams = vec![StreamType::DepthAndTrades {
                                                     exchange,
                                                     ticker,
-                                                    timeframe: interval.into(),
-                                                },
-                                                StreamType::DepthAndTrades { exchange, ticker },
-                                            ];
+                                                }];
+                                            }
                                         }
-                                        Basis::Tick(_) => {
-                                            state.streams = vec![StreamType::DepthAndTrades {
-                                                exchange,
-                                                ticker,
-                                            }];
-                                        }
-                                    },
+                                    }
                                 }
                             }
                         }
@@ -439,6 +441,20 @@ impl Dashboard {
                     pane::Message::ReorderIndicator(pane, event) => {
                         if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
                             pane_state.content.reorder_indicators(event);
+                        }
+                    }
+                    pane::Message::ClusterKindSelected(pane, cluster_kind) => {
+                        if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
+                            if let PaneContent::Kline(chart, _) = &mut pane_state.content {
+                                chart.set_cluster_kind(cluster_kind);
+                            }
+                        }
+                    }
+                    pane::Message::StudyConfigurator(pane, msg) => {
+                        if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
+                            if let PaneContent::Kline(chart, _) = &mut pane_state.content {
+                                chart.update_study_configurator(msg);
+                            }
                         }
                     }
                 }
@@ -960,10 +976,18 @@ impl Dashboard {
                     {
                         return Task::done(Message::ErrorOccurred(Some(pane_uid), reason));
                     }
-                } else if let Err(reason) =
-                    self.insert_fetched_trades(main_window, pane_uid, &trades, true)
-                {
-                    return Task::done(Message::ErrorOccurred(Some(pane_uid), reason));
+                } else {
+                    let filtered_batch = trades
+                        .iter()
+                        .filter(|trade| trade.time <= to_time)
+                        .cloned()
+                        .collect::<Vec<_>>();
+
+                    if let Err(reason) =
+                        self.insert_fetched_trades(main_window, pane_uid, &filtered_batch, true)
+                    {
+                        return Task::done(Message::ErrorOccurred(Some(pane_uid), reason));
+                    }
                 }
             }
             FetchedData::Klines(klines, req_id) => {

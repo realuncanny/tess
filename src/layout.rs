@@ -555,14 +555,14 @@ impl From<&PaneState> for data::Pane {
         match &pane.content {
             PaneContent::Starter => data::Pane::Starter,
             PaneContent::Heatmap(chart, indicators) => data::Pane::HeatmapChart {
-                layout: chart.get_chart_layout(),
+                layout: chart.chart_layout(),
                 stream_type: streams,
                 settings: pane.settings,
                 indicators: indicators.clone(),
             },
             PaneContent::Kline(chart, indicators) => data::Pane::KlineChart {
-                layout: chart.get_chart_layout(),
-                kind: chart.get_kind(),
+                layout: chart.chart_layout(),
+                kind: chart.kind().clone(),
                 stream_type: streams,
                 settings: pane.settings,
                 indicators: indicators.clone(),
@@ -600,7 +600,6 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
                     .multiply_with_min_tick_size(ticker_info);
 
                 let config = settings.visual_config.and_then(|cfg| cfg.heatmap());
-
                 let basis = settings.selected_basis.unwrap_or(Basis::Time(100));
 
                 Configuration::Pane(PaneState::from_config(
@@ -630,7 +629,7 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
             settings,
             indicators,
         } => match kind {
-            data::chart::KlineChartKind::Footprint => {
+            data::chart::KlineChartKind::Footprint { .. } => {
                 if let Some(ticker_info) = settings.ticker_info {
                     let tick_size = settings
                         .tick_multiply
@@ -650,7 +649,7 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
                                 vec![],
                                 &indicators,
                                 settings.ticker_info,
-                                kind,
+                                &kind,
                             ),
                             indicators,
                         ),
@@ -685,7 +684,7 @@ fn configuration(pane: data::Pane) -> Configuration<PaneState> {
                                 vec![],
                                 &indicators,
                                 settings.ticker_info,
-                                kind,
+                                &kind,
                             ),
                             indicators,
                         ),
