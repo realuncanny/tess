@@ -505,15 +505,22 @@ impl KlineChart {
                     studies.retain(|s| !s.is_same_type(&study));
                 }
             }
-            super::study::Action::ConfigureStudy(study) => {
-                if let FootprintStudy::Imbalance { threshold } = study {
+            super::study::Action::ConfigureStudy(study) => match study {
+                FootprintStudy::Imbalance { threshold } => {
                     if let Some(existing_study) =
                         studies.iter_mut().find(|s| s.is_same_type(&study))
                     {
                         *existing_study = FootprintStudy::Imbalance { threshold };
                     }
                 }
-            }
+                FootprintStudy::NPoC { lookback } => {
+                    if let Some(existing_study) =
+                        studies.iter_mut().find(|s| s.is_same_type(&study))
+                    {
+                        *existing_study = FootprintStudy::NPoC { lookback };
+                    }
+                }
+            },
         }
 
         self.render_start();
@@ -1150,9 +1157,15 @@ fn draw_all_npocs(
     palette: &Extended,
     studies: &[FootprintStudy],
 ) {
-    if !studies.contains(&FootprintStudy::NPoC) {
+    let Some(lookback) = studies.iter().find_map(|study| {
+        if let FootprintStudy::NPoC { lookback } = study {
+            Some(*lookback)
+        } else {
+            None
+        }
+    }) else {
         return;
-    }
+    };
 
     match data_source {
         ChartData::TickBased(tick_aggr) => {
@@ -1161,6 +1174,7 @@ fn draw_all_npocs(
                 .iter()
                 .rev()
                 .enumerate()
+                .take(lookback)
                 .for_each(|(index, dp)| {
                     if let Some(poc) = dp.footprint.poc {
                         let x_position = interval_to_x(index as u64);
@@ -1187,30 +1201,35 @@ fn draw_all_npocs(
                 });
         }
         ChartData::TimeBased(timeseries) => {
-            timeseries.data_points.iter().for_each(|(timestamp, dp)| {
-                if let Some(poc) = dp.footprint.poc {
-                    let x_position = interval_to_x(*timestamp);
-                    let poc_y = price_to_y(poc.price);
+            timeseries
+                .data_points
+                .iter()
+                .rev()
+                .take(lookback)
+                .for_each(|(timestamp, dp)| {
+                    if let Some(poc) = dp.footprint.poc {
+                        let x_position = interval_to_x(*timestamp);
+                        let poc_y = price_to_y(poc.price);
 
-                    let start_x = x_position + (candle_width / 4.0);
-                    let (until_x, color) = match poc.status {
-                        NPoc::Naked => (-x_position, palette.warning.weak.color),
-                        NPoc::Filled { at } => {
-                            let until_x = interval_to_x(at) - start_x;
-                            if until_x.abs() <= cell_width {
-                                return;
+                        let start_x = x_position + (candle_width / 4.0);
+                        let (until_x, color) = match poc.status {
+                            NPoc::Naked => (-x_position, palette.warning.weak.color),
+                            NPoc::Filled { at } => {
+                                let until_x = interval_to_x(at) - start_x;
+                                if until_x.abs() <= cell_width {
+                                    return;
+                                }
+                                (until_x, palette.background.strong.color)
                             }
-                            (until_x, palette.background.strong.color)
-                        }
-                    };
+                        };
 
-                    frame.fill_rectangle(
-                        Point::new(start_x, poc_y - 1.0),
-                        Size::new(until_x, 1.0),
-                        color,
-                    );
-                }
-            });
+                        frame.fill_rectangle(
+                            Point::new(start_x, poc_y - 1.0),
+                            Size::new(until_x, 1.0),
+                            color,
+                        );
+                    }
+                });
         }
     }
 }
@@ -1228,7 +1247,7 @@ fn draw_clusters(
     palette: &Extended,
     text_size: f32,
     tick_size: f32,
-    imb_threshold: Option<i32>,
+    imb_threshold: Option<usize>,
     kline: &Kline,
     footprint: &KlineTrades,
     cluster_kind: ClusterKind,
@@ -1431,7 +1450,7 @@ fn draw_imbalance_marker(
     footprint: &KlineTrades,
     price: &OrderedFloat<f32>,
     higher_price: OrderedFloat<f32>,
-    threshold: i32,
+    threshold: usize,
     cell_height: f32,
     palette: &Extended,
     x_position: f32,

@@ -185,15 +185,15 @@ pub struct Config {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FootprintStudy {
-    NPoC,
-    Imbalance { threshold: i32 },
+    NPoC { lookback: usize },
+    Imbalance { threshold: usize },
 }
 
 impl FootprintStudy {
     pub fn is_same_type(&self, other: &Self) -> bool {
         matches!(
             (self, other),
-            (FootprintStudy::NPoC, FootprintStudy::NPoC)
+            (FootprintStudy::NPoC { .. }, FootprintStudy::NPoC { .. })
                 | (
                     FootprintStudy::Imbalance { .. },
                     FootprintStudy::Imbalance { .. }
@@ -204,7 +204,7 @@ impl FootprintStudy {
 
 impl FootprintStudy {
     pub const ALL: [FootprintStudy; 2] = [
-        FootprintStudy::NPoC,
+        FootprintStudy::NPoC { lookback: 80 },
         FootprintStudy::Imbalance { threshold: 200 },
     ];
 }
@@ -212,7 +212,7 @@ impl FootprintStudy {
 impl std::fmt::Display for FootprintStudy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            FootprintStudy::NPoC => write!(f, "Naked Point of Control"),
+            FootprintStudy::NPoC { .. } => write!(f, "Naked Point of Control"),
             FootprintStudy::Imbalance { .. } => write!(f, "Imbalance"),
         }
     }

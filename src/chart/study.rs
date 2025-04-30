@@ -10,7 +10,8 @@ use crate::style::{self, Icon, icon_text};
 pub enum Message {
     CardToggled(FootprintStudy),
     StudyToggled(FootprintStudy, bool),
-    ImbalancePctChanged(f32),
+    ImbalancePctChanged(usize),
+    LookbackChanged(usize),
 }
 
 pub enum Action {
@@ -49,9 +50,11 @@ impl ChartStudy {
                 return Action::ToggleStudy(study, is_checked);
             }
             Message::ImbalancePctChanged(value) => {
-                let study = FootprintStudy::Imbalance {
-                    threshold: value as i32,
-                };
+                let study = FootprintStudy::Imbalance { threshold: value };
+                return Action::ConfigureStudy(study);
+            }
+            Message::LookbackChanged(value) => {
+                let study = FootprintStudy::NPoC { lookback: value };
                 return Action::ConfigureStudy(study);
             }
         }
@@ -65,18 +68,18 @@ impl ChartStudy {
         for available_study in FootprintStudy::ALL {
             let (is_selected, value) = {
                 let mut is_selected = false;
-                let mut threshold = None;
+                let mut value = None;
 
                 for s in studies {
                     if s.is_same_type(&available_study) {
                         is_selected = true;
-                        threshold = match s {
+                        value = match s {
                             FootprintStudy::Imbalance { threshold } => Some(threshold),
-                            _ => None,
+                            FootprintStudy::NPoC { lookback } => Some(lookback),
                         };
                     }
                 }
-                (is_selected, threshold)
+                (is_selected, value)
             };
 
             let checkbox = iced::widget::checkbox(available_study.to_string(), is_selected)
@@ -89,8 +92,43 @@ impl ChartStudy {
                 .spacing(4);
 
             match available_study {
-                FootprintStudy::NPoC => {
-                    let column = column![checkbox_row].padding(padding::left(4));
+                FootprintStudy::NPoC { .. } => {
+                    let is_expanded = self
+                        .expanded_card
+                        .as_ref()
+                        .is_some_and(|expanded| expanded.is_same_type(&available_study));
+
+                    if is_selected {
+                        checkbox_row = checkbox_row.push(
+                            button(icon_text(Icon::Cog, 12))
+                                .on_press(Message::CardToggled(available_study))
+                                .style(move |theme, status| {
+                                    style::button::transparent(theme, status, is_expanded)
+                                }),
+                        )
+                    }
+
+                    let mut column = column![checkbox_row].padding(padding::left(4));
+
+                    if is_expanded {
+                        if let Some(lookback) = value {
+                            let lookback_slider =
+                                slider(10.0..=600.0, *lookback as f32, move |value| {
+                                    Message::LookbackChanged(value as usize)
+                                })
+                                .step(10.0);
+
+                            column = column.push(
+                                column![
+                                    text(format!("Lookback: {lookback} datapoints")),
+                                    lookback_slider
+                                ]
+                                .padding(8)
+                                .spacing(4),
+                            );
+                        };
+                    }
+
                     content = content.push(container(column).style(style::modal_container));
                 }
                 FootprintStudy::Imbalance { .. } => {
@@ -115,7 +153,7 @@ impl ChartStudy {
                         if let Some(threshold) = value {
                             let threshold_slider =
                                 slider(100.0..=800.0, *threshold as f32, move |value| {
-                                    Message::ImbalancePctChanged(value)
+                                    Message::ImbalancePctChanged(value as usize)
                                 })
                                 .step(25.0);
 
