@@ -185,8 +185,14 @@ pub struct Config {}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
 pub enum FootprintStudy {
-    NPoC { lookback: usize },
-    Imbalance { threshold: usize },
+    NPoC {
+        lookback: usize,
+    },
+    Imbalance {
+        threshold: usize,
+        color_scale: Option<usize>,
+        ignore_zeros: bool,
+    },
 }
 
 impl FootprintStudy {
@@ -205,7 +211,11 @@ impl FootprintStudy {
 impl FootprintStudy {
     pub const ALL: [FootprintStudy; 2] = [
         FootprintStudy::NPoC { lookback: 80 },
-        FootprintStudy::Imbalance { threshold: 200 },
+        FootprintStudy::Imbalance {
+            threshold: 200,
+            color_scale: None,
+            ignore_zeros: true,
+        },
     ];
 }
 

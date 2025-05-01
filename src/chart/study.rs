@@ -1,10 +1,9 @@
+use crate::style::{self, Icon, icon_text};
 use data::chart::kline::FootprintStudy;
 use iced::{
     Element, padding,
-    widget::{button, column, container, horizontal_space, row, slider, text},
+    widget::{button, column, container, horizontal_rule, horizontal_space, row, slider, text},
 };
-
-use crate::style::{self, Icon, icon_text};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -60,23 +59,22 @@ impl ChartStudy {
         let mut content = column![].spacing(4);
 
         for available_study in FootprintStudy::ALL {
-            let (is_selected, value) = {
+            let (is_selected, study_config) = {
                 let mut is_selected = false;
-                let mut value = None;
+                let mut study_config = None;
 
                 for s in studies {
                     if s.is_same_type(&available_study) {
                         is_selected = true;
-                        value = match s {
-                            FootprintStudy::Imbalance { threshold } => Some(threshold),
-                            FootprintStudy::NPoC { lookback } => Some(lookback),
-                        };
+                        study_config = Some(*s);
+                        break;
                     }
                 }
-                (is_selected, value)
+                (is_selected, study_config)
             };
 
-            content = content.push(self.create_study_row(available_study, is_selected, value));
+            content =
+                content.push(self.create_study_row(available_study, is_selected, study_config));
         }
 
         content.into()
@@ -86,7 +84,7 @@ impl ChartStudy {
         &self,
         study: FootprintStudy,
         is_selected: bool,
-        value: Option<&usize>,
+        study_config: Option<FootprintStudy>,
     ) -> Element<Message> {
         let checkbox = iced::widget::checkbox(study.to_string(), is_selected)
             .on_toggle(move |checked| Message::StudyToggled(study, checked));
@@ -114,12 +112,12 @@ impl ChartStudy {
 
         let mut column = column![checkbox_row].padding(padding::left(4));
 
-        if is_expanded && value.is_some() {
-            let value = *value.unwrap();
+        if is_expanded && study_config.is_some() {
+            let config = study_config.unwrap();
 
-            match study {
-                FootprintStudy::NPoC { .. } => {
-                    let slider_ui = slider(10.0..=400.0, value as f32, move |new_value| {
+            match config {
+                FootprintStudy::NPoC { lookback } => {
+                    let slider_ui = slider(10.0..=400.0, lookback as f32, move |new_value| {
                         let updated_study = FootprintStudy::NPoC {
                             lookback: new_value as usize,
                         };
@@ -128,24 +126,100 @@ impl ChartStudy {
                     .step(10.0);
 
                     column = column.push(
-                        column![text(format!("Lookback: {value} datapoints")), slider_ui]
+                        column![text(format!("Lookback: {lookback} datapoints")), slider_ui]
                             .padding(8)
                             .spacing(4),
                     );
                 }
-                FootprintStudy::Imbalance { .. } => {
-                    let slider_ui = slider(100.0..=800.0, value as f32, move |new_value| {
-                        let updated_study = FootprintStudy::Imbalance {
-                            threshold: new_value as usize,
-                        };
-                        Message::StudyValueChanged(updated_study)
-                    })
-                    .step(25.0);
+                FootprintStudy::Imbalance {
+                    threshold,
+                    color_scale,
+                    ignore_zeros,
+                } => {
+                    let qty_threshold = {
+                        let info_text = text(format!("Ask:Bid threshold: {threshold}%"));
+
+                        let threshold_slider =
+                            slider(100.0..=800.0, threshold as f32, move |new_value| {
+                                let updated_study = FootprintStudy::Imbalance {
+                                    threshold: new_value as usize,
+                                    color_scale,
+                                    ignore_zeros,
+                                };
+                                Message::StudyValueChanged(updated_study)
+                            })
+                            .step(25.0);
+
+                        column![info_text, threshold_slider,].padding(8).spacing(4)
+                    };
+
+                    let color_scaling = {
+                        let color_scale_enabled = color_scale.is_some();
+                        let color_scale_value = color_scale.unwrap_or(100);
+
+                        let color_scale_checkbox =
+                            iced::widget::checkbox("Dynamic color scaling", color_scale_enabled)
+                                .on_toggle(move |is_enabled| {
+                                    let updated_study = FootprintStudy::Imbalance {
+                                        threshold,
+                                        color_scale: if is_enabled {
+                                            Some(color_scale_value)
+                                        } else {
+                                            None
+                                        },
+                                        ignore_zeros,
+                                    };
+                                    Message::StudyValueChanged(updated_study)
+                                });
+
+                        if color_scale_enabled {
+                            let scaling_slider = column![
+                                text(format!("Opaque color at: {color_scale_value}x")),
+                                slider(50.0..=2000.0, color_scale_value as f32, move |new_value| {
+                                    let updated_study = FootprintStudy::Imbalance {
+                                        threshold,
+                                        color_scale: Some(new_value as usize),
+                                        ignore_zeros,
+                                    };
+                                    Message::StudyValueChanged(updated_study)
+                                })
+                                .step(50.0)
+                            ]
+                            .spacing(2);
+
+                            column![color_scale_checkbox, scaling_slider]
+                                .padding(8)
+                                .spacing(8)
+                        } else {
+                            column![color_scale_checkbox].padding(8)
+                        }
+                    };
+
+                    let ignore_zeros_checkbox = {
+                        let cbox = iced::widget::checkbox("Ignore zeros", ignore_zeros).on_toggle(
+                            move |is_checked| {
+                                let updated_study = FootprintStudy::Imbalance {
+                                    threshold,
+                                    color_scale,
+                                    ignore_zeros: is_checked,
+                                };
+                                Message::StudyValueChanged(updated_study)
+                            },
+                        );
+
+                        column![cbox].padding(8).spacing(4)
+                    };
 
                     column = column.push(
-                        column![text(format!("Ask:Bid threshold: {value}%")), slider_ui]
-                            .padding(8)
-                            .spacing(4),
+                        column![
+                            qty_threshold,
+                            horizontal_rule(1),
+                            color_scaling,
+                            horizontal_rule(1),
+                            ignore_zeros_checkbox,
+                        ]
+                        .padding(8)
+                        .spacing(4),
                     );
                 }
             }

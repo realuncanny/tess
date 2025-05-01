@@ -903,9 +903,14 @@ impl canvas::Program<Message> for KlineChart {
 
                     let candle_width = 0.1 * chart.cell_width;
 
-                    let imb_threshold = studies.iter().find_map(|study| {
-                        if let FootprintStudy::Imbalance { threshold } = study {
-                            Some(*threshold)
+                    let imbalance = studies.iter().find_map(|study| {
+                        if let FootprintStudy::Imbalance {
+                            threshold,
+                            color_scale,
+                            ignore_zeros,
+                        } = study
+                        {
+                            Some((*threshold, *color_scale, *ignore_zeros))
                         } else {
                             None
                         }
@@ -942,7 +947,7 @@ impl canvas::Program<Message> for KlineChart {
                                 palette,
                                 text_size,
                                 self.tick_size(),
-                                imb_threshold,
+                                imbalance,
                                 kline,
                                 trades,
                                 *clusters,
@@ -1236,7 +1241,7 @@ fn draw_clusters(
     palette: &Extended,
     text_size: f32,
     tick_size: f32,
-    imb_threshold: Option<usize>,
+    imbalance: Option<(usize, Option<usize>, bool)>,
     kline: &Kline,
     footprint: &KlineTrades,
     cluster_kind: ClusterKind,
@@ -1251,7 +1256,7 @@ fn draw_clusters(
             for (price, (buy_qty, sell_qty)) in &footprint.trades {
                 let y_position = price_to_y(**price);
 
-                if let Some(threshold) = imb_threshold {
+                if let Some((threshold, color_scale, ignore_zeros)) = imbalance {
                     let higher_price = OrderedFloat(round_to_tick(**price + tick_size, tick_size));
 
                     draw_imbalance_marker(
@@ -1259,8 +1264,11 @@ fn draw_clusters(
                         &price_to_y,
                         footprint,
                         price,
+                        sell_qty,
                         higher_price,
                         threshold,
+                        color_scale,
+                        ignore_zeros,
                         cell_height,
                         palette,
                         x_position,
@@ -1305,7 +1313,7 @@ fn draw_clusters(
             for (price, (buy_qty, sell_qty)) in &footprint.trades {
                 let y_position = price_to_y(**price);
 
-                if let Some(threshold) = imb_threshold {
+                if let Some((threshold, color_scale, ignore_zeros)) = imbalance {
                     let higher_price = OrderedFloat(round_to_tick(**price + tick_size, tick_size));
 
                     draw_imbalance_marker(
@@ -1313,8 +1321,11 @@ fn draw_clusters(
                         &price_to_y,
                         footprint,
                         price,
+                        sell_qty,
                         higher_price,
                         threshold,
+                        color_scale,
+                        ignore_zeros,
                         cell_height,
                         palette,
                         x_position,
@@ -1361,7 +1372,7 @@ fn draw_clusters(
             for (price, (buy_qty, sell_qty)) in &footprint.trades {
                 let y_position = price_to_y(**price);
 
-                if let Some(threshold) = imb_threshold {
+                if let Some((threshold, color_scale, ignore_zeros)) = imbalance {
                     let higher_price = OrderedFloat(round_to_tick(**price + tick_size, tick_size));
 
                     draw_imbalance_marker(
@@ -1369,8 +1380,11 @@ fn draw_clusters(
                         &price_to_y,
                         footprint,
                         price,
+                        sell_qty,
                         higher_price,
                         threshold,
+                        color_scale,
+                        ignore_zeros,
                         cell_height,
                         palette,
                         x_position,
@@ -1438,16 +1452,26 @@ fn draw_imbalance_marker(
     price_to_y: &impl Fn(f32) -> f32,
     footprint: &KlineTrades,
     price: &OrderedFloat<f32>,
+    sell_qty: &f32,
     higher_price: OrderedFloat<f32>,
     threshold: usize,
+    color_scale: Option<usize>,
+    ignore_zeros: bool,
     cell_height: f32,
     palette: &Extended,
     x_position: f32,
     cell_width: f32,
     cluster_kind: ClusterKind,
 ) {
+    if ignore_zeros && *sell_qty <= 0.0 {
+        return;
+    }
+
     if let Some((diagonal_buy_qty, _)) = footprint.trades.get(&higher_price) {
-        let (_, sell_qty) = footprint.trades.get(price).unwrap();
+        if ignore_zeros && *diagonal_buy_qty <= 0.0 {
+            return;
+        }
+
         let radius = (cell_height / 2.0).min(2.0);
 
         let (success_x, danger_x) = match cluster_kind {
@@ -1465,20 +1489,38 @@ fn draw_imbalance_marker(
             let required_qty = *sell_qty * (100 + threshold) as f32 / 100.0;
 
             if *diagonal_buy_qty > required_qty {
+                let ratio = *diagonal_buy_qty / required_qty;
+
+                let alpha = if let Some(scale) = color_scale {
+                    let divisor = (scale as f32 / 10.0) - 1.0;
+                    (0.2 + 0.8 * ((ratio - 1.0) / divisor).min(1.0)).min(1.0)
+                } else {
+                    1.0
+                };
+
                 let y_position = price_to_y(*higher_price);
                 frame.fill(
                     &Path::circle(Point::new(success_x, y_position), radius),
-                    palette.success.weak.color,
+                    palette.success.weak.color.scale_alpha(alpha),
                 );
             }
         } else {
             let required_qty = *diagonal_buy_qty * (100 + threshold) as f32 / 100.0;
 
             if *sell_qty > required_qty {
+                let ratio = *sell_qty / required_qty;
+
+                let alpha = if let Some(scale) = color_scale {
+                    let divisor = (scale as f32 / 10.0) - 1.0;
+                    (0.2 + 0.8 * ((ratio - 1.0) / divisor).min(1.0)).min(1.0)
+                } else {
+                    1.0
+                };
+
                 let y_position = price_to_y(**price);
                 frame.fill(
                     &Path::circle(Point::new(danger_x, y_position), radius),
-                    palette.danger.weak.color,
+                    palette.danger.weak.color.scale_alpha(alpha),
                 );
             }
         }
