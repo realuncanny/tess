@@ -1271,7 +1271,7 @@ fn draw_clusters(
                         ignore_zeros,
                         cell_height,
                         palette,
-                        x_position,
+                        x_position - (candle_width / 4.0),
                         cell_width,
                         cluster_kind,
                     );
@@ -1297,7 +1297,7 @@ fn draw_clusters(
                     draw_cluster_text(
                         frame,
                         &abbr_large_numbers(buy_qty + sell_qty),
-                        Point::new(x_position + (candle_width / 4.0), y_position),
+                        Point::new(start_x, y_position),
                         text_size,
                         text_color,
                         Alignment::Start,
@@ -1328,7 +1328,7 @@ fn draw_clusters(
                         ignore_zeros,
                         cell_height,
                         palette,
-                        x_position,
+                        x_position - (candle_width / 4.0),
                         cell_width,
                         cluster_kind,
                     );
@@ -1472,17 +1472,17 @@ fn draw_imbalance_marker(
             return;
         }
 
-        let radius = (cell_height / 2.0).min(2.0);
+        let rect_width = cell_width / 16.0;
+        let rect_height = cell_height / 2.0;
 
         let (success_x, danger_x) = match cluster_kind {
             ClusterKind::BidAsk => (
-                x_position + (cell_width / 2.0) - (radius * 2.0),
-                x_position - (cell_width / 2.0) + (radius * 2.0),
+                x_position + (cell_width / 2.0) - rect_width,
+                x_position - (cell_width / 2.0),
             ),
-            ClusterKind::VolumeProfile | ClusterKind::DeltaProfile => (
-                x_position - (radius * 2.0),
-                x_position - 2.0 * (radius * 2.0) - 1.0,
-            ),
+            ClusterKind::VolumeProfile | ClusterKind::DeltaProfile => {
+                (x_position - rect_width, x_position - 2.0 * rect_width - 1.0)
+            }
         };
 
         if diagonal_buy_qty >= sell_qty {
@@ -1499,8 +1499,9 @@ fn draw_imbalance_marker(
                 };
 
                 let y_position = price_to_y(*higher_price);
-                frame.fill(
-                    &Path::circle(Point::new(success_x, y_position), radius),
+                frame.fill_rectangle(
+                    Point::new(success_x, y_position - (rect_height / 2.0)),
+                    Size::new(rect_width, rect_height),
                     palette.success.weak.color.scale_alpha(alpha),
                 );
             }
@@ -1518,15 +1519,15 @@ fn draw_imbalance_marker(
                 };
 
                 let y_position = price_to_y(**price);
-                frame.fill(
-                    &Path::circle(Point::new(danger_x, y_position), radius),
+                frame.fill_rectangle(
+                    Point::new(danger_x, y_position - (rect_height / 2.0)),
+                    Size::new(rect_width, rect_height),
                     palette.danger.weak.color.scale_alpha(alpha),
                 );
             }
         }
     }
 }
-
 fn draw_cluster_text(
     frame: &mut canvas::Frame,
     text: &str,
