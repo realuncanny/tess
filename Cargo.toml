@@ -1,6 +1,6 @@
 [package]
 name = "flowsurface"
-version = "0.6.1"
+version = "0.7.0"
 edition = "2024"
 readme = "README.md"
 license = "GPL-3.0-or-later"
@@ -12,7 +12,7 @@ members = [ "data", "exchange"]
 
 [workspace.dependencies]
 iced_futures = "0.13.2"
-iced_core = "0.14.0-dev"
+iced_core = { version = "0.14.0-dev", features = ["serde"] }
 chrono = { version = "0.4.40", default-features = false, features = ["serde", "now", "clock"] }
 serde = { version = "1.0", default-features = false, features = ["derive"] }
 serde_json = "1.0.132"
@@ -21,12 +21,13 @@ thiserror = "2.0.12"
 ordered-float = "5.0.0"
 regex = "1.11.1"
 rust_decimal = "1.36.0"
+palette = "0.7.6"
 uuid = { version = "1.11.0", features = ["v4"] }
 
 [dependencies]
 iced = { version = "0.14.0-dev", default-features = false, features = [
-    "wgpu", 
-    "lazy", 
+    "wgpu",
+    "lazy",
     "tokio", 
     "canvas",
     "sipper",
@@ -42,6 +43,7 @@ thiserror.workspace = true
 ordered-float.workspace = true
 log.workspace = true
 uuid.workspace = true
+palette.workspace = true
 fern = "0.7.1"
 
 exchange = { version = "0.1.0", path = "exchange" }
@@ -50,4 +52,3 @@ data = { version = "0.1.0", path = "data" }
 [patch.crates-io]
 iced = { git = "https://github.com/iced-rs/iced", rev = "bc66866bb81d0d477c7d0dd96cd54d1d7b443801" }
 iced_core = { git = "https://github.com/iced-rs/iced", rev = "bc66866bb81d0d477c7d0dd96cd54d1d7b443801"}
-

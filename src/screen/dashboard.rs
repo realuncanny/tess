@@ -1,4 +1,5 @@
 pub mod pane;
+pub mod theme_editor;
 pub mod tickers_table;
 
 use data::{UserTimezone, chart::Basis, layout::WindowSpec};
@@ -1135,6 +1136,13 @@ impl Dashboard {
             log::error!("No matching pane found for the stream: {stream:?}");
             Task::done(Message::RefreshStreams)
         }
+    }
+
+    pub fn invalidate_all_panes(&mut self, main_window: window::Id) {
+        self.iter_all_panes_mut(main_window)
+            .for_each(|(_, _, pane_state)| {
+                pane_state.invalidate();
+            });
     }
 
     pub fn market_subscriptions<M>(

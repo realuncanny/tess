@@ -14,6 +14,7 @@ use screen::{
     create_button,
     dashboard::{
         self, Dashboard, pane,
+        theme_editor::{self, ThemeEditor},
         tickers_table::{self, TickersTable},
     },
 };
@@ -25,7 +26,7 @@ use widget::{
 };
 use window::{Window, window_events};
 
-use data::{InternalError, config::theme::custom_theme, layout::WindowSpec, sidebar};
+use data::{InternalError, config::theme::default_theme, layout::WindowSpec, sidebar};
 use exchange::adapter::{Exchange, StreamType, fetch_ticker_info};
 use iced::{
     Alignment, Element, Length, Subscription, Task, padding,
@@ -69,6 +70,7 @@ struct Flowsurface {
     theme: data::Theme,
     notifications: Vec<Toast>,
     audio_stream: audio::AudioStream,
+    theme_editor: ThemeEditor,
 }
 
 #[derive(Debug, Clone)]
@@ -98,6 +100,8 @@ enum Message {
 
     AddNotification(Toast),
     DeleteNotification(usize),
+
+    ThemeEditor(theme_editor::Message),
 }
 
 impl Flowsurface {
@@ -119,6 +123,8 @@ impl Flowsurface {
         let active_layout = saved_state.layout_manager.active_layout();
         let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
+        let theme = saved_state.theme.clone();
+
         (
             Self {
                 main_window: Window::new(main_window_id),
@@ -128,9 +134,10 @@ impl Flowsurface {
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
                 sidebar: saved_state.sidebar,
-                theme: saved_state.theme,
+                theme: theme.clone(),
                 notifications: vec![],
                 audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
+                theme_editor: theme_editor::ThemeEditor::new(saved_state.custom_theme),
             },
             open_main_window
                 .then(|_| Task::none())
@@ -268,6 +275,7 @@ impl Flowsurface {
                 let layout = data::State::from_parts(
                     layouts,
                     self.theme.clone(),
+                    self.theme_editor.custom_theme.clone().map(data::Theme),
                     self.tickers_table.favorited_tickers(),
                     main_window,
                     self.timezone,
@@ -299,7 +307,7 @@ impl Flowsurface {
                 };
             }
             Message::ThemeSelected(theme) => {
-                self.theme = theme;
+                self.theme = theme.clone();
             }
             Message::Dashboard(id, message) => {
                 let main_window = self.main_window;
@@ -451,6 +459,29 @@ impl Flowsurface {
                     ))));
                 }
             }
+            Message::ThemeEditor(msg) => {
+                let action = self.theme_editor.update(msg, self.theme.clone().into());
+
+                match action {
+                    theme_editor::Action::Exit => {
+                        self.sidebar.set_menu(sidebar::Menu::Settings);
+                    }
+                    theme_editor::Action::UpdateTheme(theme) => {
+                        self.theme = data::Theme(theme);
+
+                        let main_window = self.main_window.id;
+
+                        if let Some(dashboard) = self.active_dashboard_mut() {
+                            dashboard.invalidate_all_panes(main_window)
+                        } else {
+                            return Task::done(Message::ErrorOccurred(InternalError::Layout(
+                                "No active dashboard".to_string(),
+                            )));
+                        }
+                    }
+                    theme_editor::Action::None => {}
+                }
+            }
         }
         Task::none()
     }
@@ -483,7 +514,8 @@ impl Flowsurface {
 
                 let nav_buttons = {
                     let settings_modal_button = {
-                        let is_active = self.sidebar.is_menu_active(sidebar::Menu::Settings);
+                        let is_active = self.sidebar.is_menu_active(sidebar::Menu::Settings)
+                            || self.sidebar.is_menu_active(sidebar::Menu::ThemeEditor);
 
                         create_button(
                             icon_text(Icon::Cog, 14)
@@ -617,37 +649,23 @@ impl Flowsurface {
             match self.sidebar.active_menu {
                 sidebar::Menu::Settings => {
                     let settings_modal = {
-                        let mut all_themes = iced_core::Theme::ALL.to_vec();
-                        all_themes.push(iced_core::Theme::Custom(custom_theme().into()));
+                        let theme_picklist = {
+                            let mut themes: Vec<iced::Theme> = iced_core::Theme::ALL.to_vec();
 
-                        let trade_fetch_checkbox = {
-                            let is_active = dashboard.trade_fetch_enabled;
+                            let default_theme = iced_core::Theme::Custom(default_theme().into());
+                            themes.push(default_theme);
 
-                            let checkbox =
-                                iced::widget::checkbox("Fetch trades (Binance)", is_active)
-                                    .on_toggle(|checked| {
-                                        if checked {
-                                            Message::ToggleDialogModal(Some((
-                                        "This might be unreliable and take some time to complete"
-                                            .to_string(),
-                                        Box::new(Message::ToggleTradeFetch(true)),
-                                    )))
-                                        } else {
-                                            Message::ToggleTradeFetch(false)
-                                        }
-                                    });
+                            if let Some(custom_theme) = self.theme_editor.custom_theme.clone() {
+                                themes.push(custom_theme);
+                            }
 
-                            tooltip(
-                                checkbox,
-                                Some("Try to fetch trades for footprint charts"),
-                                TooltipPosition::Top,
-                            )
+                            pick_list(themes, Some(self.theme.clone().0), |theme| {
+                                Message::ThemeSelected(data::Theme(theme))
+                            })
                         };
 
-                        let theme_picklist =
-                            pick_list(all_themes, Some(self.theme.clone().0), |theme| {
-                                Message::ThemeSelected(data::Theme(theme))
-                            });
+                        let toggle_theme_editor = button(text("Theme editor"))
+                            .on_press(Message::ToggleSidebarMenu(sidebar::Menu::ThemeEditor));
 
                         let timezone_picklist = pick_list(
                             [data::UserTimezone::Utc, data::UserTimezone::Local],
@@ -693,6 +711,30 @@ impl Flowsurface {
                             .style(style::modal_container)
                         };
 
+                        let trade_fetch_checkbox = {
+                            let is_active = dashboard.trade_fetch_enabled;
+
+                            let checkbox =
+                                iced::widget::checkbox("Fetch trades (Binance)", is_active)
+                                    .on_toggle(|checked| {
+                                        if checked {
+                                            Message::ToggleDialogModal(Some((
+                                        "This might be unreliable and take some time to complete"
+                                            .to_string(),
+                                        Box::new(Message::ToggleTradeFetch(true)),
+                                    )))
+                                        } else {
+                                            Message::ToggleTradeFetch(false)
+                                        }
+                                    });
+
+                            tooltip(
+                                checkbox,
+                                Some("Try to fetch trades for footprint charts"),
+                                TooltipPosition::Top,
+                            )
+                        };
+
                         let open_data_folder = {
                             let button = button(text("Open data folder"))
                                 .on_press(Message::DataFolderRequested);
@@ -711,8 +753,12 @@ impl Flowsurface {
                                 column![text("Time zone").size(14), timezone_picklist,].spacing(8),
                                 column![text("Theme").size(14), theme_picklist,].spacing(8),
                                 column![text("Interface scale").size(14), scale_factor,].spacing(8),
-                                column![text("Experimental").size(14), trade_fetch_checkbox,]
-                                    .spacing(8),
+                                column![
+                                    text("Experimental").size(14),
+                                    trade_fetch_checkbox,
+                                    toggle_theme_editor
+                                ]
+                                .spacing(8),
                             ]
                             .spacing(20),
                         )
@@ -867,6 +913,23 @@ impl Flowsurface {
                         Message::ToggleSidebarMenu(sidebar::Menu::None),
                         padding,
                         Alignment::Start,
+                        align_x,
+                    )
+                }
+                sidebar::Menu::ThemeEditor => {
+                    let (align_x, padding) = match sidebar_pos {
+                        sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
+                        sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                    };
+
+                    dashboard_modal(
+                        base,
+                        self.theme_editor
+                            .view(&self.theme.0)
+                            .map(Message::ThemeEditor),
+                        Message::ToggleSidebarMenu(sidebar::Menu::None),
+                        padding,
+                        Alignment::End,
                         align_x,
                     )
                 }

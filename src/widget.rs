@@ -8,7 +8,9 @@ use iced::{
     },
 };
 
+pub mod color_picker;
 pub mod column_drag;
+pub mod decorate;
 pub mod multi_split;
 pub mod notification;
 
@@ -144,21 +146,24 @@ where
 pub fn create_slider_row<'a, Message>(
     label: Text<'a>,
     slider: Element<'a, Message>,
-    placeholder: Text<'a>,
+    placeholder: Option<Text<'a>>,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
+    let slider = if let Some(placeholder) = placeholder {
+        column![slider, placeholder]
+            .spacing(2)
+            .align_x(Alignment::Center)
+    } else {
+        column![slider]
+    };
+
     container(
-        row![
-            label,
-            column![slider, placeholder,]
-                .spacing(2)
-                .align_x(Alignment::Center),
-        ]
-        .align_y(Alignment::Center)
-        .spacing(8)
-        .padding(8),
+        row![label, slider]
+            .align_y(Alignment::Center)
+            .spacing(8)
+            .padding(8),
     )
     .style(style::modal_container)
     .into()
