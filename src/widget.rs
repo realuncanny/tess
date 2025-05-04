@@ -12,7 +12,7 @@ pub mod color_picker;
 pub mod column_drag;
 pub mod decorate;
 pub mod multi_split;
-pub mod notification;
+pub mod toast;
 
 pub fn tooltip<'a, Message: 'a>(
     content: impl Into<Element<'a, Message>>,

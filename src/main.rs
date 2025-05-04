@@ -21,7 +21,7 @@ use screen::{
 use style::{Icon, icon_text};
 use widget::{
     confirm_dialog_container, dashboard_modal, main_dialog_modal,
-    notification::{self, Toast},
+    toast::{self, Toast},
     tooltip,
 };
 use window::{Window, window_events};
@@ -945,7 +945,7 @@ impl Flowsurface {
             .into()
         };
 
-        notification::Manager::new(
+        toast::Manager::new(
             content,
             &self.notifications,
             match sidebar_pos {

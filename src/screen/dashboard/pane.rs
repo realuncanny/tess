@@ -3,7 +3,7 @@ use crate::{
     chart::{self, config, heatmap::HeatmapChart, kline::KlineChart, timeandsales::TimeAndSales},
     screen::{DashboardError, create_button},
     style::{self, Icon, icon_text},
-    widget::{self, column_drag, dragger_row, notification::Toast, pane_modal},
+    widget::{self, column_drag, dragger_row, pane_modal, toast::Toast},
     window::{self, Window},
 };
 use data::{
@@ -671,13 +671,11 @@ fn handle_chart_view<'a, F>(
 where
     F: FnOnce() -> Element<'a, Message>,
 {
-    let base = widget::notification::Manager::new(
-        base,
-        &state.notifications,
-        Alignment::End,
-        move |msg| Message::DeleteNotification(pane, msg),
-    )
-    .into();
+    let base =
+        widget::toast::Manager::new(base, &state.notifications, Alignment::End, move |msg| {
+            Message::DeleteNotification(pane, msg)
+        })
+        .into();
 
     match state.modal {
         PaneModal::StreamModifier => pane_modal(
@@ -1005,7 +1003,7 @@ fn view_panel<'a, C: PanelView>(
 ) -> Element<'a, Message> {
     let base = center(content.view(pane, state, timezone));
 
-    widget::notification::Manager::new(base, &state.notifications, Alignment::End, move |idx| {
+    widget::toast::Manager::new(base, &state.notifications, Alignment::End, move |idx| {
         Message::DeleteNotification(pane, idx)
     })
     .into()

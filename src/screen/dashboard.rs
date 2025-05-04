@@ -7,7 +7,7 @@ pub use pane::{PaneContent, PaneState};
 
 use crate::{
     StreamType, chart, style,
-    widget::notification::Toast,
+    widget::toast::Toast,
     window::{self, Window},
 };
 

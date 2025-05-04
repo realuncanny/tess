@@ -283,8 +283,9 @@ impl<Message> Widget<Message, Theme, Renderer> for Manager<'_, Message> {
     fn overlay<'b>(
         &'b mut self,
         state: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
         let instants = state.state.downcast_mut::<Vec<Option<Instant>>>();
@@ -295,12 +296,14 @@ impl<Message> Widget<Message, Theme, Renderer> for Manager<'_, Message> {
             &mut content_state[0],
             layout,
             renderer,
+            viewport,
             translation,
         );
 
         let toasts = (!self.toasts.is_empty()).then(|| {
             overlay::Element::new(Box::new(Overlay {
                 position: layout.bounds().position() + translation,
+                viewport: *viewport,
                 bounds: layout.bounds(),
                 alignment: self.alignment,
                 toasts: &mut self.toasts,
@@ -318,6 +321,7 @@ impl<Message> Widget<Message, Theme, Renderer> for Manager<'_, Message> {
 
 struct Overlay<'a, 'b, Message> {
     position: Point,
+    viewport: Rectangle,
     bounds: Rectangle,
     alignment: Alignment,
     toasts: &'b mut [Element<'a, Message>],
@@ -450,7 +454,6 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
         &self,
         layout: Layout<'_>,
         cursor: mouse::Cursor,
-        viewport: &Rectangle,
         renderer: &Renderer,
     ) -> mouse::Interaction {
         self.toasts
@@ -460,16 +463,16 @@ impl<Message> overlay::Overlay<Message, Theme, Renderer> for Overlay<'_, '_, Mes
             .map(|((child, state), layout)| {
                 child
                     .as_widget()
-                    .mouse_interaction(state, layout, cursor, viewport, renderer)
+                    .mouse_interaction(state, layout, cursor, &self.viewport, renderer)
+                    .max(
+                        cursor
+                            .is_over(layout.bounds())
+                            .then_some(mouse::Interaction::Idle)
+                            .unwrap_or_default(),
+                    )
             })
             .max()
             .unwrap_or_default()
-    }
-
-    fn is_over(&self, layout: Layout<'_>, _renderer: &Renderer, cursor_position: Point) -> bool {
-        layout
-            .children()
-            .any(|layout| layout.bounds().contains(cursor_position))
     }
 }
 

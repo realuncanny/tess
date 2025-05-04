@@ -531,8 +531,9 @@ pub trait Overlay<'a, Message, Theme, Renderer, State> {
         state: &'b mut State,
         inner: &'b mut Element<'a, Message, Theme, Renderer>,
         tree: &'b mut advanced::widget::Tree,
-        layout: advanced::Layout<'_>,
+        layout: advanced::Layout<'b>,
         renderer: &Renderer,
+        viewport: &iced::Rectangle,
         translation: iced::Vector,
     ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>>;
 }
@@ -546,13 +547,14 @@ where
         _state: &'b mut State,
         inner: &'b mut Element<'a, Message, Theme, Renderer>,
         tree: &'b mut advanced::widget::Tree,
-        layout: advanced::Layout<'_>,
+        layout: advanced::Layout<'b>,
         renderer: &Renderer,
+        viewport: &iced::Rectangle,
         translation: iced::Vector,
     ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         inner
             .as_widget_mut()
-            .overlay(tree, layout, renderer, translation)
+            .overlay(tree, layout, renderer, viewport, translation)
     }
 }
 
@@ -564,6 +566,7 @@ where
             &'b mut advanced::widget::Tree,
             advanced::Layout<'_>,
             &Renderer,
+            &iced::Rectangle,
             iced::Vector,
         ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>>
         + 'a,
@@ -573,11 +576,12 @@ where
         state: &'b mut State,
         inner: &'b mut Element<'a, Message, Theme, Renderer>,
         tree: &'b mut advanced::widget::Tree,
-        layout: advanced::Layout<'_>,
+        layout: advanced::Layout<'b>,
         renderer: &Renderer,
+        viewport: &iced::Rectangle,
         translation: iced::Vector,
     ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>> {
-        self(state, inner, tree, layout, renderer, translation)
+        self(state, inner, tree, layout, renderer, viewport, translation)
     }
 }
 
@@ -733,8 +737,9 @@ where
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut advanced::widget::Tree,
-        layout: advanced::Layout<'_>,
+        layout: advanced::Layout<'b>,
         renderer: &Renderer,
+        viewport: &iced::Rectangle,
         translation: iced::Vector,
     ) -> Option<advanced::overlay::Element<'b, Message, Theme, Renderer>> {
         self.overlay.overlay(
@@ -743,6 +748,7 @@ where
             &mut tree.children[0],
             layout,
             renderer,
+            viewport,
             translation,
         )
     }

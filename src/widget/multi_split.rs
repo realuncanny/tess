@@ -301,11 +301,19 @@ impl<Message> Widget<Message, Theme, Renderer> for MultiSplit<'_, Message> {
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
-        layout: Layout<'_>,
+        layout: Layout<'b>,
         renderer: &Renderer,
+        viewport: &Rectangle,
         translation: Vector,
     ) -> Option<overlay::Element<'b, Message, Theme, Renderer>> {
-        overlay::from_children(&mut self.panels, tree, layout, renderer, translation)
+        overlay::from_children(
+            &mut self.panels,
+            tree,
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
     }
 
     fn operate(
