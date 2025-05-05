@@ -1263,8 +1263,8 @@ fn draw_clusters(
                         frame,
                         &price_to_y,
                         footprint,
-                        price,
-                        sell_qty,
+                        *price,
+                        *sell_qty,
                         higher_price,
                         threshold,
                         color_scale,
@@ -1320,8 +1320,8 @@ fn draw_clusters(
                         frame,
                         &price_to_y,
                         footprint,
-                        price,
-                        sell_qty,
+                        *price,
+                        *sell_qty,
                         higher_price,
                         threshold,
                         color_scale,
@@ -1379,8 +1379,8 @@ fn draw_clusters(
                         frame,
                         &price_to_y,
                         footprint,
-                        price,
-                        sell_qty,
+                        *price,
+                        *sell_qty,
                         higher_price,
                         threshold,
                         color_scale,
@@ -1451,8 +1451,8 @@ fn draw_imbalance_marker(
     frame: &mut canvas::Frame,
     price_to_y: &impl Fn(f32) -> f32,
     footprint: &KlineTrades,
-    price: &OrderedFloat<f32>,
-    sell_qty: &f32,
+    price: OrderedFloat<f32>,
+    sell_qty: f32,
     higher_price: OrderedFloat<f32>,
     threshold: usize,
     color_scale: Option<usize>,
@@ -1463,7 +1463,7 @@ fn draw_imbalance_marker(
     cell_width: f32,
     cluster_kind: ClusterKind,
 ) {
-    if ignore_zeros && *sell_qty <= 0.0 {
+    if ignore_zeros && sell_qty <= 0.0 {
         return;
     }
 
@@ -1485,8 +1485,8 @@ fn draw_imbalance_marker(
             }
         };
 
-        if diagonal_buy_qty >= sell_qty {
-            let required_qty = *sell_qty * (100 + threshold) as f32 / 100.0;
+        if *diagonal_buy_qty >= sell_qty {
+            let required_qty = sell_qty * (100 + threshold) as f32 / 100.0;
 
             if *diagonal_buy_qty > required_qty {
                 let ratio = *diagonal_buy_qty / required_qty;
@@ -1508,8 +1508,8 @@ fn draw_imbalance_marker(
         } else {
             let required_qty = *diagonal_buy_qty * (100 + threshold) as f32 / 100.0;
 
-            if *sell_qty > required_qty {
-                let ratio = *sell_qty / required_qty;
+            if sell_qty > required_qty {
+                let ratio = sell_qty / required_qty;
 
                 let alpha = if let Some(scale) = color_scale {
                     let divisor = (scale as f32 / 10.0) - 1.0;
@@ -1518,7 +1518,7 @@ fn draw_imbalance_marker(
                     1.0
                 };
 
-                let y_position = price_to_y(**price);
+                let y_position = price_to_y(*price);
                 frame.fill_rectangle(
                     Point::new(danger_x, y_position - (rect_height / 2.0)),
                     Size::new(rect_width, rect_height),

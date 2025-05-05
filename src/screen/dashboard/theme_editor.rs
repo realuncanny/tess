@@ -20,7 +20,7 @@ pub enum Component {
 
 impl std::fmt::Display for Component {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
+        write!(f, "{self:?}")
     }
 }
 
@@ -77,7 +77,7 @@ impl ThemeEditor {
         }
     }
 
-    pub fn update(&mut self, message: Message, theme: iced_core::Theme) -> Action {
+    pub fn update(&mut self, message: Message, theme: &iced_core::Theme) -> Action {
         match message {
             Message::Color(color) => {
                 self.hex_input = None;

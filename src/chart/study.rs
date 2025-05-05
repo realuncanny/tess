@@ -5,7 +5,7 @@ use iced::{
     widget::{button, column, container, horizontal_rule, horizontal_space, row, slider, text},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Message {
     CardToggled(FootprintStudy),
     StudyToggled(FootprintStudy, bool),
@@ -107,7 +107,7 @@ impl ChartStudy {
                     .style(move |theme, status| {
                         style::button::transparent(theme, status, is_expanded)
                     }),
-            )
+            );
         }
 
         let mut column = column![checkbox_row].padding(padding::left(4));

@@ -64,9 +64,7 @@ impl TickAccumulation {
         lowest: OrderedFloat<f32>,
     ) -> f32 {
         match cluster_kind {
-            ClusterKind::BidAsk => self
-                .footprint
-                .max_qty_by(highest, lowest, |buy, sell| buy.max(sell)),
+            ClusterKind::BidAsk => self.footprint.max_qty_by(highest, lowest, f32::max),
             ClusterKind::DeltaProfile => self
                 .footprint
                 .max_qty_by(highest, lowest, |buy, sell| (buy - sell).abs()),
@@ -218,7 +216,7 @@ impl TickAggr {
             .filter(|(index, _)| *index <= latest && *index >= earliest)
             .for_each(|(_, dp)| {
                 max_cluster_qty =
-                    max_cluster_qty.max(dp.max_cluster_qty(cluster_kind, highest, lowest))
+                    max_cluster_qty.max(dp.max_cluster_qty(cluster_kind, highest, lowest));
             });
 
         max_cluster_qty

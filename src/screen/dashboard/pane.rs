@@ -1084,10 +1084,10 @@ impl PaneContent {
         }
     }
 
-    pub fn reorder_indicators(&mut self, event: column_drag::DragEvent) {
+    pub fn reorder_indicators(&mut self, event: &column_drag::DragEvent) {
         match self {
-            PaneContent::Heatmap(_, indicator) => column_drag::reorder_vec(indicator, &event),
-            PaneContent::Kline(_, indicator) => column_drag::reorder_vec(indicator, &event),
+            PaneContent::Heatmap(_, indicator) => column_drag::reorder_vec(indicator, event),
+            PaneContent::Kline(_, indicator) => column_drag::reorder_vec(indicator, event),
             PaneContent::TimeAndSales(_) | PaneContent::Starter => {
                 panic!("indicator reorder on {} pane", self)
             }

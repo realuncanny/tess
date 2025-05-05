@@ -1,6 +1,6 @@
 ///
-/// This widget is exact copy of `decorate` widget at ['Halloy']: https://github.com/squidowl/halloy/blob/main/src/widget/decorate.rs
-/// All credits goes to authors of ['Halloy'], https://github.com/squidowl/halloy/
+/// This widget is exact copy of `decorate` widget at [`Halloy`]: https://github.com/squidowl/halloy/blob/main/src/widget/decorate.rs
+/// All credits goes to authors of [`Halloy`], https://github.com/squidowl/halloy/
 ///
 use std::marker::PhantomData;
 use std::slice;

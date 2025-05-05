@@ -1,9 +1,9 @@
 ///
-/// This widget is slight modification of `color_picker` widget at ['Halloy']: https://github.com/squidowl/halloy/blob/main/src/widget/color_picker.rs
-/// All credits goes to authors of ['Halloy'], https://github.com/squidowl/halloy/
+/// This widget is slight modification of `color_picker` widget at [`Halloy`]: https://github.com/squidowl/halloy/blob/main/src/widget/color_picker.rs
+/// All credits goes to authors of [`Halloy`], https://github.com/squidowl/halloy/
 /// I just removed alpha channel support as to fully rely on Iced's color palette generation.
 ///
-use iced::Length::{self, *};
+use iced::Length::{self, Fill, FillPortion};
 use iced::advanced::Layout;
 use iced::advanced::renderer::{Quad, Renderer as _};
 use iced::widget::{Container, Space, column, container, row};
@@ -159,7 +159,7 @@ enum Picker {
 }
 
 impl Picker {
-    fn handle_from_color(&self, color: Hsva, bounds: Rectangle, radius: f32) -> Rectangle {
+    fn handle_from_color(self, color: Hsva, bounds: Rectangle, radius: f32) -> Rectangle {
         let width = bounds.width - radius;
         let height = bounds.height - radius;
 
@@ -179,7 +179,7 @@ impl Picker {
         }
     }
 
-    fn handle_from_cursor(&self, cursor: Point, bounds: Rectangle, radius: f32) -> Rectangle {
+    fn handle_from_cursor(self, cursor: Point, bounds: Rectangle, radius: f32) -> Rectangle {
         match self {
             Picker::Slider(_) => Rectangle {
                 x: cursor.x.clamp(bounds.x, bounds.x + bounds.width) - radius,
@@ -196,7 +196,7 @@ impl Picker {
         }
     }
 
-    fn color_at_handle(&self, color: Hsva, handle: Rectangle, bounds: Rectangle) -> Hsva {
+    fn color_at_handle(self, color: Hsva, handle: Rectangle, bounds: Rectangle) -> Hsva {
         match self {
             Picker::Slider(x) => x.color(color, (handle.center_x() - bounds.x) / bounds.width),
             Picker::Grid { x, y } => x.color(
@@ -206,7 +206,7 @@ impl Picker {
         }
     }
 
-    fn with_cells(&self, color: Hsva, bounds: Rectangle, mut f: impl FnMut(usize, usize, Hsva)) {
+    fn with_cells(self, color: Hsva, bounds: Rectangle, mut f: impl FnMut(usize, usize, Hsva)) {
         match self {
             Picker::Slider(x_value) => {
                 let color = match x_value.component {

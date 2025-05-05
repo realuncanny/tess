@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 const HARD_THRESHOLD: usize = 4;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub enum Message {
     SoundLevelChanged(f32),
     ToggleStream(bool, (Exchange, exchange::Ticker)),

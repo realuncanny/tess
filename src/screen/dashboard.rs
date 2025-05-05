@@ -441,7 +441,7 @@ impl Dashboard {
                     }
                     pane::Message::ReorderIndicator(pane, event) => {
                         if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
-                            pane_state.content.reorder_indicators(event);
+                            pane_state.content.reorder_indicators(&event);
                         }
                     }
                     pane::Message::ClusterKindSelected(pane, cluster_kind) => {
@@ -579,7 +579,7 @@ impl Dashboard {
                                     )
                                 },
                                 move |result| match result {
-                                    Ok(_) => {
+                                    Ok(()) => {
                                         Message::ChangePaneStatus(pane_uid, pane::Status::Ready)
                                     }
                                     Err(err) => Message::ErrorOccurred(
@@ -981,7 +981,7 @@ impl Dashboard {
                     let filtered_batch = trades
                         .iter()
                         .filter(|trade| trade.time <= to_time)
-                        .cloned()
+                        .copied()
                         .collect::<Vec<_>>();
 
                     if let Err(reason) =
@@ -1414,7 +1414,7 @@ pub fn fetch_trades_batched(
 
                     latest_trade_t = batch.last().map_or(latest_trade_t, |trade| trade.time);
 
-                    let _ = progress.send(batch).await;
+                    let () = progress.send(batch).await;
                 }
                 Err(err) => return Err(err),
             }

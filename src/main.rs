@@ -454,13 +454,12 @@ impl Flowsurface {
             Message::DataFolderRequested => {
                 if let Err(err) = data::open_data_folder() {
                     return Task::done(Message::AddNotification(Toast::error(format!(
-                        "Failed to open data folder: {}",
-                        err
+                        "Failed to open data folder: {err}",
                     ))));
                 }
             }
             Message::ThemeEditor(msg) => {
-                let action = self.theme_editor.update(msg, self.theme.clone().into());
+                let action = self.theme_editor.update(msg, &self.theme.clone().into());
 
                 match action {
                     theme_editor::Action::Exit => {
@@ -472,7 +471,7 @@ impl Flowsurface {
                         let main_window = self.main_window.id;
 
                         if let Some(dashboard) = self.active_dashboard_mut() {
-                            dashboard.invalidate_all_panes(main_window)
+                            dashboard.invalidate_all_panes(main_window);
                         } else {
                             return Task::done(Message::ErrorOccurred(InternalError::Layout(
                                 "No active dashboard".to_string(),
