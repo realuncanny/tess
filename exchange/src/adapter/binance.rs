@@ -880,6 +880,12 @@ pub async fn fetch_ticksize(
             }
         }
 
+        if let Some(status) = item["status"].as_str() {
+            if status != "TRADING" && status != "HALT" {
+                continue;
+            }
+        }
+
         let filters = item["filters"]
             .as_array()
             .ok_or_else(|| StreamError::ParseError("Missing filters array".to_string()))?;
