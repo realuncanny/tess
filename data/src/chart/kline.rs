@@ -49,9 +49,9 @@ impl KlineTrades {
         max_qty
     }
 
-    pub fn calculate_poc(&mut self) -> bool {
+    pub fn calculate_poc(&mut self) {
         if self.trades.is_empty() {
-            return false;
+            return;
         }
 
         let mut max_volume = 0.0;
@@ -65,16 +65,11 @@ impl KlineTrades {
             }
         }
 
-        if max_volume > 0.0 {
-            self.poc = Some(PointOfControl {
-                price: poc_price,
-                volume: max_volume,
-                status: NPoc::default(),
-            });
-            true
-        } else {
-            false
-        }
+        self.poc = Some(PointOfControl {
+            price: poc_price,
+            volume: max_volume,
+            status: NPoc::default(),
+        });
     }
 
     pub fn set_poc_status(&mut self, status: NPoc) {
@@ -238,6 +233,7 @@ pub struct PointOfControl {
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
 pub enum NPoc {
     #[default]
+    None,
     Naked,
     Filled {
         at: u64,
@@ -247,5 +243,9 @@ pub enum NPoc {
 impl NPoc {
     pub fn filled(&mut self, at: u64) {
         *self = NPoc::Filled { at };
+    }
+
+    pub fn unfilled(&mut self) {
+        *self = NPoc::Naked;
     }
 }

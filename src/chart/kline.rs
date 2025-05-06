@@ -1184,6 +1184,7 @@ fn draw_all_npocs(
                                 }
                                 (until_x, palette.background.strong.color)
                             }
+                            _ => return,
                         };
 
                         frame.fill_rectangle(
@@ -1215,6 +1216,7 @@ fn draw_all_npocs(
                                 }
                                 (until_x, palette.background.strong.color)
                             }
+                            _ => return,
                         };
 
                         frame.fill_rectangle(
@@ -1528,6 +1530,7 @@ fn draw_imbalance_marker(
         }
     }
 }
+
 fn draw_cluster_text(
     frame: &mut canvas::Frame,
     text: &str,

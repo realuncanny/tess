@@ -1,4 +1,7 @@
-use crate::chart::kline::{ClusterKind, KlineTrades, NPoc};
+use crate::chart::{
+    kline::{ClusterKind, KlineTrades, NPoc},
+    round_to_tick,
+};
 use exchange::{Kline, Timeframe, Trade};
 
 use ordered_float::OrderedFloat;
@@ -44,8 +47,8 @@ impl DataPoint {
         self.footprint.clear();
     }
 
-    pub fn calculate_poc(&mut self) -> bool {
-        self.footprint.calculate_poc()
+    pub fn calculate_poc(&mut self) {
+        self.footprint.calculate_poc();
     }
 }
 
@@ -198,9 +201,13 @@ impl TimeSeries {
             let mut npoc = NPoc::default();
 
             for (&next_time, next_dp) in self.data_points.range((current_time + 1)..) {
-                if next_dp.kline.low <= poc_price && next_dp.kline.high >= poc_price {
+                if round_to_tick(next_dp.kline.low, self.tick_size) <= poc_price
+                    && round_to_tick(next_dp.kline.high, self.tick_size) >= poc_price
+                {
                     npoc.filled(next_time);
                     break;
+                } else {
+                    npoc.unfilled();
                 }
             }
 

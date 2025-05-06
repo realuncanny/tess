@@ -87,8 +87,8 @@ impl TickAccumulation {
         self.footprint.set_poc_status(status);
     }
 
-    pub fn calculate_poc(&mut self) -> bool {
-        self.footprint.calculate_poc()
+    pub fn calculate_poc(&mut self) {
+        self.footprint.calculate_poc();
     }
 }
 
@@ -186,9 +186,12 @@ impl TickAggr {
                     && round_to_tick(next_dp.kline.high, self.tick_size) >= poc_price
                 {
                     // on render we reverse the order of the points
+                    // as it is easier to just take the idx=0 as latest candle for coords
                     let reversed_idx = (total_points - 1) - next_idx;
                     npoc.filled(reversed_idx as u64);
                     break;
+                } else {
+                    npoc.unfilled();
                 }
             }
 
