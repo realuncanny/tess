@@ -48,7 +48,7 @@ impl VisualConfig {
 }
 
 /// Defines how chart data is aggregated and displayed along the x-axis.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum Basis {
     /// Time-based aggregation where each datapoint represents a fixed time interval.
     ///

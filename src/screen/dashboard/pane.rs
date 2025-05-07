@@ -149,6 +149,12 @@ impl PaneState {
         ticker_info: TickerInfo,
         pane: pane_grid::Pane,
     ) -> Task<Message> {
+        if (matches!(&self.content, PaneContent::Heatmap(_, _)) && content != "heatmap")
+            || (matches!(&self.content, PaneContent::Kline(_, _)) && content == "heatmap")
+        {
+            self.settings.selected_basis = None;
+        }
+
         let streams = match content {
             "heatmap" | "time&sales" => {
                 vec![StreamType::DepthAndTrades {
@@ -222,10 +228,9 @@ impl PaneState {
     pub fn set_content(
         &mut self,
         ticker_info: TickerInfo,
-        content_str: &str,
+        content: &str,
     ) -> Result<(), DashboardError> {
-        let (existing_indicators, existing_layout, chart_kind) = match (&self.content, content_str)
-        {
+        let (existing_indicators, existing_layout, chart_kind) = match (&self.content, content) {
             (PaneContent::Heatmap(chart, indicators), "heatmap") => (
                 Some(ExistingIndicators::Heatmap(indicators.clone())),
                 Some(chart.chart_layout()),
@@ -245,9 +250,9 @@ impl PaneState {
             _ => (None, None, None),
         };
 
-        self.content = match content_str {
+        self.content = match content {
             "heatmap" => {
-                let tick_size = self.set_tickers_info(Some(TickMultiplier(10)), ticker_info);
+                let tick_size = self.set_tickers_info(Some(TickMultiplier(5)), ticker_info);
                 let enabled_indicators = match existing_indicators {
                     Some(ExistingIndicators::Heatmap(indicators)) => indicators,
                     _ => vec![HeatmapIndicator::Volume],
@@ -273,7 +278,7 @@ impl PaneState {
                 )
             }
             "footprint" | "candlestick" => {
-                let (tick_mltp, default_tf, chart_kind) = match content_str {
+                let (tick_mltp, default_tf, chart_kind) = match content {
                     "footprint" => (
                         Some(TickMultiplier(50)),
                         Timeframe::M5,
@@ -336,9 +341,9 @@ impl PaneState {
                 PaneContent::TimeAndSales(TimeAndSales::new(config, Some(ticker_info)))
             }
             _ => {
-                log::error!("content not found: {}", content_str);
+                log::error!("content not found: {}", content);
                 return Err(DashboardError::PaneSet(
-                    "content not found: ".to_string() + content_str,
+                    "content not found: ".to_string() + content,
                 ));
             }
         };

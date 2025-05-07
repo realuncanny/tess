@@ -98,7 +98,6 @@ impl Chart for KlineChart {
     }
 }
 
-#[allow(dead_code)]
 enum IndicatorData {
     Volume(Caches, BTreeMap<u64, (f32, f32)>),
     OpenInterest(Caches, BTreeMap<u64, f32>),

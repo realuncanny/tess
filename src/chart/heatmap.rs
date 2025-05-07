@@ -250,7 +250,6 @@ pub struct GroupedTrade {
     pub qty: f32,
 }
 
-#[allow(dead_code)]
 enum IndicatorData {
     Volume,
     SessionVolumeProfile(HashMap<OrderedFloat<f32>, (f32, f32)>),
