@@ -675,7 +675,7 @@ fn configuration(pane: data::Pane) -> Configuration<pane::State> {
 
                     let tick_size = settings
                         .tick_multiply
-                        .unwrap_or(TickMultiplier(50))
+                        .unwrap_or(TickMultiplier(1))
                         .multiply_with_min_tick_size(ticker_info);
 
                     Configuration::Pane(pane::State::from_config(

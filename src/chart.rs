@@ -497,7 +497,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
                 mouse_area(axis_labels_y)
                     .on_double_click(Message::DoubleClick(AxisScaleClicked::Y))
             )
-            .width(Length::Fixed(60.0 + (chart_state.decimals as f32 * 4.0)))
+            .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)))
             .height(Length::FillPortion(120))
         ]
         .into();
@@ -530,7 +530,7 @@ fn view_chart<'a, T: Chart, I: Indicator>(
             .width(Length::FillPortion(10))
             .height(Length::Fixed(26.0)),
             chart_controls
-                .width(Length::Fixed(60.0 + (chart_state.decimals as f32 * 4.0)))
+                .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)))
                 .height(Length::Fixed(26.0))
         ]
     ]

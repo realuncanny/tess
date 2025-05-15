@@ -61,7 +61,7 @@ pub fn create_indicator_elem<'a>(
         chart_bounds: chart_state.bounds,
     })
     .height(Length::Fill)
-    .width(Length::Fixed(60.0 + (chart_state.decimals as f32 * 4.0)));
+    .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)));
 
     row![
         indi_chart,
