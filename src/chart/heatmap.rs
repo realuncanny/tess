@@ -1,31 +1,31 @@
-use std::{
-    cmp::Ordering,
-    collections::{BTreeMap, HashMap, hash_map::Entry},
-};
-
-use data::UserTimezone;
+use crate::style;
 use data::chart::{
     Basis, ChartLayout,
-    heatmap::Config,
+    heatmap::{Config, GroupedTrade, HistoricalDepth, QtyScale},
     indicators::{HeatmapIndicator, Indicator},
 };
+use data::util::{abbr_large_numbers, count_decimals};
+use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};
+
+use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
+use super::{
+    canvas_interaction, draw_horizontal_volume_bars, scale::PriceInfoLabel, update_chart,
+    view_chart,
+};
+
 use iced::widget::canvas::{self, Event, Geometry, Path};
 use iced::{
     Alignment, Color, Element, Point, Rectangle, Renderer, Size, Theme, Vector, mouse,
     theme::palette::Extended,
 };
 
-use exchange::{TickerInfo, Trade, adapter::MarketType, depth::Depth};
-
-use crate::style;
-
-use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
-use super::{
-    abbr_large_numbers, canvas_interaction, count_decimals, draw_horizontal_volume_bars,
-    scale::PriceInfoLabel, update_chart, view_chart,
+use ordered_float::OrderedFloat;
+use std::{
+    collections::{BTreeMap, HashMap},
+    time::Instant,
 };
 
-use ordered_float::OrderedFloat;
+const CLEANUP_THRESHOLD: usize = 4800;
 
 impl Chart for HeatmapChart {
     fn common_data(&self) -> &CommonChartData {
@@ -38,7 +38,10 @@ impl Chart for HeatmapChart {
 
     fn update_chart(&mut self, message: &Message) {
         update_chart(self, message);
-        self.render_start();
+    }
+
+    fn invalidate(&mut self) {
+        self.invalidate(None);
     }
 
     fn canvas_interaction(
@@ -65,9 +68,16 @@ impl Chart for HeatmapChart {
         )
     }
 
-    fn interval_keys(&self) -> Vec<u64> {
-        vec![]
-        //self.timeseries.iter().map(|(time, _, _)| *time).collect()
+    fn interval_keys(&self) -> Option<Vec<u64>> {
+        None
+    }
+
+    fn autoscaled_coords(&self) -> Vector {
+        let chart = self.common_data();
+        Vector::new(
+            0.5 * (chart.bounds.width / chart.scaling) - (90.0 / chart.scaling),
+            0.0,
+        )
     }
 
     fn is_empty(&self) -> bool {
@@ -105,151 +115,6 @@ impl ChartConstants for HeatmapChart {
     }
 }
 
-#[derive(Default, Debug, Clone, PartialEq)]
-struct OrderRun {
-    start_time: u64,
-    until_time: u64,
-    qty: OrderedFloat<f32>,
-    is_bid: bool,
-}
-
-impl OrderRun {
-    fn with_range(&self, earliest: u64, latest: u64) -> Option<&OrderRun> {
-        if self.start_time <= latest && self.until_time >= earliest {
-            Some(self)
-        } else {
-            None
-        }
-    }
-}
-
-#[derive(Default, Debug, Clone, PartialEq)]
-struct Orderbook {
-    price_levels: BTreeMap<OrderedFloat<f32>, Vec<OrderRun>>,
-    aggr_time: u64,
-    tick_size: f32,
-}
-
-impl Orderbook {
-    fn new(tick_size: f32, basis: Basis) -> Self {
-        Self {
-            price_levels: BTreeMap::new(),
-            aggr_time: match basis {
-                Basis::Time(interval) => interval,
-                Basis::Tick(_) => unimplemented!(),
-            },
-            tick_size,
-        }
-    }
-
-    fn insert_latest_depth(&mut self, depth: &Depth, time: u64) {
-        let tick_size = self.tick_size;
-
-        self.process_side(&depth.bids, time, true, |price| {
-            ((price * (1.0 / tick_size)).floor()) * tick_size
-        });
-        self.process_side(&depth.asks, time, false, |price| {
-            ((price * (1.0 / tick_size)).ceil()) * tick_size
-        });
-    }
-
-    fn process_side<F>(
-        &mut self,
-        side: &BTreeMap<OrderedFloat<f32>, f32>,
-        time: u64,
-        is_bid: bool,
-        round_price: F,
-    ) where
-        F: Fn(f32) -> f32,
-    {
-        let mut current_price = None;
-        let mut current_qty = 0.0;
-
-        for (price, qty) in side {
-            let rounded_price = round_price(price.into_inner());
-
-            if Some(rounded_price) == current_price {
-                current_qty += qty;
-            } else {
-                if let Some(price) = current_price {
-                    self.update_price_level(time, price, current_qty, is_bid);
-                }
-                current_price = Some(rounded_price);
-                current_qty = *qty;
-            }
-        }
-
-        if let Some(price) = current_price {
-            self.update_price_level(time, price, current_qty, is_bid);
-        }
-    }
-
-    fn update_price_level(&mut self, time: u64, price: f32, qty: f32, is_bid: bool) {
-        let price_level = self.price_levels.entry(OrderedFloat(price)).or_default();
-
-        match price_level.last_mut() {
-            Some(last_run) if last_run.qty == OrderedFloat(qty) && last_run.is_bid == is_bid => {
-                last_run.until_time = time + self.aggr_time;
-            }
-            _ => {
-                price_level.push(OrderRun {
-                    start_time: time,
-                    until_time: time + self.aggr_time,
-                    qty: OrderedFloat(qty),
-                    is_bid,
-                });
-            }
-        }
-    }
-
-    fn iter_time_filtered(
-        &self,
-        earliest: u64,
-        latest: u64,
-        highest: f32,
-        lowest: f32,
-    ) -> impl Iterator<Item = (&OrderedFloat<f32>, &Vec<OrderRun>)> {
-        self.price_levels.iter().filter(move |(price, runs)| {
-            **price <= OrderedFloat(highest)
-                && **price >= OrderedFloat(lowest)
-                && runs
-                    .iter()
-                    .any(|run| run.until_time >= earliest && run.start_time <= latest)
-        })
-    }
-
-    fn latest_order_runs(
-        &self,
-        highest: f32,
-        lowest: f32,
-        latest_timestamp: u64,
-    ) -> impl Iterator<Item = (&OrderedFloat<f32>, &OrderRun)> {
-        self.price_levels.iter().filter_map(move |(price, runs)| {
-            if **price <= *OrderedFloat(highest) && **price >= *OrderedFloat(lowest) {
-                runs.last()
-                    .filter(|run| run.until_time >= latest_timestamp)
-                    .map(|run| (price, run))
-            } else {
-                None
-            }
-        })
-    }
-}
-
-#[derive(Default)]
-struct QtyScale {
-    max_trade_qty: f32,
-    max_aggr_volume: f32,
-    max_depth_qty: f32,
-}
-
-#[derive(Debug, Clone)]
-pub struct GroupedTrade {
-    pub is_sell: bool,
-    pub price: f32,
-    pub qty: f32,
-}
-
 enum IndicatorData {
     Volume,
     SessionVolumeProfile(HashMap<OrderedFloat<f32>, (f32, f32)>),
@@ -257,11 +122,12 @@ enum IndicatorData {
 
 pub struct HeatmapChart {
     chart: CommonChartData,
-    timeseries: Vec<(u64, Box<[GroupedTrade]>, (f32, f32))>,
+    timeseries: BTreeMap<u64, (Box<[GroupedTrade]>, (f32, f32))>,
     indicators: HashMap<HeatmapIndicator, IndicatorData>,
     pause_buffer: Vec<(u64, Box<[Trade]>, Depth)>,
-    orderbook: Orderbook,
+    heatmap: HistoricalDepth,
     visual_config: Config,
+    last_tick: Instant,
 }
 
 impl HeatmapChart {
@@ -300,69 +166,81 @@ impl HeatmapChart {
                     .collect()
             },
             pause_buffer: vec![],
-            orderbook: Orderbook::new(tick_size, basis),
-            timeseries: vec![],
+            heatmap: HistoricalDepth::new(
+                ticker_info.expect("basis set without ticker info").min_qty,
+                tick_size,
+                basis,
+            ),
+            timeseries: BTreeMap::new(),
             visual_config: config.unwrap_or_default(),
+            last_tick: Instant::now(),
         }
     }
 
-    pub fn insert_datapoint(&mut self, trades_buffer: &[Trade], depth_update: u64, depth: &Depth) {
-        let chart = &mut self.chart;
-
+    pub fn insert_datapoint(
+        &mut self,
+        trades_buffer: &[Trade],
+        depth_update_t: u64,
+        depth: &Depth,
+    ) {
         // if current orderbook not visible, pause the data insertion and buffer them instead
-        let is_paused = chart.translation.x * chart.scaling > chart.bounds.width / 2.0;
+        let is_paused = {
+            let chart = &mut self.chart;
+            chart.translation.x * chart.scaling > chart.bounds.width / 2.0
+        };
 
         if is_paused {
             self.pause_buffer.push((
-                depth_update,
+                depth_update_t,
                 trades_buffer.to_vec().into_boxed_slice(),
                 depth.clone(),
             ));
+
+            return;
         } else if !self.pause_buffer.is_empty() {
             self.pause_buffer.sort_by_key(|(time, _, _)| *time);
 
-            let buffered_data: Vec<_> = self.pause_buffer.drain(..).collect();
+            for (time, trades, depth) in std::mem::take(&mut self.pause_buffer) {
+                self.process_datapoint(&trades, time, &depth);
+            }
+        } else {
+            self.cleanup_old_data();
+        }
 
-            for (buffered_time, buffered_trades, buffered_depth) in buffered_data {
-                self.process_datapoint(&buffered_trades, buffered_time, &buffered_depth);
+        self.process_datapoint(trades_buffer, depth_update_t, depth);
+    }
+
+    fn cleanup_old_data(&mut self) {
+        if self.timeseries.len() > CLEANUP_THRESHOLD {
+            let keys_to_remove = self
+                .timeseries
+                .keys()
+                .take(CLEANUP_THRESHOLD / 10)
+                .copied()
+                .collect::<Vec<u64>>();
+
+            for key in keys_to_remove {
+                self.timeseries.remove(&key);
             }
 
-            self.process_datapoint(trades_buffer, depth_update, depth);
-        } else {
-            self.process_datapoint(trades_buffer, depth_update, depth);
-            self.render_start();
+            if let Some(oldest_time) = self.timeseries.keys().next().copied() {
+                self.heatmap.cleanup_old_price_levels(oldest_time);
+            }
         }
     }
 
     fn process_datapoint(&mut self, trades_buffer: &[Trade], depth_update: u64, depth: &Depth) {
         let chart = &mut self.chart;
 
-        if self.timeseries.len() > 2400 {
-            self.timeseries.drain(0..400);
-
-            if let Some(oldest_time) = self.timeseries.first().map(|(time, _, _)| *time) {
-                self.orderbook
-                    .price_levels
-                    .iter_mut()
-                    .for_each(|(_, runs)| {
-                        runs.retain(|run| run.start_time >= oldest_time);
-                    });
-            }
-        }
-
         let aggregate_time: u64 = match chart.basis {
             Basis::Time(interval) => interval,
-            Basis::Tick(_) => {
-                // TODO: implement
-                unimplemented!()
-            }
+            Basis::Tick(_) => todo!(),
         };
 
         let rounded_depth_update = (depth_update / aggregate_time) * aggregate_time;
 
         {
             let (mut buy_volume, mut sell_volume) = (0.0, 0.0);
-
             let mut grouped_trades: Vec<GroupedTrade> = Vec::with_capacity(trades_buffer.len());
 
             for trade in trades_buffer {
@@ -378,16 +256,9 @@ impl HeatmapChart {
                     (trade.price * (1.0 / chart.tick_size)).ceil() * chart.tick_size
                 };
 
-                match grouped_trades.binary_search_by(|probe| {
-                    if probe.is_sell == trade.is_sell {
-                        probe
-                            .price
-                            .partial_cmp(&grouped_price)
-                            .unwrap_or(Ordering::Equal)
-                    } else {
-                        probe.is_sell.cmp(&trade.is_sell)
-                    }
-                }) {
+                match grouped_trades
+                    .binary_search_by(|probe| probe.compare_with(trade.price, trade.is_sell))
+                {
                     Ok(index) => grouped_trades[index].qty += trade.qty,
                     Err(index) => grouped_trades.insert(
                         index,
@@ -417,27 +288,43 @@ impl HeatmapChart {
                 }
             }
 
-            self.timeseries.push((
-                rounded_depth_update,
-                grouped_trades.into_boxed_slice(),
-                (buy_volume, sell_volume),
-            ));
+            match self.timeseries.entry(rounded_depth_update) {
+                std::collections::btree_map::Entry::Vacant(entry) => {
+                    entry.insert((grouped_trades.into_boxed_slice(), (buy_volume, sell_volume)));
+                }
+                std::collections::btree_map::Entry::Occupied(mut entry) => {
+                    let (existing_trades, (existing_buy, existing_sell)) = entry.get_mut();
+
+                    *existing_buy += buy_volume;
+                    *existing_sell += sell_volume;
+
+                    let mut merged_trades = existing_trades.to_vec();
+
+                    for trade in grouped_trades {
+                        match merged_trades.binary_search_by(|probe| {
+                            probe.compare_with(trade.price, trade.is_sell)
+                        }) {
+                            Ok(index) => merged_trades[index].qty += trade.qty,
+                            Err(index) => merged_trades.insert(index, trade),
+                        }
+                    }
+
+                    *existing_trades = merged_trades.into_boxed_slice();
+                }
+            }
         };
 
-        self.orderbook
+        self.heatmap
             .insert_latest_depth(depth, rounded_depth_update);
 
+        {
+            let mid_price = depth.mid_price().unwrap_or(chart.base_price_y);
+
+            chart.last_price = Some(PriceInfoLabel::Neutral(mid_price));
+            chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size);
+        }
+
         chart.latest_x = rounded_depth_update;
-
-        let mid_price = match (depth.asks.first_key_value(), depth.bids.last_key_value()) {
-            (Some((ask_price, _)), Some((bid_price, _))) => {
-                (ask_price.into_inner() + bid_price.into_inner()) / 2.0
-            }
-            _ => chart.base_price_y,
-        };
-
-        chart.last_price = Some(PriceInfoLabel::Neutral(mid_price));
-        chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size);
     }
 
     pub fn visual_config(&self) -> Config {
@@ -446,6 +333,31 @@ impl HeatmapChart {
 
     pub fn set_visual_config(&mut self, visual_config: Config) {
         self.visual_config = visual_config;
+        self.invalidate(Some(Instant::now()));
+    }
+
+    pub fn set_basis(&mut self, basis: Basis) {
+        self.chart.basis = basis;
+
+        self.timeseries.clear();
+        self.heatmap = HistoricalDepth::new(
+            self.chart
+                .ticker_info
+                .expect("basis set without ticker info")
+                .min_qty,
+            self.chart.tick_size,
+            basis,
+        );
+
+        let autoscaled_coords = self.autoscaled_coords();
+        self.chart.translation = autoscaled_coords;
+    }
+
+    pub fn basis_interval(&self) -> Option<u64> {
+        match self.chart.basis {
+            Basis::Time(interval) => Some(interval),
+            Basis::Tick(_) => None,
+        }
     }
 
     pub fn chart_layout(&self) -> ChartLayout {
@@ -469,15 +381,22 @@ impl HeatmapChart {
         }
 
         self.timeseries.clear();
-        self.orderbook = Orderbook::new(new_tick_size, basis);
+        self.heatmap = HistoricalDepth::new(
+            self.chart
+                .ticker_info
+                .expect("basis set without ticker info")
+                .min_qty,
+            new_tick_size,
+            basis,
+        );
     }
 
     pub fn toggle_indicator(&mut self, indicator: HeatmapIndicator) {
         match self.indicators.entry(indicator) {
-            Entry::Occupied(entry) => {
+            std::collections::hash_map::Entry::Occupied(entry) => {
                 entry.remove();
             }
-            Entry::Vacant(entry) => {
+            std::collections::hash_map::Entry::Vacant(entry) => {
                 let data = match indicator {
                     HeatmapIndicator::Volume => IndicatorData::Volume,
                     HeatmapIndicator::SessionVolumeProfile => {
@@ -489,41 +408,37 @@ impl HeatmapChart {
         }
     }
 
-    pub fn render_start(&mut self) {
-        let chart_state = self.common_data_mut();
-
-        if chart_state.autoscale {
-            chart_state.translation = Vector::new(
-                0.5 * (chart_state.bounds.width / chart_state.scaling)
-                    - (90.0 / chart_state.scaling),
-                0.0,
-            );
+    pub fn invalidate(&mut self, now: Option<Instant>) {
+        if let Some(t) = now {
+            self.last_tick = t;
         }
 
-        chart_state.cache.clear_all();
+        let autoscaled_coords = self.autoscaled_coords();
+        let chart = &mut self.chart;
+
+        if chart.autoscale {
+            chart.translation = autoscaled_coords;
+        }
+
+        chart.cache.clear_all();
     }
 
-    fn visible_data_iter(
-        &self,
-        earliest: u64,
-        latest: u64,
-    ) -> impl Iterator<Item = &(u64, Box<[GroupedTrade]>, (f32, f32))> {
-        self.timeseries
-            .iter()
-            .filter(move |(time, _, _)| *time >= earliest && *time <= latest)
+    pub fn last_update(&self) -> Instant {
+        self.last_tick
     }
 
     fn calc_qty_scales(&self, earliest: u64, latest: u64, highest: f32, lowest: f32) -> QtyScale {
         let market_type = match self.chart.ticker_info {
-            Some(ref ticker_info) => ticker_info.get_market_type(),
+            Some(ref ticker_info) => ticker_info.market_type(),
             None => return QtyScale::default(),
         };
 
         let (mut max_aggr_volume, mut max_trade_qty) = (0.0f32, 0.0f32);
         let mut max_depth_qty = 0.0f32;
 
-        self.visible_data_iter(earliest, latest)
-            .for_each(|(_, trades, _)| {
+        self.timeseries
+            .range(earliest..=latest)
+            .for_each(|(_, (trades, _))| {
                 let (mut buy_volume, mut sell_volume) = (0.0, 0.0);
 
                 trades.iter().for_each(|trade| {
@@ -539,7 +454,7 @@ impl HeatmapChart {
                 max_aggr_volume = max_aggr_volume.max(buy_volume).max(sell_volume);
             });
 
-        self.orderbook
+        self.heatmap
             .iter_time_filtered(earliest, latest, highest, lowest)
             .for_each(|(price, runs)| {
                 runs.iter()
@@ -547,8 +462,8 @@ impl HeatmapChart {
                         let visible_run = run.with_range(earliest, latest)?;
 
                         let order_size = match market_type {
-                            MarketType::InversePerps => visible_run.qty.0,
-                            _ => **price * visible_run.qty.0,
+                            MarketKind::InversePerps => visible_run.qty(),
+                            _ => **price * visible_run.qty(),
                         };
 
                         if order_size > self.visual_config.order_size_filter {
@@ -558,7 +473,7 @@ impl HeatmapChart {
                         }
                     })
                     .for_each(|run| {
-                        max_depth_qty = max_depth_qty.max(run.qty.0);
+                        max_depth_qty = max_depth_qty.max(run.qty());
                     });
             });
 
@@ -580,7 +495,7 @@ impl HeatmapChart {
     pub fn view<'a, I: Indicator>(
         &'a self,
         indicators: &'a [I],
-        timezone: UserTimezone,
+        timezone: data::UserTimezone,
     ) -> Element<'a, Message> {
         view_chart(self, indicators, timezone)
     }
@@ -614,7 +529,7 @@ impl canvas::Program<Message> for HeatmapChart {
         }
 
         let market_type = match self.chart.ticker_info {
-            Some(ref ticker_info) => ticker_info.get_market_type(),
+            Some(ref ticker_info) => ticker_info.market_type(),
             None => return vec![],
         };
 
@@ -648,73 +563,112 @@ impl canvas::Program<Message> for HeatmapChart {
             let (max_aggr_volume, max_trade_qty) =
                 (qty_scales.max_aggr_volume, qty_scales.max_trade_qty);
 
-            self.orderbook
-                .iter_time_filtered(earliest, latest, highest, lowest)
-                .for_each(|(price, runs)| {
-                    let y_position = chart.price_to_y(price.0);
+            if let Some(merge_strat) = self.visual_config().coalescing {
+                let coalesced_visual_runs = self.heatmap.coalesced_runs(
+                    earliest,
+                    latest,
+                    highest,
+                    lowest,
+                    market_type,
+                    self.visual_config.order_size_filter,
+                    merge_strat,
+                );
 
-                    runs.iter()
-                        .filter(|run| {
-                            let order_size = match market_type {
-                                MarketType::InversePerps => run.qty.0,
-                                _ => **price * run.qty.0,
-                            };
-                            order_size > self.visual_config.order_size_filter
-                        })
-                        .for_each(|run| {
-                            let start_x = chart.interval_to_x(run.start_time.max(earliest));
-                            let end_x = chart.interval_to_x(run.until_time.min(latest)).min(0.0);
+                for (price_of_run, visual_run) in coalesced_visual_runs {
+                    let y_position = chart.price_to_y(price_of_run.into_inner());
 
-                            let width = end_x - start_x;
+                    let run_start_time_clipped = visual_run.start_time.max(earliest);
+                    let run_until_time_clipped = visual_run.until_time.min(latest);
 
-                            if width > 0.0 {
-                                let color_alpha = (run.qty.0 / max_depth_qty).min(1.0);
-                                let width_unscaled = width / chart.scaling;
+                    if run_start_time_clipped >= run_until_time_clipped {
+                        continue;
+                    }
 
-                                if width_unscaled > 40.0
-                                    && cell_height_scaled >= 10.0
-                                    && color_alpha > 0.4
-                                {
-                                    frame.fill_text(canvas::Text {
-                                        content: abbr_large_numbers(run.qty.0),
-                                        position: Point::new(
-                                            start_x + (cell_height / 2.0),
-                                            y_position,
-                                        ),
-                                        size: iced::Pixels(cell_height),
-                                        color: Color::WHITE,
-                                        align_y: Alignment::Center.into(),
-                                        font: style::AZERET_MONO,
-                                        ..canvas::Text::default()
-                                    });
+                    let start_x = chart.interval_to_x(run_start_time_clipped);
+                    let end_x = chart.interval_to_x(run_until_time_clipped).min(0.0);
 
-                                    frame.fill_rectangle(
-                                        Point::new(start_x, y_position - (cell_height / 2.0)),
-                                        Size::new(width, cell_height),
-                                        get_depth_color(palette, run.is_bid, color_alpha),
-                                    );
+                    let width = end_x - start_x;
 
-                                    frame.fill_rectangle(
-                                        Point::new(start_x, y_position - (cell_height / 2.0)),
-                                        Size::new(1.0, cell_height),
-                                        Color::WHITE,
-                                    );
-                                } else {
-                                    frame.fill_rectangle(
-                                        Point::new(start_x, y_position - (cell_height / 2.0)),
-                                        Size::new(width, cell_height),
-                                        get_depth_color(palette, run.is_bid, color_alpha),
-                                    );
+                    if width > 0.001 {
+                        let color_alpha = (visual_run.qty() / max_depth_qty).min(1.0);
+
+                        frame.fill_rectangle(
+                            Point::new(start_x, y_position - (cell_height / 2.0)),
+                            Size::new(width, cell_height),
+                            depth_color(palette, visual_run.is_bid, color_alpha),
+                        );
+                    }
+                }
+            } else {
+                self.heatmap
+                    .iter_time_filtered(earliest, latest, highest, lowest)
+                    .for_each(|(price, runs)| {
+                        let y_position = chart.price_to_y(price.0);
+
+                        runs.iter()
+                            .filter(|run| {
+                                let order_size = match market_type {
+                                    MarketKind::InversePerps => run.qty(),
+                                    _ => **price * run.qty(),
+                                };
+                                order_size > self.visual_config.order_size_filter
+                            })
+                            .for_each(|run| {
+                                let start_x = chart.interval_to_x(run.start_time.max(earliest));
+                                let end_x =
+                                    chart.interval_to_x(run.until_time.min(latest)).min(0.0);
+
+                                let width = end_x - start_x;
+
+                                if width > 0.0 {
+                                    let color_alpha = (run.qty() / max_depth_qty).min(1.0);
+                                    let width_unscaled = width / chart.scaling;
+
+                                    if width_unscaled > 40.0
+                                        && cell_height_scaled >= 10.0
+                                        && color_alpha > 0.4
+                                    {
+                                        frame.fill_text(canvas::Text {
+                                            content: abbr_large_numbers(run.qty()),
+                                            position: Point::new(
+                                                start_x + (cell_height / 2.0),
+                                                y_position,
+                                            ),
+                                            size: iced::Pixels(cell_height),
+                                            color: Color::WHITE,
+                                            align_y: Alignment::Center.into(),
+                                            font: style::AZERET_MONO,
+                                            ..canvas::Text::default()
+                                        });
+
+                                        frame.fill_rectangle(
+                                            Point::new(start_x, y_position - (cell_height / 2.0)),
+                                            Size::new(width, cell_height),
+                                            depth_color(palette, run.is_bid, color_alpha),
+                                        );
+
+                                        frame.fill_rectangle(
+                                            Point::new(start_x, y_position - (cell_height / 2.0)),
+                                            Size::new(1.0, cell_height),
+                                            Color::WHITE,
+                                        );
+                                    } else {
+                                        frame.fill_rectangle(
+                                            Point::new(start_x, y_position - (cell_height / 2.0)),
+                                            Size::new(width, cell_height),
+                                            depth_color(palette, run.is_bid, color_alpha),
+                                        );
+                                    }
                                 }
-                            }
-                        });
-                });
+                            });
+                    });
+            }
 
-            if let Some((latest_timestamp, _, _)) = self.timeseries.last() {
+            if let Some((latest_timestamp, _)) = self.timeseries.last_key_value() {
                 let max_qty = self
-                    .orderbook
+                    .heatmap
                     .latest_order_runs(highest, lowest, *latest_timestamp)
-                    .map(|(_, order_run)| order_run.qty.0)
+                    .map(|(_, run)| run.qty())
                     .fold(f32::MIN, f32::max)
                     .ceil()
                     * 5.0
@@ -723,16 +677,16 @@ impl canvas::Program<Message> for HeatmapChart {
                     return;
                 }
 
-                self.orderbook
+                self.heatmap
                     .latest_order_runs(highest, lowest, *latest_timestamp)
                     .for_each(|(price, run)| {
                         let y_position = chart.price_to_y(price.0);
-                        let bar_width = (run.qty.0 / max_qty) * 50.0;
+                        let bar_width = (run.qty() / max_qty) * 50.0;
 
                         frame.fill_rectangle(
                             Point::new(0.0, y_position - (cell_height / 2.0)),
                             Size::new(bar_width, cell_height),
-                            get_depth_color(palette, run.is_bid, 0.5),
+                            depth_color(palette, run.is_bid, 0.5),
                         );
                     });
 
@@ -751,15 +705,15 @@ impl canvas::Program<Message> for HeatmapChart {
                 });
             };
 
-            self.visible_data_iter(earliest, latest).for_each(
-                |(time, trades, (buy_volume, sell_volume))| {
+            self.timeseries.range(earliest..=latest).for_each(
+                |(time, (trades, (buy_volume, sell_volume)))| {
                     let x_position = chart.interval_to_x(*time);
 
                     trades.iter().for_each(|trade| {
                         let y_position = chart.price_to_y(trade.price);
 
                         let trade_size = match market_type {
-                            MarketType::InversePerps => trade.qty,
+                            MarketKind::InversePerps => trade.qty,
                             _ => trade.qty * trade.price,
                         };
 
@@ -771,10 +725,9 @@ impl canvas::Program<Message> for HeatmapChart {
                             };
 
                             let radius = {
-                                if self.visual_config.dynamic_sized_trades {
-                                    // normalize range
-                                    let scale_factor =
-                                        (self.visual_config.trade_size_scale as f32) / 100.0;
+                                if let Some(trade_size_scale) = self.visual_config.trade_size_scale
+                                {
+                                    let scale_factor = (trade_size_scale as f32) / 100.0;
                                     1.0 + (trade.qty / max_trade_qty) * (28.0 - 1.0) * scale_factor
                                 } else {
                                     cell_height / 2.0
@@ -920,6 +873,34 @@ impl canvas::Program<Message> for HeatmapChart {
                     ..canvas::Text::default()
                 });
             }
+
+            let is_paused = chart.translation.x * chart.scaling > chart.bounds.width / 2.0;
+            if is_paused {
+                let bar_width = 8.0 / chart.scaling;
+                let bar_height = 32.0 / chart.scaling;
+                let padding = 24.0 / chart.scaling;
+
+                let total_icon_width = bar_width * 3.0;
+
+                let pause_bar = Rectangle {
+                    x: (region.x + region.width) - total_icon_width - padding,
+                    y: region.y + padding,
+                    width: bar_width,
+                    height: bar_height,
+                };
+
+                frame.fill_rectangle(
+                    pause_bar.position(),
+                    pause_bar.size(),
+                    palette.background.base.text.scale_alpha(0.4),
+                );
+
+                frame.fill_rectangle(
+                    pause_bar.position() + Vector::new(pause_bar.width * 2.0, 0.0),
+                    pause_bar.size(),
+                    palette.background.base.text.scale_alpha(0.4),
+                );
+            }
         });
 
         if chart.crosshair & !self.timeseries.is_empty() {
@@ -954,7 +935,7 @@ impl canvas::Program<Message> for HeatmapChart {
     }
 }
 
-fn get_depth_color(palette: &Extended, is_bid: bool, alpha: f32) -> Color {
+fn depth_color(palette: &Extended, is_bid: bool, alpha: f32) -> Color {
     if is_bid {
         palette.success.strong.color.scale_alpha(alpha)
     } else {

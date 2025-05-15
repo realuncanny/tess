@@ -1,4 +1,7 @@
-use std::{collections::HashMap, str::FromStr};
+use std::{
+    collections::{HashMap, HashSet},
+    str::FromStr,
+};
 
 use crate::{Kline, OpenInterest, TickerInfo, TickerStats, Trade, depth::Depth};
 
@@ -23,28 +26,28 @@ pub enum StreamError {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub enum MarketType {
+pub enum MarketKind {
     Spot,
     LinearPerps,
     InversePerps,
 }
 
-impl std::fmt::Display for MarketType {
+impl std::fmt::Display for MarketKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
             "{}",
             match self {
-                MarketType::Spot => "Spot",
-                MarketType::LinearPerps => "Linear",
-                MarketType::InversePerps => "Inverse",
+                MarketKind::Spot => "Spot",
+                MarketKind::LinearPerps => "Linear",
+                MarketKind::InversePerps => "Inverse",
             }
         )
     }
 }
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq, Hash, Deserialize, Serialize)]
-pub enum StreamType {
+pub enum StreamKind {
     Kline {
         exchange: Exchange,
         ticker: Ticker,
@@ -54,7 +57,144 @@ pub enum StreamType {
         exchange: Exchange,
         ticker: Ticker,
     },
-    None,
+}
+
+impl StreamKind {
+    pub fn exchange_and_ticker(&self) -> (Exchange, Ticker) {
+        match self {
+            StreamKind::Kline {
+                exchange, ticker, ..
+            }
+            | StreamKind::DepthAndTrades { exchange, ticker } => (*exchange, *ticker),
+        }
+    }
+
+    pub fn as_depth_stream(&self) -> Option<(Exchange, Ticker)> {
+        match self {
+            StreamKind::DepthAndTrades { exchange, ticker } => Some((*exchange, *ticker)),
+            _ => None,
+        }
+    }
+
+    pub fn as_kline_stream(&self) -> Option<(Exchange, Ticker, Timeframe)> {
+        match self {
+            StreamKind::Kline {
+                exchange,
+                ticker,
+                timeframe,
+            } => Some((*exchange, *ticker, *timeframe)),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub struct UniqueStreams {
+    streams: HashMap<Exchange, HashMap<Ticker, HashSet<StreamKind>>>,
+    specs: HashMap<Exchange, StreamSpecs>,
+}
+
+impl UniqueStreams {
+    pub fn new() -> Self {
+        Self {
+            streams: HashMap::new(),
+            specs: HashMap::new(),
+        }
+    }
+
+    pub fn from<'a>(streams: impl Iterator<Item = &'a StreamKind>) -> Self {
+        let mut unique_streams = UniqueStreams::new();
+        for stream in streams {
+            unique_streams.add(*stream);
+        }
+        unique_streams
+    }
+
+    pub fn add(&mut self, stream: StreamKind) {
+        let (exchange, ticker) = match stream {
+            StreamKind::Kline {
+                exchange, ticker, ..
+            }
+            | StreamKind::DepthAndTrades { exchange, ticker } => (exchange, ticker),
+        };
+
+        self.streams
+            .entry(exchange)
+            .or_default()
+            .entry(ticker)
+            .or_default()
+            .insert(stream);
+
+        self.update_specs_for_exchange(exchange);
+    }
+
+    fn update_specs_for_exchange(&mut self, exchange: Exchange) {
+        let depth_streams = self.depth_streams(Some(exchange));
+        let kline_streams = self.kline_streams(Some(exchange));
+
+        self.specs.insert(
+            exchange,
+            StreamSpecs {
+                depth: depth_streams,
+                kline: kline_streams,
+            },
+        );
+    }
+
+    fn streams<T, F>(&self, exchange_filter: Option<Exchange>, stream_extractor: F) -> Vec<T>
+    where
+        F: Fn(Exchange, &StreamKind) -> Option<T>,
+    {
+        match exchange_filter {
+            Some(exchange) => self.streams.get(&exchange).map_or(vec![], |ticker_map| {
+                ticker_map
+                    .values()
+                    .flatten()
+                    .filter_map(|stream| stream_extractor(exchange, stream))
+                    .collect()
+            }),
+            None => self
+                .streams
+                .iter()
+                .flat_map(|(exchange, ticker_map)| {
+                    ticker_map
+                        .values()
+                        .flatten()
+                        .filter_map(|stream| stream_extractor(*exchange, stream))
+                        .collect::<Vec<_>>()
+                })
+                .collect(),
+        }
+    }
+
+    pub fn depth_streams(&self, exchange_filter: Option<Exchange>) -> Vec<(Exchange, Ticker)> {
+        self.streams(exchange_filter, |exchange, stream| {
+            stream
+                .as_depth_stream()
+                .map(|(_, ticker)| (exchange, ticker))
+        })
+    }
+
+    pub fn kline_streams(
+        &self,
+        exchange_filter: Option<Exchange>,
+    ) -> Vec<(Exchange, Ticker, Timeframe)> {
+        self.streams(exchange_filter, |exchange, stream| {
+            stream
+                .as_kline_stream()
+                .map(|(_, ticker, timeframe)| (exchange, ticker, timeframe))
+        })
+    }
+
+    pub fn combined(&self) -> &HashMap<Exchange, StreamSpecs> {
+        &self.specs
+    }
+}
+
+#[derive(Debug, Clone, Default)]
+pub struct StreamSpecs {
+    pub depth: Vec<(Exchange, Ticker)>,
+    pub kline: Vec<(Exchange, Ticker, Timeframe)>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
@@ -110,11 +250,11 @@ impl Exchange {
         Exchange::BybitSpot,
     ];
 
-    pub fn get_market_type(&self) -> MarketType {
+    pub fn get_market_type(&self) -> MarketKind {
         match self {
-            Exchange::BinanceLinear | Exchange::BybitLinear => MarketType::LinearPerps,
-            Exchange::BinanceInverse | Exchange::BybitInverse => MarketType::InversePerps,
-            Exchange::BinanceSpot | Exchange::BybitSpot => MarketType::Spot,
+            Exchange::BinanceLinear | Exchange::BybitLinear => MarketKind::LinearPerps,
+            Exchange::BinanceInverse | Exchange::BybitInverse => MarketKind::InversePerps,
+            Exchange::BinanceSpot | Exchange::BybitSpot => MarketKind::Spot,
         }
     }
 }
@@ -126,14 +266,14 @@ pub struct Connection;
 pub enum Event {
     Connected(Exchange, Connection),
     Disconnected(Exchange, String),
-    DepthReceived(StreamType, u64, Depth, Box<[Trade]>),
-    KlineReceived(StreamType, Kline),
+    DepthReceived(StreamKind, u64, Depth, Box<[Trade]>),
+    KlineReceived(StreamKind, Kline),
 }
 
 #[derive(Debug, Clone, Hash)]
 pub struct StreamConfig<I> {
     pub id: I,
-    pub market_type: MarketType,
+    pub market_type: MarketKind,
 }
 
 impl<I> StreamConfig<I> {

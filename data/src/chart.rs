@@ -1,3 +1,4 @@
+use exchange::adapter::Exchange;
 use serde::{Deserialize, Serialize};
 
 pub mod heatmap;
@@ -6,10 +7,6 @@ pub mod kline;
 pub mod timeandsales;
 
 pub use kline::KlineChartKind;
-
-pub fn round_to_tick(value: f32, tick_size: f32) -> f32 {
-    (value / tick_size).round() * tick_size
-}
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChartLayout {
@@ -69,12 +66,24 @@ impl Basis {
     pub fn is_time(&self) -> bool {
         matches!(self, Basis::Time(_))
     }
+
+    pub fn default_time(ticker_info: Option<exchange::TickerInfo>) -> Self {
+        let interval = ticker_info.map_or(100, |info| {
+            if info.exchange() == Exchange::BybitSpot {
+                200
+            } else {
+                100
+            }
+        });
+        Basis::Time(interval)
+    }
 }
 
 impl std::fmt::Display for Basis {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Basis::Time(millis) => match *millis {
+                1_000 => write!(f, "1s"),
                 60_000 => write!(f, "1m"),
                 180_000 => write!(f, "3m"),
                 300_000 => write!(f, "5m"),

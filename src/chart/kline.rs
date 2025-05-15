@@ -1,24 +1,26 @@
 use data::UserTimezone;
 use data::aggr::ticks::TickAggr;
 use data::aggr::time::TimeSeries;
-use data::chart::indicators::{Indicator, KlineIndicator};
-use data::chart::kline::{ClusterKind, FootprintStudy, KlineTrades, NPoc};
-use data::chart::{ChartLayout, KlineChartKind};
+use data::chart::{
+    ChartLayout, KlineChartKind,
+    indicators::{Indicator, KlineIndicator},
+    kline::{ClusterKind, FootprintStudy, KlineTrades, NPoc},
+};
+use data::util::{abbr_large_numbers, count_decimals, round_to_tick};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
 
 use super::scale::PriceInfoLabel;
-use super::study::ChartStudy;
 use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
     indicator,
 };
 use super::{
-    abbr_large_numbers, calc_splits, canvas_interaction, count_decimals,
-    draw_horizontal_volume_bars, request_fetch, round_to_tick, update_chart, view_chart,
+    calc_splits, canvas_interaction, draw_horizontal_volume_bars, request_fetch, update_chart,
+    view_chart,
 };
 
-use crate::style;
+use crate::{dashboard::panel::study, style};
 
 use iced::task::Handle;
 use iced::theme::palette::Extended;
@@ -28,6 +30,7 @@ use ordered_float::OrderedFloat;
 
 use std::collections::hash_map::Entry;
 use std::collections::{BTreeMap, HashMap};
+use std::time::Instant;
 
 impl Chart for KlineChart {
     fn common_data(&self) -> &CommonChartData {
@@ -40,7 +43,10 @@ impl Chart for KlineChart {
 
     fn update_chart(&mut self, message: &Message) {
         update_chart(self, message);
-        self.render_start();
+    }
+
+    fn invalidate(&mut self) {
+        self.invalidate(None);
     }
 
     fn canvas_interaction(
@@ -76,17 +82,32 @@ impl Chart for KlineChart {
         }
     }
 
-    fn interval_keys(&self) -> Vec<u64> {
+    fn interval_keys(&self) -> Option<Vec<u64>> {
         match &self.data_source {
-            ChartData::TimeBased(_) => {
-                //timeseries.data_points.keys().cloned().collect()
-                vec![]
-            }
-            ChartData::TickBased(tick_aggr) => tick_aggr
-                .data_points
-                .iter()
-                .map(|dp| dp.kline.time)
-                .collect(),
+            ChartData::TimeBased(_) => None,
+            ChartData::TickBased(tick_aggr) => Some(
+                tick_aggr
+                    .data_points
+                    .iter()
+                    .map(|dp| dp.kline.time)
+                    .collect(),
+            ),
+        }
+    }
+
+    fn autoscaled_coords(&self) -> Vector {
+        let chart = self.common_data();
+
+        match &self.kind {
+            KlineChartKind::Footprint { .. } => Vector::new(
+                0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling),
+                self.data_source.get_latest_price_range_y_midpoint(chart),
+            ),
+            KlineChartKind::Candles => Vector::new(
+                0.5 * (chart.bounds.width / chart.scaling)
+                    - (8.0 * chart.cell_width / chart.scaling),
+                self.data_source.get_latest_price_range_y_midpoint(chart),
+            ),
         }
     }
 
@@ -169,7 +190,8 @@ pub struct KlineChart {
     fetching_trades: (bool, Option<Handle>),
     kind: KlineChartKind,
     request_handler: RequestHandler,
-    study_configurator: ChartStudy,
+    study_configurator: study::ChartStudy,
+    last_tick: Instant,
 }
 
 impl KlineChart {
@@ -243,7 +265,8 @@ impl KlineChart {
                     fetching_trades: (false, None),
                     request_handler: RequestHandler::new(),
                     kind: kind.clone(),
-                    study_configurator: ChartStudy::new(),
+                    study_configurator: study::ChartStudy::new(),
+                    last_tick: Instant::now(),
                 }
             }
             Basis::Tick(interval) => {
@@ -295,13 +318,14 @@ impl KlineChart {
                     fetching_trades: (false, None),
                     request_handler: RequestHandler::new(),
                     kind: kind.clone(),
-                    study_configurator: ChartStudy::new(),
+                    study_configurator: study::ChartStudy::new(),
+                    last_tick: Instant::now(),
                 }
             }
         }
     }
 
-    pub fn update_latest_kline(&mut self, kline: &Kline) -> Action {
+    pub fn update_latest_kline(&mut self, kline: &Kline) -> Option<Action> {
         match self.data_source {
             ChartData::TimeBased(ref mut timeseries) => {
                 timeseries.insert_klines(&[kline.to_owned()]);
@@ -320,22 +344,22 @@ impl KlineChart {
 
                 chart.last_price = Some(PriceInfoLabel::new(kline.close, kline.open));
 
-                self.render_start();
+                self.invalidate(None);
                 return self.missing_data_task();
             }
             ChartData::TickBased(_) => {
-                self.render_start();
+                self.invalidate(None);
             }
         }
 
-        Action::None
+        None
     }
 
     pub fn kind(&self) -> &KlineChartKind {
         &self.kind
     }
 
-    fn missing_data_task(&mut self) -> Action {
+    fn missing_data_task(&mut self) -> Option<Action> {
         match &self.data_source {
             ChartData::TimeBased(timeseries) => {
                 let timeframe = timeseries.interval.to_milliseconds();
@@ -349,7 +373,7 @@ impl KlineChart {
                     let range = FetchRange::Kline(earliest, kline_earliest);
 
                     if let Some(action) = request_fetch(&mut self.request_handler, range) {
-                        return action;
+                        return Some(action);
                     }
                 }
 
@@ -382,7 +406,7 @@ impl KlineChart {
 
                         if let Some(action) = request_fetch(&mut self.request_handler, range) {
                             self.fetching_trades = (true, None);
-                            return action;
+                            return Some(action);
                         }
                     }
                 }
@@ -401,7 +425,7 @@ impl KlineChart {
                                 if let Some(action) =
                                     request_fetch(&mut self.request_handler, range)
                                 {
-                                    return action;
+                                    return Some(action);
                                 }
                             }
 
@@ -412,7 +436,7 @@ impl KlineChart {
                                 if let Some(action) =
                                     request_fetch(&mut self.request_handler, range)
                                 {
-                                    return action;
+                                    return Some(action);
                                 }
                             }
                         }
@@ -430,7 +454,7 @@ impl KlineChart {
                     let range = FetchRange::Kline(earliest, latest);
 
                     if let Some(action) = request_fetch(&mut self.request_handler, range) {
-                        return action;
+                        return Some(action);
                     }
                 }
             }
@@ -439,7 +463,7 @@ impl KlineChart {
             }
         }
 
-        Action::None
+        None
     }
 
     pub fn reset_request_handler(&mut self) {
@@ -476,13 +500,11 @@ impl KlineChart {
         self.chart.tick_size
     }
 
-    pub fn study_configurator(&self) -> &ChartStudy {
+    pub fn study_configurator(&self) -> &study::ChartStudy {
         &self.study_configurator
     }
 
-    pub fn update_study_configurator(&mut self, message: super::study::Message) {
-        let action = self.study_configurator.update(message);
-
+    pub fn update_study_configurator(&mut self, message: study::Message) {
         let studies = if let KlineChartKind::Footprint {
             ref mut studies, ..
         } = self.kind
@@ -492,9 +514,8 @@ impl KlineChart {
             return;
         };
 
-        match action {
-            super::study::Action::None => return,
-            super::study::Action::ToggleStudy(study, is_selected) => {
+        match self.study_configurator.update(message) {
+            Some(study::Action::ToggleStudy(study, is_selected)) => {
                 if is_selected {
                     let already_exists = studies.iter().any(|s| s.is_same_type(&study));
                     if !already_exists {
@@ -504,14 +525,15 @@ impl KlineChart {
                     studies.retain(|s| !s.is_same_type(&study));
                 }
             }
-            super::study::Action::ConfigureStudy(study) => {
+            Some(study::Action::ConfigureStudy(study)) => {
                 if let Some(existing_study) = studies.iter_mut().find(|s| s.is_same_type(&study)) {
                     *existing_study = study;
                 }
             }
+            None => {}
         }
 
-        self.render_start();
+        self.invalidate(None);
     }
 
     pub fn chart_layout(&self) -> ChartLayout {
@@ -526,7 +548,7 @@ impl KlineChart {
             *clusters = new_kind;
         }
 
-        self.render_start();
+        self.invalidate(None);
     }
 
     pub fn change_tick_size(&mut self, new_tick_size: f32) {
@@ -545,7 +567,7 @@ impl KlineChart {
         }
 
         self.clear_trades(false);
-        self.render_start();
+        self.invalidate(None);
     }
 
     pub fn set_tick_basis(&mut self, tick_basis: u64) {
@@ -559,7 +581,7 @@ impl KlineChart {
 
         self.data_source = ChartData::TickBased(new_tick_aggr);
 
-        self.render_start();
+        self.invalidate(None);
     }
 
     fn oi_timerange(&self, latest_kline: u64) -> (u64, u64) {
@@ -603,7 +625,7 @@ impl KlineChart {
                     self.chart.last_price = None;
                 }
 
-                self.render_start();
+                self.invalidate(None);
             }
             ChartData::TimeBased(ref mut timeseries) => {
                 timeseries.insert_trades(trades_buffer, Some(depth_update));
@@ -652,8 +674,6 @@ impl KlineChart {
             }
             ChartData::TickBased(_) => {}
         }
-
-        self.render_start();
     }
 
     pub fn insert_open_interest(&mut self, req_id: Option<uuid::Uuid>, oi_data: &[OIData]) {
@@ -708,31 +728,23 @@ impl KlineChart {
         }
     }
 
-    pub fn render_start(&mut self) {
-        let chart_state = &mut self.chart;
+    pub fn last_update(&self) -> Instant {
+        self.last_tick
+    }
 
-        if chart_state.autoscale {
-            match &self.kind {
-                KlineChartKind::Footprint { .. } => {
-                    chart_state.translation = Vector::new(
-                        0.5 * (chart_state.bounds.width / chart_state.scaling)
-                            - (chart_state.cell_width / chart_state.scaling),
-                        self.data_source
-                            .get_latest_price_range_y_midpoint(chart_state),
-                    );
-                }
-                KlineChartKind::Candles => {
-                    chart_state.translation = Vector::new(
-                        0.5 * (chart_state.bounds.width / chart_state.scaling)
-                            - (8.0 * chart_state.cell_width / chart_state.scaling),
-                        self.data_source
-                            .get_latest_price_range_y_midpoint(chart_state),
-                    );
-                }
-            }
+    pub fn invalidate(&mut self, now: Option<Instant>) {
+        if let Some(t) = now {
+            self.last_tick = t;
         }
 
-        chart_state.cache.clear_all();
+        let autoscaled_coords = self.autoscaled_coords();
+        let chart = &mut self.chart;
+
+        if chart.autoscale {
+            chart.translation = autoscaled_coords;
+        }
+
+        chart.cache.clear_all();
 
         self.indicators.iter_mut().for_each(|(_, data)| {
             data.clear_cache();
@@ -784,7 +796,7 @@ impl KlineChart {
         let mut indicators = vec![];
 
         let market = match chart_state.ticker_info {
-            Some(ref info) => info.get_market_type(),
+            Some(ref info) => info.market_type(),
             None => return indicators,
         };
 

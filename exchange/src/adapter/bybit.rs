@@ -15,7 +15,7 @@ use iced_futures::{
 
 use super::{
     super::{
-        Exchange, Kline, MarketType, OpenInterest, StreamType, Ticker, TickerInfo, TickerStats,
+        Exchange, Kline, MarketKind, OpenInterest, StreamKind, Ticker, TickerInfo, TickerStats,
         Timeframe, Trade,
         connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
         de_string_to_f32, de_string_to_u64,
@@ -23,6 +23,14 @@ use super::{
     },
     Connection, Event, StreamError,
 };
+
+fn exchange_from_market_type(market: MarketKind) -> Exchange {
+    match market {
+        MarketKind::Spot => Exchange::BybitSpot,
+        MarketKind::LinearPerps => Exchange::BybitLinear,
+        MarketKind::InversePerps => Exchange::BybitInverse,
+    }
+}
 
 #[derive(Serialize, Deserialize)]
 struct SonicDepth {
@@ -79,11 +87,12 @@ enum StreamName {
 }
 
 impl StreamName {
-    fn from_topic(topic: &str, is_ticker: Option<Ticker>, market_type: MarketType) -> Self {
+    fn from_topic(topic: &str, is_ticker: Option<Ticker>, market_type: MarketKind) -> Self {
         let parts: Vec<&str> = topic.split('.').collect();
 
         if let Some(ticker_str) = parts.last() {
-            let ticker = is_ticker.unwrap_or_else(|| Ticker::new(ticker_str, market_type));
+            let exchange = exchange_from_market_type(market_type);
+            let ticker = is_ticker.unwrap_or_else(|| Ticker::new(ticker_str, exchange));
 
             match parts.first() {
                 Some(&"publicTrade") => StreamName::Trade(ticker),
@@ -108,7 +117,7 @@ enum StreamWrapper {
 fn feed_de(
     slice: &[u8],
     ticker: Option<Ticker>,
-    market_type: MarketType,
+    market_type: MarketKind,
 ) -> Result<StreamData, StreamError> {
     let mut stream_type: Option<StreamWrapper> = None;
     let mut depth_wrap: Option<SonicDepth> = None;
@@ -202,16 +211,16 @@ fn feed_de(
 
 async fn connect(
     domain: &str,
-    market_type: MarketType,
+    market_type: MarketKind,
 ) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
     let tcp_stream = setup_tcp_connection(domain).await?;
     let tls_stream = setup_tls_connection(domain, tcp_stream).await?;
     let url = format!(
         "wss://stream.bybit.com/v5/public/{}",
         match market_type {
-            MarketType::Spot => "spot",
-            MarketType::LinearPerps => "linear",
-            MarketType::InversePerps => "inverse",
+            MarketKind::Spot => "spot",
+            MarketKind::LinearPerps => "linear",
+            MarketKind::InversePerps => "inverse",
         }
     );
     setup_websocket_connection(domain, tls_stream, &url).await
@@ -219,13 +228,13 @@ async fn connect(
 
 async fn try_connect(
     streams: &Value,
-    market_type: MarketType,
+    market_type: MarketKind,
     output: &mut mpsc::Sender<Event>,
 ) -> State {
     let exchange = match market_type {
-        MarketType::Spot => Exchange::BybitSpot,
-        MarketType::LinearPerps => Exchange::BybitLinear,
-        MarketType::InversePerps => Exchange::BybitInverse,
+        MarketKind::Spot => Exchange::BybitSpot,
+        MarketKind::LinearPerps => Exchange::BybitLinear,
+        MarketKind::InversePerps => Exchange::BybitInverse,
     };
 
     match connect("stream.bybit.com", market_type).await {
@@ -268,18 +277,14 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
         let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
 
-        let exchange = match market_type {
-            MarketType::Spot => Exchange::BybitSpot,
-            MarketType::LinearPerps => Exchange::BybitLinear,
-            MarketType::InversePerps => Exchange::BybitInverse,
-        };
+        let exchange = exchange_from_market_type(market_type);
 
         let stream_1 = format!("publicTrade.{symbol_str}");
         let stream_2 = format!(
             "orderbook.{}.{}",
             match market_type {
-                MarketType::Spot => "200",
-                MarketType::LinearPerps | MarketType::InversePerps => "500",
+                MarketKind::Spot => "200",
+                MarketKind::LinearPerps | MarketKind::InversePerps => "500",
             },
             symbol_str,
         );
@@ -344,7 +349,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                             let _ = output
                                                 .send(Event::DepthReceived(
-                                                    StreamType::DepthAndTrades { exchange, ticker },
+                                                    StreamKind::DepthAndTrades { exchange, ticker },
                                                     time,
                                                     orderbook.depth.clone(),
                                                     std::mem::take(&mut trades_buffer)
@@ -387,16 +392,12 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
 pub fn connect_kline_stream(
     streams: Vec<(Ticker, Timeframe)>,
-    market_type: MarketType,
+    market_type: MarketKind,
 ) -> impl Stream<Item = Event> {
     stream::channel(100, async move |mut output| {
         let mut state = State::Disconnected;
 
-        let exchange = match market_type {
-            MarketType::Spot => Exchange::BybitSpot,
-            MarketType::LinearPerps => Exchange::BybitLinear,
-            MarketType::InversePerps => Exchange::BybitInverse,
-        };
+        let exchange = exchange_from_market_type(market_type);
 
         let stream_str = streams
             .iter()
@@ -439,7 +440,7 @@ pub fn connect_kline_stream(
                                     {
                                         let _ = output
                                             .send(Event::KlineReceived(
-                                                StreamType::Kline {
+                                                StreamKind::Kline {
                                                     exchange,
                                                     ticker,
                                                     timeframe,
@@ -484,7 +485,7 @@ pub fn connect_kline_stream(
 }
 
 fn string_to_timeframe(interval: &str) -> Option<Timeframe> {
-    Timeframe::ALL
+    Timeframe::KLINE
         .iter()
         .find(|&tf| tf.to_minutes().to_string() == interval)
         .copied()
@@ -624,9 +625,9 @@ pub async fn fetch_klines(
     }
 
     let market = match market_type {
-        MarketType::Spot => "spot",
-        MarketType::LinearPerps => "linear",
-        MarketType::InversePerps => "inverse",
+        MarketKind::Spot => "spot",
+        MarketKind::LinearPerps => "linear",
+        MarketKind::InversePerps => "inverse",
     };
 
     let mut url = format!(
@@ -678,12 +679,14 @@ pub async fn fetch_klines(
 }
 
 pub async fn fetch_ticksize(
-    market_type: MarketType,
+    market_type: MarketKind,
 ) -> Result<HashMap<Ticker, Option<TickerInfo>>, StreamError> {
+    let exchange = exchange_from_market_type(market_type);
+
     let market = match market_type {
-        MarketType::Spot => "spot",
-        MarketType::LinearPerps => "linear",
-        MarketType::InversePerps => "inverse",
+        MarketKind::Spot => "spot",
+        MarketKind::LinearPerps => "linear",
+        MarketKind::InversePerps => "inverse",
     };
 
     let url =
@@ -718,6 +721,16 @@ pub async fn fetch_ticksize(
             }
         }
 
+        let lot_size_filter = item["lotSizeFilter"]
+            .as_object()
+            .ok_or_else(|| StreamError::ParseError("Lot size filter not found".to_string()))?;
+
+        let min_qty = lot_size_filter["minOrderQty"]
+            .as_str()
+            .ok_or_else(|| StreamError::ParseError("Min order qty not found".to_string()))?
+            .parse::<f32>()
+            .map_err(|_| StreamError::ParseError("Failed to parse min order qty".to_string()))?;
+
         let price_filter = item["priceFilter"]
             .as_object()
             .ok_or_else(|| StreamError::ParseError("Price filter not found".to_string()))?;
@@ -728,13 +741,14 @@ pub async fn fetch_ticksize(
             .parse::<f32>()
             .map_err(|_| StreamError::ParseError("Failed to parse tick size".to_string()))?;
 
-        let ticker = Ticker::new(symbol, market_type);
+        let ticker = Ticker::new(symbol, exchange);
 
         ticker_info_map.insert(
             ticker,
             Some(TickerInfo {
                 ticker,
                 min_ticksize,
+                min_qty,
             }),
         );
     }
@@ -747,12 +761,14 @@ const INVERSE_FILTER_VOLUME: f32 = 1_000.0;
 const SPOT_FILTER_VOLUME: f32 = 4_000_000.0;
 
 pub async fn fetch_ticker_prices(
-    market_type: MarketType,
+    market_type: MarketKind,
 ) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
+    let exchange = exchange_from_market_type(market_type);
+
     let (market, volume_threshold) = match market_type {
-        MarketType::Spot => ("spot", SPOT_FILTER_VOLUME),
-        MarketType::LinearPerps => ("linear", LINEAR_FILTER_VOLUME),
-        MarketType::InversePerps => ("inverse", INVERSE_FILTER_VOLUME),
+        MarketKind::Spot => ("spot", SPOT_FILTER_VOLUME),
+        MarketKind::LinearPerps => ("linear", LINEAR_FILTER_VOLUME),
+        MarketKind::InversePerps => ("inverse", INVERSE_FILTER_VOLUME),
     };
 
     let url = format!("https://api.bybit.com/v5/market/tickers?category={market}");
@@ -793,7 +809,7 @@ pub async fn fetch_ticker_prices(
             .parse::<f32>()
             .map_err(|_| StreamError::ParseError("Failed to parse daily volume".to_string()))?;
 
-        let volume_in_usd = if market_type == MarketType::InversePerps {
+        let volume_in_usd = if market_type == MarketKind::InversePerps {
             daily_volume
         } else {
             daily_volume * mark_price
@@ -809,7 +825,7 @@ pub async fn fetch_ticker_prices(
             daily_volume: volume_in_usd,
         };
 
-        ticker_prices_map.insert(Ticker::new(symbol, market_type), ticker_stats);
+        ticker_prices_map.insert(Ticker::new(symbol, exchange), ticker_stats);
     }
 
     Ok(ticker_prices_map)

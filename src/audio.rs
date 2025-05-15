@@ -2,7 +2,7 @@ use crate::TooltipPosition;
 use crate::style::{self, icon_text};
 use crate::widget::{create_slider_row, tooltip};
 use data::audio::{SoundCache, StreamCfg};
-use exchange::adapter::{Exchange, StreamType};
+use exchange::adapter::{Exchange, StreamKind};
 
 use exchange::Trade;
 use iced::widget::{button, column, container, row, text};
@@ -18,10 +18,6 @@ pub enum Message {
     ToggleStream(bool, (Exchange, exchange::Ticker)),
     ToggleCard(Exchange, exchange::Ticker),
     SetThreshold(Exchange, exchange::Ticker, data::audio::Threshold),
-}
-
-pub enum Action {
-    None,
 }
 
 pub struct AudioStream {
@@ -52,7 +48,7 @@ impl AudioStream {
         }
     }
 
-    pub fn update(&mut self, message: Message) -> Action {
+    pub fn update(&mut self, message: Message) {
         match message {
             Message::SoundLevelChanged(value) => {
                 self.cache.set_volume(value);
@@ -96,8 +92,6 @@ impl AudioStream {
                 }
             }
         }
-
-        Action::None
     }
 
     pub fn view(&self, active_streams: Vec<(Exchange, exchange::Ticker)>) -> Element<'_, Message> {
@@ -129,7 +123,7 @@ impl AudioStream {
                     let mut column = column![].padding(padding::left(4));
 
                     let is_audio_enabled = self
-                        .is_stream_audio_enabled(&StreamType::DepthAndTrades { exchange, ticker });
+                        .is_stream_audio_enabled(&StreamKind::DepthAndTrades { exchange, ticker });
 
                     let stream_checkbox =
                         checkbox(format!("{exchange} - {ticker}"), is_audio_enabled).on_toggle(
@@ -217,9 +211,9 @@ impl AudioStream {
         self.cache.play(sound)
     }
 
-    pub fn is_stream_audio_enabled(&self, stream: &StreamType) -> bool {
+    pub fn is_stream_audio_enabled(&self, stream: &StreamKind) -> bool {
         match stream {
-            StreamType::DepthAndTrades { exchange, ticker } => self
+            StreamKind::DepthAndTrades { exchange, ticker } => self
                 .streams
                 .get(exchange)
                 .and_then(|streams| streams.get(ticker))
@@ -228,12 +222,12 @@ impl AudioStream {
         }
     }
 
-    pub fn should_play_sound(&self, stream: &StreamType) -> Option<StreamCfg> {
+    pub fn should_play_sound(&self, stream: &StreamKind) -> Option<StreamCfg> {
         if self.cache.is_muted() {
             return None;
         }
 
-        let StreamType::DepthAndTrades { exchange, ticker } = stream else {
+        let StreamKind::DepthAndTrades { exchange, ticker } = stream else {
             return None;
         };
 
@@ -249,7 +243,7 @@ impl AudioStream {
 
     pub fn try_play_sound(
         &self,
-        stream: &StreamType,
+        stream: &StreamKind,
         trades_buffer: &[Trade],
     ) -> Result<(), String> {
         let Some(cfg) = self.should_play_sound(stream) else {

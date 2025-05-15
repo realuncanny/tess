@@ -4,6 +4,7 @@ pub mod chart;
 pub mod config;
 pub mod layout;
 pub mod log;
+pub mod util;
 
 use std::fs::File;
 use std::io::{Read, Write};
@@ -129,7 +130,7 @@ fn cleanup_directory(data_path: &PathBuf) -> usize {
     let today = chrono::Local::now().date_naive();
     let mut deleted_files = Vec::new();
 
-    let entries = match std::fs::read_dir(&data_path) {
+    let entries = match std::fs::read_dir(data_path) {
         Ok(entries) => entries,
         Err(e) => {
             error!("Failed to read data directory {:?}: {}", data_path, e);
@@ -179,7 +180,7 @@ pub fn cleanup_old_market_data() -> usize {
         )))
     });
 
-    let total_deleted: usize = paths.iter().map(|path| cleanup_directory(&path)).sum();
+    let total_deleted: usize = paths.iter().map(cleanup_directory).sum();
 
     info!("File cleanup completed. Deleted {} files", total_deleted);
     total_deleted

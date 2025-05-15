@@ -4,7 +4,7 @@ pub mod depth;
 pub mod fetcher;
 
 pub use adapter::Event;
-use adapter::{Exchange, MarketType, StreamType};
+use adapter::{Exchange, MarketKind, StreamKind};
 use rust_decimal::{
     Decimal,
     prelude::{FromPrimitive, ToPrimitive},
@@ -22,6 +22,10 @@ impl std::fmt::Display for Timeframe {
             f,
             "{}",
             match self {
+                Timeframe::MS100 => "100ms",
+                Timeframe::MS200 => "200ms",
+                Timeframe::MS500 => "500ms",
+                Timeframe::MS1000 => "1s",
                 Timeframe::M1 => "1m",
                 Timeframe::M3 => "3m",
                 Timeframe::M5 => "5m",
@@ -37,6 +41,10 @@ impl std::fmt::Display for Timeframe {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
 pub enum Timeframe {
+    MS100,
+    MS200,
+    MS500,
+    MS1000,
     M1,
     M3,
     M5,
@@ -48,7 +56,7 @@ pub enum Timeframe {
 }
 
 impl Timeframe {
-    pub const ALL: [Timeframe; 8] = [
+    pub const KLINE: [Timeframe; 8] = [
         Timeframe::M1,
         Timeframe::M3,
         Timeframe::M5,
@@ -57,6 +65,13 @@ impl Timeframe {
         Timeframe::H1,
         Timeframe::H2,
         Timeframe::H4,
+    ];
+
+    pub const HEATMAP: [Timeframe; 4] = [
+        Timeframe::MS100,
+        Timeframe::MS200,
+        Timeframe::MS500,
+        Timeframe::MS1000,
     ];
 
     pub fn to_minutes(self) -> u16 {
@@ -69,11 +84,21 @@ impl Timeframe {
             Timeframe::H1 => 60,
             Timeframe::H2 => 120,
             Timeframe::H4 => 240,
+            _ => panic!("Invalid timeframe: {:?}", self),
         }
     }
 
     pub fn to_milliseconds(self) -> u64 {
-        u64::from(self.to_minutes()) * 60_000
+        match self {
+            Timeframe::MS100 => 100,
+            Timeframe::MS200 => 200,
+            Timeframe::MS500 => 500,
+            Timeframe::MS1000 => 1_000,
+            _ => {
+                let minutes = self.to_minutes();
+                u64::from(minutes) * 60_000
+            }
+        }
     }
 }
 
@@ -92,6 +117,10 @@ impl From<Timeframe> for u64 {
 impl From<u64> for Timeframe {
     fn from(milliseconds: u64) -> Timeframe {
         match milliseconds {
+            100 => Timeframe::MS100,
+            200 => Timeframe::MS200,
+            500 => Timeframe::MS500,
+            1_000 => Timeframe::MS1000,
             60_000 => Timeframe::M1,
             180_000 => Timeframe::M3,
             300_000 => Timeframe::M5,
@@ -114,15 +143,13 @@ pub struct SerTicker {
 
 impl SerTicker {
     pub fn new(exchange: Exchange, ticker_str: &str) -> Self {
-        let market_type = exchange.get_market_type();
-        let ticker = Ticker::new(ticker_str, market_type);
-
+        let ticker = Ticker::new(ticker_str, exchange);
         Self { exchange, ticker }
     }
 
     pub fn from_parts(exchange: Exchange, ticker: Ticker) -> Self {
         assert_eq!(
-            ticker.market_type,
+            ticker.market_type(),
             exchange.get_market_type(),
             "Ticker market type must match Exchange market type"
         );
@@ -184,10 +211,8 @@ impl<'de> Deserialize<'de> for SerTicker {
         let exchange_str = parts[0];
         let exchange = Self::string_to_exchange(exchange_str).map_err(serde::de::Error::custom)?;
 
-        let market_type = exchange.get_market_type();
-
         let ticker_str = parts[1];
-        let ticker = Ticker::new(ticker_str, market_type);
+        let ticker = Ticker::new(ticker_str, exchange);
 
         Ok(SerTicker { exchange, ticker })
     }
@@ -205,11 +230,11 @@ impl fmt::Display for SerTicker {
 pub struct Ticker {
     data: [u64; 2],
     len: u8,
-    pub market_type: MarketType,
+    pub exchange: Exchange,
 }
 
 impl Ticker {
-    pub fn new<S: AsRef<str>>(ticker: S, market_type: MarketType) -> Self {
+    pub fn new<S: AsRef<str>>(ticker: S, exchange: Exchange) -> Self {
         let ticker = ticker.as_ref();
         let base_len = ticker.len();
 
@@ -239,11 +264,11 @@ impl Ticker {
         Ticker {
             data,
             len,
-            market_type,
+            exchange,
         }
     }
 
-    pub fn to_full_symbol_and_type(&self) -> (String, MarketType) {
+    pub fn to_full_symbol_and_type(&self) -> (String, MarketKind) {
         let mut result = String::with_capacity(self.len as usize);
         for i in 0..self.len {
             let value = (self.data[i as usize / 10] >> ((i % 10) * 6)) & 0x3F;
@@ -256,10 +281,10 @@ impl Ticker {
             result.push(c);
         }
 
-        (result, self.market_type)
+        (result, self.market_type())
     }
 
-    pub fn display_symbol_and_type(&self) -> (String, MarketType) {
+    pub fn display_symbol_and_type(&self) -> (String, MarketKind) {
         let mut result = String::with_capacity(self.len as usize);
 
         for i in 0..self.len {
@@ -277,11 +302,11 @@ impl Ticker {
             result.push(c);
         }
 
-        (result, self.market_type)
+        (result, self.market_type())
     }
 
-    pub fn get_market_type(&self) -> MarketType {
-        self.market_type
+    pub fn market_type(&self) -> MarketKind {
+        self.exchange.get_market_type()
     }
 }
 
@@ -307,16 +332,21 @@ pub struct TickerInfo {
     pub ticker: Ticker,
     #[serde(rename = "tickSize")]
     pub min_ticksize: f32,
+    pub min_qty: f32,
 }
 
 impl TickerInfo {
-    pub fn get_market_type(&self) -> MarketType {
-        self.ticker.market_type
+    pub fn market_type(&self) -> MarketKind {
+        self.ticker.market_type()
     }
 
     pub fn is_perps(&self) -> bool {
-        self.ticker.market_type == MarketType::LinearPerps
-            || self.ticker.market_type == MarketType::InversePerps
+        let market_type = self.ticker.market_type();
+        market_type == MarketKind::LinearPerps || market_type == MarketKind::InversePerps
+    }
+
+    pub fn exchange(&self) -> Exchange {
+        self.ticker.exchange
     }
 }
 

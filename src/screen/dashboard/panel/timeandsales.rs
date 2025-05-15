@@ -1,13 +1,11 @@
 use crate::screen::dashboard::pane::Message;
 use crate::style::{self, ts_table_container};
 use data::UserTimezone;
-use data::chart::timeandsales::Config;
-use exchange::adapter::MarketType;
+pub use data::chart::timeandsales::Config;
+use exchange::adapter::MarketKind;
 use exchange::{TickerInfo, Trade};
 use iced::widget::{center, column, container, responsive, row, text};
 use iced::{Alignment, Element, Length};
-
-use super::abbr_large_numbers;
 
 const TARGET_SIZE: usize = 700;
 const MAX_SIZE: usize = 900;
@@ -50,7 +48,7 @@ impl TimeAndSales {
         let size_filter = self.config.trade_size_filter;
 
         let market_type = match self.ticker_info {
-            Some(ref ticker_info) => ticker_info.get_market_type(),
+            Some(ref ticker_info) => ticker_info.market_type(),
             None => return,
         };
 
@@ -67,7 +65,7 @@ impl TimeAndSales {
                 };
 
                 let trade_size = match market_type {
-                    MarketType::InversePerps => converted_trade.qty,
+                    MarketKind::InversePerps => converted_trade.qty,
                     _ => converted_trade.qty * converted_trade.price,
                 };
 
@@ -95,7 +93,7 @@ impl TimeAndSales {
     pub fn view(&self, _timezone: UserTimezone) -> Element<'_, Message> {
         responsive(move |size| {
             let market_type = match self.ticker_info {
-                Some(ref ticker_info) => ticker_info.get_market_type(),
+                Some(ref ticker_info) => ticker_info.market_type(),
                 None => {
                     return center(container(
                         text("No ticker info. Resetting this pane should fix").size(14),
@@ -110,7 +108,7 @@ impl TimeAndSales {
 
             let filtered_trades_iter = self.recent_trades.iter().filter(|t| {
                 let trade_size = match market_type {
-                    MarketType::InversePerps => t.qty,
+                    MarketKind::InversePerps => t.qty,
                     _ => t.qty * t.price,
                 };
                 trade_size >= self.config.trade_size_filter
@@ -132,7 +130,7 @@ impl TimeAndSales {
                     )
                     .width(Length::FillPortion(6)),
                     container(
-                        text(abbr_large_numbers(trade.qty))
+                        text(data::util::abbr_large_numbers(trade.qty))
                             .font(style::AZERET_MONO)
                             .size(iced::Pixels(11.0))
                     )

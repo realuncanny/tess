@@ -1,4 +1,4 @@
-use exchange::{TickMultiplier, TickerInfo, adapter::StreamType};
+use exchange::{TickMultiplier, TickerInfo, adapter::StreamKind};
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
@@ -27,29 +27,29 @@ pub enum Pane {
     HeatmapChart {
         layout: ChartLayout,
         #[serde(deserialize_with = "ok_or_default")]
-        stream_type: Vec<StreamType>,
+        stream_type: Vec<StreamKind>,
         #[serde(deserialize_with = "ok_or_default")]
-        settings: PaneSettings,
+        settings: Settings,
         indicators: Vec<HeatmapIndicator>,
     },
     KlineChart {
         layout: ChartLayout,
         kind: KlineChartKind,
         #[serde(deserialize_with = "ok_or_default")]
-        stream_type: Vec<StreamType>,
+        stream_type: Vec<StreamKind>,
         #[serde(deserialize_with = "ok_or_default")]
-        settings: PaneSettings,
+        settings: Settings,
         indicators: Vec<KlineIndicator>,
     },
     TimeAndSales {
-        stream_type: Vec<StreamType>,
-        settings: PaneSettings,
+        stream_type: Vec<StreamKind>,
+        settings: Settings,
     },
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, Default)]
 #[serde(default)]
-pub struct PaneSettings {
+pub struct Settings {
     pub ticker_info: Option<TickerInfo>,
     pub tick_multiply: Option<TickMultiplier>,
     pub visual_config: Option<VisualConfig>,

@@ -24,10 +24,9 @@ use widget::{
     toast::{self, Toast},
     tooltip,
 };
-use window::{Window, window_events};
 
 use data::{InternalError, config::theme::default_theme, layout::WindowSpec, sidebar};
-use exchange::adapter::{Exchange, StreamType, fetch_ticker_info};
+use exchange::adapter::{Exchange, StreamKind, fetch_ticker_info};
 use iced::{
     Alignment, Element, Length, Subscription, Task, padding,
     widget::{
@@ -35,7 +34,12 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use std::{borrow::Cow, collections::HashMap, vec};
+use std::{
+    borrow::Cow,
+    collections::HashMap,
+    time::{Duration, Instant},
+    vec,
+};
 
 fn main() {
     logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
@@ -60,7 +64,7 @@ fn main() {
 }
 
 struct Flowsurface {
-    main_window: Window,
+    main_window: window::Window,
     layout_manager: LayoutManager,
     tickers_table: TickersTable,
     confirm_dialog: Option<(String, Box<Message>)>,
@@ -86,6 +90,7 @@ enum Message {
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
     TickersTable(tickers_table::Message),
 
+    Tick(Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
     ErrorOccurred(InternalError),
@@ -123,18 +128,16 @@ impl Flowsurface {
         let active_layout = saved_state.layout_manager.active_layout();
         let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
-        let theme = saved_state.theme.clone();
-
         (
             Self {
-                main_window: Window::new(main_window_id),
+                main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
                 tickers_table: TickersTable::new(saved_state.favorited_tickers),
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
                 sidebar: saved_state.sidebar,
-                theme: theme.clone(),
+                theme: saved_state.theme,
                 notifications: vec![],
                 audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
                 theme_editor: theme_editor::ThemeEditor::new(saved_state.custom_theme),
@@ -209,6 +212,13 @@ impl Flowsurface {
                                 .map(move |msg| Message::Dashboard(None, msg));
                         }
                     }
+                }
+            }
+            Message::Tick(now) => {
+                let main_window_id = self.main_window.id;
+
+                if let Some(dashboard) = self.active_dashboard_mut() {
+                    dashboard.tick(now, main_window_id);
                 }
             }
             Message::WindowEvent(event) => match event {
@@ -340,7 +350,7 @@ impl Flowsurface {
                 let action = self.tickers_table.update(message);
 
                 match action {
-                    tickers_table::Action::TickerSelected(ticker_info, exchange, content) => {
+                    Some(tickers_table::Action::TickerSelected(ticker_info, exchange, content)) => {
                         let main_window_id = self.main_window.id;
 
                         if let Some(dashboard) = self.active_dashboard_mut() {
@@ -354,13 +364,13 @@ impl Flowsurface {
                             return task.map(move |msg| Message::Dashboard(None, msg));
                         }
                     }
-                    tickers_table::Action::Fetch(task) => {
+                    Some(tickers_table::Action::Fetch(task)) => {
                         return task.map(Message::TickersTable);
                     }
-                    tickers_table::Action::ErrorOccurred(err) => {
+                    Some(tickers_table::Action::ErrorOccurred(err)) => {
                         return Task::done(Message::ErrorOccurred(err));
                     }
-                    tickers_table::Action::None => {}
+                    None => {}
                 }
             }
             Message::SetTimezone(tz) => {
@@ -398,7 +408,7 @@ impl Flowsurface {
                 let action = self.layout_manager.update(message);
 
                 match action {
-                    layout::Action::Select(layout) => {
+                    Some(layout::Action::Select(layout)) => {
                         if let Some(dashboard) = self.active_dashboard() {
                             let active_popout_keys =
                                 dashboard.popout.keys().copied().collect::<Vec<_>>();
@@ -424,7 +434,7 @@ impl Flowsurface {
                             )));
                         }
                     }
-                    layout::Action::None => {}
+                    None => {}
                 }
             }
             Message::LoadLayout(layout) => {
@@ -444,13 +454,7 @@ impl Flowsurface {
                     self.notifications.remove(index);
                 }
             }
-            Message::AudioStream(message) => {
-                let action = self.audio_stream.update(message);
-
-                match action {
-                    audio::Action::None => {}
-                }
-            }
+            Message::AudioStream(message) => self.audio_stream.update(message),
             Message::DataFolderRequested => {
                 if let Err(err) = data::open_data_folder() {
                     return Task::done(Message::AddNotification(Toast::error(format!(
@@ -462,10 +466,10 @@ impl Flowsurface {
                 let action = self.theme_editor.update(msg, &self.theme.clone().into());
 
                 match action {
-                    theme_editor::Action::Exit => {
+                    Some(theme_editor::Action::Exit) => {
                         self.sidebar.set_menu(sidebar::Menu::Settings);
                     }
-                    theme_editor::Action::UpdateTheme(theme) => {
+                    Some(theme_editor::Action::UpdateTheme(theme)) => {
                         self.theme = data::Theme(theme);
 
                         let main_window = self.main_window.id;
@@ -478,7 +482,7 @@ impl Flowsurface {
                             )));
                         }
                     }
-                    theme_editor::Action::None => {}
+                    None => {}
                 }
             }
         }
@@ -888,21 +892,7 @@ impl Flowsurface {
                         sidebar::Position::Right => (Alignment::End, padding::right(48).top(64)),
                     };
 
-                    let depth_streams_list: Vec<(Exchange, exchange::Ticker)> = dashboard
-                        .pane_streams
-                        .iter()
-                        .flat_map(|(exchange, streams)| {
-                            streams
-                                .iter()
-                                .filter(|(ticker, stream_types)| {
-                                    stream_types.contains(&StreamType::DepthAndTrades {
-                                        exchange: *exchange,
-                                        ticker: **ticker,
-                                    })
-                                })
-                                .map(|(ticker, _)| (*exchange, *ticker))
-                        })
-                        .collect();
+                    let depth_streams_list = dashboard.streams.depth_streams(None);
 
                     dashboard_modal(
                         base,
@@ -969,17 +959,24 @@ impl Flowsurface {
     }
 
     fn subscription(&self) -> Subscription<Message> {
-        let window_events = window_events().map(Message::WindowEvent);
+        let window_events = window::events().map(Message::WindowEvent);
 
         let Some(dashboard) = self.active_dashboard() else {
             return window_events;
         };
 
-        let exchange_streams = dashboard.market_subscriptions(Message::MarketWsEvent);
+        let exchange_streams = dashboard.market_subscriptions().map(Message::MarketWsEvent);
 
         let tickers_table_fetch = self.tickers_table.subscription().map(Message::TickersTable);
 
-        Subscription::batch(vec![exchange_streams, tickers_table_fetch, window_events])
+        let tick = iced::time::every(Duration::from_millis(100)).map(Message::Tick);
+
+        Subscription::batch(vec![
+            exchange_streams,
+            tickers_table_fetch,
+            window_events,
+            tick,
+        ])
     }
 
     fn active_dashboard(&self) -> Option<&Dashboard> {
