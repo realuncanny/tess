@@ -67,12 +67,10 @@ pub enum Message {
     DoubleClick(AxisScaleClicked),
 }
 
-trait Chart: ChartConstants + canvas::Program<Message> {
+pub trait Chart: ChartConstants + canvas::Program<Message> {
     fn common_data(&self) -> &CommonChartData;
 
     fn common_data_mut(&mut self) -> &mut CommonChartData;
-
-    fn update_chart(&mut self, message: &Message);
 
     fn invalidate(&mut self);
 
@@ -267,7 +265,7 @@ pub enum Action {
     FetchRequested(uuid::Uuid, FetchRange),
 }
 
-fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
+pub fn update<T: Chart>(chart: &mut T, message: Message) {
     match message {
         Message::DoubleClick(scale) => {
             let default_chart_width = T::default_cell_width(chart);
@@ -285,13 +283,13 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
         }
         Message::Translated(translation) => {
             let chart_state = chart.common_data_mut();
-            chart_state.translation = *translation;
+            chart_state.translation = translation;
             chart_state.autoscale = false;
         }
         Message::Scaled(scaling, translation) => {
             let chart_state = chart.common_data_mut();
-            chart_state.scaling = *scaling;
-            chart_state.translation = *translation;
+            chart_state.scaling = scaling;
+            chart_state.translation = translation;
 
             chart_state.autoscale = false;
         }
@@ -312,13 +310,13 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
 
             let chart_state = chart.common_data_mut();
 
-            if *delta < 0.0 && chart_state.cell_width > min_cell_width
-                || *delta > 0.0 && chart_state.cell_width < max_cell_width
+            if delta < 0.0 && chart_state.cell_width > min_cell_width
+                || delta > 0.0 && chart_state.cell_width < max_cell_width
             {
                 let (old_scaling, old_translation_x) =
                     { (chart_state.scaling, chart_state.translation.x) };
 
-                let zoom_factor = if *is_wheel_scroll { 30.0 } else { 90.0 };
+                let zoom_factor = if is_wheel_scroll { 30.0 } else { 90.0 };
 
                 let new_width = (chart_state.cell_width * (1.0 + delta / zoom_factor))
                     .clamp(min_cell_width, max_cell_width);
@@ -327,7 +325,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
                 let is_interval_x_visible = chart_state.is_interval_x_visible(latest_x);
 
                 let cursor_chart_x = {
-                    if *is_wheel_scroll || !is_interval_x_visible {
+                    if is_wheel_scroll || !is_interval_x_visible {
                         cursor_to_center_x / old_scaling - old_translation_x
                     } else {
                         latest_x / old_scaling - old_translation_x
@@ -349,7 +347,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
                     }
                 };
 
-                if *is_wheel_scroll || !is_interval_x_visible {
+                if is_wheel_scroll || !is_interval_x_visible {
                     if !new_cursor_x.is_nan() && !cursor_chart_x.is_nan() {
                         chart_state.translation.x -= new_cursor_x - cursor_chart_x;
                     }
@@ -364,13 +362,13 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
 
             let chart_state = chart.common_data_mut();
 
-            if *delta < 0.0 && chart_state.cell_height > min_cell_height
-                || *delta > 0.0 && chart_state.cell_height < max_cell_height
+            if delta < 0.0 && chart_state.cell_height > min_cell_height
+                || delta > 0.0 && chart_state.cell_height < max_cell_height
             {
                 let (old_scaling, old_translation_y) =
                     { (chart_state.scaling, chart_state.translation.y) };
 
-                let zoom_factor = if *is_wheel_scroll { 30.0 } else { 90.0 };
+                let zoom_factor = if is_wheel_scroll { 30.0 } else { 90.0 };
 
                 let new_height = (chart_state.cell_height * (1.0 + delta / zoom_factor))
                     .clamp(min_cell_height, max_cell_height);
@@ -385,7 +383,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
 
                 chart_state.translation.y -= new_cursor_y - cursor_chart_y;
 
-                if *is_wheel_scroll {
+                if is_wheel_scroll {
                     chart_state.autoscale = false;
                 }
             }
@@ -398,7 +396,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
             let new_center_x = bounds.width / 2.0;
             let center_delta_x = (new_center_x - old_center_x) / chart_state.scaling;
 
-            chart_state.bounds = *bounds;
+            chart_state.bounds = bounds;
 
             if !chart_state.autoscale {
                 chart_state.translation.x += center_delta_x;
@@ -407,8 +405,8 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
         Message::SplitDragged(split, size) => {
             let chart_state = chart.common_data_mut();
 
-            if let Some(split) = chart_state.splits.get_mut(*split) {
-                *split = (*size * 100.0).round() / 100.0;
+            if let Some(split) = chart_state.splits.get_mut(split) {
+                *split = (size * 100.0).round() / 100.0;
             }
         }
         Message::CrosshairMoved => {}
@@ -417,7 +415,7 @@ fn update_chart<T: Chart>(chart: &mut T, message: &Message) {
     chart.invalidate();
 }
 
-fn view_chart<'a, T: Chart, I: Indicator>(
+pub fn view<'a, T: Chart, I: Indicator>(
     chart: &'a T,
     indicators: &'a [I],
     timezone: data::UserTimezone,

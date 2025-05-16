@@ -242,10 +242,10 @@ impl Dashboard {
                         if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
                             match pane_state.content {
                                 pane::Content::Heatmap(ref mut chart, _) => {
-                                    chart.update(&msg);
+                                    chart::update(chart, msg);
                                 }
                                 pane::Content::Kline(ref mut chart, _) => {
-                                    chart.update(&msg);
+                                    chart::update(chart, msg);
                                 }
                                 _ => {}
                             }

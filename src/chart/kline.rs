@@ -1,4 +1,3 @@
-use data::UserTimezone;
 use data::aggr::ticks::TickAggr;
 use data::aggr::time::TimeSeries;
 use data::chart::{
@@ -15,10 +14,7 @@ use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
     indicator,
 };
-use super::{
-    calc_splits, canvas_interaction, draw_horizontal_volume_bars, request_fetch, update_chart,
-    view_chart,
-};
+use super::{calc_splits, canvas_interaction, draw_horizontal_volume_bars, request_fetch};
 
 use crate::{dashboard::panel::study, style};
 
@@ -39,10 +35,6 @@ impl Chart for KlineChart {
 
     fn common_data_mut(&mut self) -> &mut CommonChartData {
         &mut self.chart
-    }
-
-    fn update_chart(&mut self, message: &Message) {
-        update_chart(self, message);
     }
 
     fn invalidate(&mut self) {
@@ -830,18 +822,6 @@ impl KlineChart {
         }
 
         indicators
-    }
-
-    pub fn update(&mut self, message: &Message) {
-        self.update_chart(message);
-    }
-
-    pub fn view<'a, I: Indicator>(
-        &'a self,
-        indicators: &'a [I],
-        timezone: UserTimezone,
-    ) -> Element<'a, Message> {
-        view_chart(self, indicators, timezone)
     }
 }
 

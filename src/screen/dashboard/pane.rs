@@ -770,8 +770,7 @@ impl Content {
             Content::Starter => center(text("select a ticker to start").size(16)).into(),
             Content::TimeAndSales(panel) => super::panel::view(pane, state, panel, timezone),
             Content::Heatmap(chart, indicators) => {
-                let base = chart
-                    .view(indicators, timezone)
+                let base = chart::view(chart, indicators, timezone)
                     .map(move |message| Message::ChartUserUpdate(pane, message));
 
                 let settings_view = || super::panel::heatmap_cfg_view(chart.visual_config(), pane);
@@ -794,8 +793,7 @@ impl Content {
                 )
             }
             Content::Kline(chart, indicators) => {
-                let base = chart
-                    .view(indicators, timezone)
+                let base = chart::view(chart, indicators, timezone)
                     .map(move |message| Message::ChartUserUpdate(pane, message));
 
                 let chart_kind = chart.kind();

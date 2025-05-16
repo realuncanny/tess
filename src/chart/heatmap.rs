@@ -8,10 +8,7 @@ use data::util::{abbr_large_numbers, count_decimals};
 use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};
 
 use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
-use super::{
-    canvas_interaction, draw_horizontal_volume_bars, scale::PriceInfoLabel, update_chart,
-    view_chart,
-};
+use super::{canvas_interaction, draw_horizontal_volume_bars, scale::PriceInfoLabel};
 
 use iced::widget::canvas::{self, Event, Geometry, Path};
 use iced::{
@@ -34,10 +31,6 @@ impl Chart for HeatmapChart {
 
     fn common_data_mut(&mut self) -> &mut CommonChartData {
         &mut self.chart
-    }
-
-    fn update_chart(&mut self, message: &Message) {
-        update_chart(self, message);
     }
 
     fn invalidate(&mut self) {
@@ -486,18 +479,6 @@ impl HeatmapChart {
 
     pub fn view_indicators<I: Indicator>(&self, _indis: &[I]) -> Vec<Element<Message>> {
         vec![]
-    }
-
-    pub fn update(&mut self, message: &Message) {
-        self.update_chart(message);
-    }
-
-    pub fn view<'a, I: Indicator>(
-        &'a self,
-        indicators: &'a [I],
-        timezone: data::UserTimezone,
-    ) -> Element<'a, Message> {
-        view_chart(self, indicators, timezone)
     }
 }
 
