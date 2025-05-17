@@ -14,7 +14,7 @@ use data::{
     layout::pane::Settings,
 };
 use exchange::{
-    Kline, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe,
+    FundingRate, Kline, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe,
     adapter::{Exchange, MarketKind, StreamKind},
 };
 use iced::{
@@ -33,6 +33,7 @@ pub enum InfoType {
     FetchingKlines,
     FetchingTrades(usize),
     FetchingOI,
+    FetchingFundingRate,
 }
 
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -355,6 +356,17 @@ impl State {
         }
     }
 
+    pub fn insert_fr_vec(&mut self, req_id: Option<uuid::Uuid>, fr: &[FundingRate]) {
+        match &mut self.content {
+            Content::Kline(chart, _) => {
+                chart.insert_funding_rate(req_id, fr);
+            }
+            _ => {
+                log::error!("pane content not candlestick");
+            }
+        }
+    }
+
     pub fn insert_klines_vec(
         &mut self,
         req_id: Option<uuid::Uuid>,
@@ -493,6 +505,9 @@ impl State {
             }
             Status::Loading(InfoType::FetchingOI) => {
                 stream_info_element = stream_info_element.push(text("Fetching Open Interest..."));
+            }
+            Status::Loading(InfoType::FetchingFundingRate) => {
+                stream_info_element = stream_info_element.push(text("Fetching Funding Rate..."));
             }
             Status::Stale(msg) => {
                 stream_info_element = stream_info_element.push(text(msg));
@@ -719,6 +734,7 @@ impl Content {
                 let indicator = match indicator_str {
                     "Volume" => KlineIndicator::Volume,
                     "Open Interest" => KlineIndicator::OpenInterest,
+                    "Funding Rate" => KlineIndicator::FundingRate,
                     _ => {
                         panic!("kline indicator requested to toggle not found: {indicator_str}",);
                     }

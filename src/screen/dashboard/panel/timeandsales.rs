@@ -130,7 +130,7 @@ impl TimeAndSales {
                     )
                     .width(Length::FillPortion(6)),
                     container(
-                        text(data::util::abbr_large_numbers(trade.qty))
+                        text(data::util::abbr_large_numbers(trade.qty, None))
                             .font(style::AZERET_MONO)
                             .size(iced::Pixels(11.0))
                     )

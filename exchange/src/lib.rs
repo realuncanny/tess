@@ -410,6 +410,12 @@ pub struct OpenInterest {
     pub value: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct FundingRate {
+    pub time: u64,
+    pub value: f32,
+}
+
 fn str_f32_parse(s: &str) -> f32 {
     s.parse::<f32>().unwrap_or_else(|e| {
         log::error!("Failed to parse float: {}, error: {}", s, e);

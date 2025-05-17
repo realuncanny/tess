@@ -7,7 +7,7 @@ use data::chart::{
 };
 use data::util::{abbr_large_numbers, count_decimals, round_to_tick};
 use exchange::fetcher::{FetchRange, RequestHandler};
-use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
+use exchange::{FundingRate, Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
 
 use super::scale::PriceInfoLabel;
 use super::{
@@ -114,12 +114,15 @@ impl Chart for KlineChart {
 enum IndicatorData {
     Volume(Caches, BTreeMap<u64, (f32, f32)>),
     OpenInterest(Caches, BTreeMap<u64, f32>),
+    FundingRate(Caches, BTreeMap<u64, f32>),
 }
 
 impl IndicatorData {
     fn clear_cache(&mut self) {
         match self {
-            IndicatorData::Volume(caches, _) | IndicatorData::OpenInterest(caches, _) => {
+            IndicatorData::Volume(caches, _)
+            | IndicatorData::OpenInterest(caches, _)
+            | IndicatorData::FundingRate(caches, _) => {
                 caches.clear_all();
             }
         }
@@ -139,6 +142,9 @@ impl IndicatorData {
                 indicator::open_interest::create_indicator_elem(
                     chart, cache, data, earliest, latest,
                 )
+            }
+            IndicatorData::FundingRate(cache, data) => {
+                indicator::funding_rate::create_indicator_elem(chart, cache, data, earliest, latest)
             }
         }
     }
@@ -226,6 +232,9 @@ impl KlineChart {
                                 KlineIndicator::OpenInterest => {
                                     IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
                                 }
+                                KlineIndicator::FundingRate => {
+                                    IndicatorData::FundingRate(Caches::default(), BTreeMap::new())
+                                }
                             },
                         )
                     })
@@ -276,6 +285,9 @@ impl KlineChart {
                                 ),
                                 KlineIndicator::OpenInterest => {
                                     IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
+                                }
+                                KlineIndicator::FundingRate => {
+                                    IndicatorData::FundingRate(Caches::default(), BTreeMap::new())
                                 }
                             },
                         )
@@ -403,35 +415,85 @@ impl KlineChart {
                     }
                 }
 
-                // priority 2, Open Interest data
+                // priority 2, indicator data fetch
                 for data in self.indicators.values() {
-                    if let IndicatorData::OpenInterest(_, _) = data {
-                        if timeframe >= Timeframe::M5.to_milliseconds()
-                            && self.chart.ticker_info.is_some_and(|t| t.is_perps())
-                        {
-                            let (oi_earliest, oi_latest) = self.oi_timerange(kline_latest);
+                    match data {
+                        IndicatorData::FundingRate(_, data) => {
+                            if self.chart.ticker_info.is_some_and(|t| t.is_perps()) {
+                                let (_, should_fetch) = {
+                                    let mut rev_keys = data.keys().rev();
+                                    let latest = rev_keys.next().copied().unwrap_or(0);
+                                    let prev = rev_keys.next().copied().unwrap_or(latest);
 
-                            if visible_earliest < oi_earliest {
-                                let range = FetchRange::OpenInterest(earliest, oi_earliest);
+                                    let interval = latest.saturating_sub(prev);
 
-                                if let Some(action) =
-                                    request_fetch(&mut self.request_handler, range)
-                                {
-                                    return Some(action);
+                                    let next_expected = latest + interval;
+
+                                    let now = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_millis())
+                                        .unwrap_or(0);
+
+                                    (interval, now >= next_expected.into())
+                                };
+
+                                let (fr_earliest, fr_latest) = self.fr_timerange(kline_latest);
+
+                                if visible_earliest < fr_earliest {
+                                    let range = FetchRange::FundingRate(earliest, fr_earliest);
+
+                                    if let Some(action) =
+                                        request_fetch(&mut self.request_handler, range)
+                                    {
+                                        return Some(action);
+                                    }
                                 }
-                            }
 
-                            if oi_latest < kline_latest {
-                                let range =
-                                    FetchRange::OpenInterest(oi_latest.max(earliest), kline_latest);
+                                if should_fetch && fr_latest < kline_latest {
+                                    let range = FetchRange::FundingRate(
+                                        fr_latest.max(earliest),
+                                        kline_latest,
+                                    );
 
-                                if let Some(action) =
-                                    request_fetch(&mut self.request_handler, range)
-                                {
-                                    return Some(action);
+                                    if let Some(action) =
+                                        request_fetch(&mut self.request_handler, range)
+                                    {
+                                        return Some(action);
+                                    }
                                 }
                             }
                         }
+                        IndicatorData::OpenInterest(_, _) => {
+                            if timeframe >= Timeframe::M5.to_milliseconds()
+                                && self.chart.ticker_info.is_some_and(|t| t.is_perps())
+                            {
+                                let (oi_earliest, oi_latest) = self.oi_timerange(kline_latest);
+
+                                if visible_earliest < oi_earliest {
+                                    let range = FetchRange::OpenInterest(earliest, oi_earliest);
+
+                                    if let Some(action) =
+                                        request_fetch(&mut self.request_handler, range)
+                                    {
+                                        return Some(action);
+                                    }
+                                }
+
+                                if oi_latest < kline_latest {
+                                    let range = FetchRange::OpenInterest(
+                                        oi_latest.max(earliest),
+                                        kline_latest,
+                                    );
+
+                                    if let Some(action) =
+                                        request_fetch(&mut self.request_handler, range)
+                                    {
+                                        return Some(action);
+                                    }
+                                }
+                            }
+                        }
+                        IndicatorData::Volume(_, _) => {}
                     }
                 }
 
@@ -592,6 +654,22 @@ impl KlineChart {
         (from_time, to_time)
     }
 
+    fn fr_timerange(&self, latest_kline: u64) -> (u64, u64) {
+        let mut from_time = latest_kline;
+        let mut to_time = u64::MIN;
+
+        if let Some(IndicatorData::FundingRate(_, data)) =
+            self.indicators.get(&KlineIndicator::FundingRate)
+        {
+            data.iter().for_each(|(time, _)| {
+                from_time = from_time.min(*time);
+                to_time = to_time.max(*time);
+            });
+        };
+
+        (from_time, to_time)
+    }
+
     pub fn insert_trades_buffer(&mut self, trades_buffer: &[Trade], depth_update: u64) {
         self.raw_trades.extend_from_slice(trades_buffer);
 
@@ -685,6 +763,23 @@ impl KlineChart {
         };
     }
 
+    pub fn insert_funding_rate(&mut self, req_id: Option<uuid::Uuid>, fr_data: &[FundingRate]) {
+        if let Some(req_id) = req_id {
+            if fr_data.is_empty() {
+                self.request_handler
+                    .mark_failed(req_id, "No data received".to_string());
+            } else {
+                self.request_handler.mark_completed(req_id);
+            }
+        }
+
+        if let Some(IndicatorData::FundingRate(_, data)) =
+            self.indicators.get_mut(&KlineIndicator::FundingRate)
+        {
+            data.extend(fr_data.iter().map(|fr| (fr.time, fr.value * 100.0)));
+        };
+    }
+
     fn calc_qty_scales(
         &self,
         earliest: u64,
@@ -761,6 +856,9 @@ impl KlineChart {
                     KlineIndicator::OpenInterest => {
                         IndicatorData::OpenInterest(Caches::default(), BTreeMap::new())
                     }
+                    KlineIndicator::FundingRate => {
+                        IndicatorData::FundingRate(Caches::default(), BTreeMap::new())
+                    }
                 };
                 entry.insert(data);
             }
@@ -771,7 +869,9 @@ impl KlineChart {
                 .indicators
                 .iter()
                 .filter(|(_, data)| match data {
-                    IndicatorData::OpenInterest(_, _) | IndicatorData::Volume(_, _) => true,
+                    IndicatorData::OpenInterest(_, _)
+                    | IndicatorData::Volume(_, _)
+                    | IndicatorData::FundingRate(_, _) => true,
                 })
                 .count();
 
@@ -809,6 +909,15 @@ impl KlineChart {
                         }
                         KlineIndicator::OpenInterest => {
                             if let Some(data) = self.indicators.get(&KlineIndicator::OpenInterest) {
+                                indicators.push(data.create_indicator_elem(
+                                    chart_state,
+                                    earliest,
+                                    latest,
+                                ));
+                            }
+                        }
+                        KlineIndicator::FundingRate => {
+                            if let Some(data) = self.indicators.get(&KlineIndicator::FundingRate) {
                                 indicators.push(data.create_indicator_elem(
                                     chart_state,
                                     earliest,
@@ -1289,7 +1398,7 @@ fn draw_clusters(
                 if should_show_text {
                     draw_cluster_text(
                         frame,
-                        &abbr_large_numbers(buy_qty + sell_qty),
+                        &abbr_large_numbers(buy_qty + sell_qty, None),
                         Point::new(start_x, y_position),
                         text_size,
                         text_color,
@@ -1332,7 +1441,7 @@ fn draw_clusters(
                 if should_show_text {
                     draw_cluster_text(
                         frame,
-                        &abbr_large_numbers(delta_qty),
+                        &abbr_large_numbers(delta_qty, None),
                         Point::new(x_position + (candle_width / 4.0), y_position),
                         text_size,
                         text_color,
@@ -1390,7 +1499,7 @@ fn draw_clusters(
                     if should_show_text {
                         draw_cluster_text(
                             frame,
-                            &abbr_large_numbers(*buy_qty),
+                            &abbr_large_numbers(*buy_qty, None),
                             Point::new(x_position + (candle_width / 4.0), y_position),
                             text_size,
                             text_color,
@@ -1414,7 +1523,7 @@ fn draw_clusters(
                     if should_show_text {
                         draw_cluster_text(
                             frame,
-                            &abbr_large_numbers(*sell_qty),
+                            &abbr_large_numbers(*sell_qty, None),
                             Point::new(x_position - (candle_width / 4.0), y_position),
                             text_size,
                             text_color,

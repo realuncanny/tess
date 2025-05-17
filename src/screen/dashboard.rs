@@ -535,6 +535,30 @@ impl Dashboard {
                         );
                     }
                 }
+                FetchRange::FundingRate(from, to) => {
+                    let kline_stream =
+                        self.get_mut_pane(main_window.id, window, pane)
+                            .and_then(|state| {
+                                state
+                                    .streams
+                                    .iter()
+                                    .find(|stream| matches!(stream, StreamKind::Kline { .. }))
+                                    .map(|stream| (*stream, state.id))
+                            });
+
+                    if let Some((stream, pane_uid)) = kline_stream {
+                        return (
+                            fr_fetch_task(
+                                *layout_id,
+                                pane_uid,
+                                stream,
+                                Some(req_id),
+                                Some((from, to)),
+                            ),
+                            None,
+                        );
+                    }
+                }
                 FetchRange::Trades(from_time, to_time) => {
                     if !self.trade_fetch_enabled {
                         return (Task::none(), None);
@@ -1007,6 +1031,15 @@ impl Dashboard {
                     }
                 }
             }
+            FetchedData::FundingRate(fr, req_id) => {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_uid) {
+                    pane_state.status = pane::Status::Ready;
+
+                    if let StreamKind::Kline { .. } = stream_type {
+                        pane_state.insert_fr_vec(req_id, &fr);
+                    }
+                }
+            }
         }
 
         Task::none()
@@ -1259,6 +1292,37 @@ fn oi_fetch_task(
             move |result| match result {
                 Ok(oi) => {
                     let data = FetchedData::OI(oi, req_id);
+                    Message::DistributeFetchedData(layout_id, pane_uid, data, stream)
+                }
+                Err(err) => Message::ErrorOccurred(Some(pane_uid), DashboardError::Fetch(err)),
+            },
+        ),
+        _ => Task::none(),
+    };
+
+    update_status.chain(fetch_task)
+}
+
+fn fr_fetch_task(
+    layout_id: uuid::Uuid,
+    pane_uid: uuid::Uuid,
+    stream: StreamKind,
+    req_id: Option<uuid::Uuid>,
+    range: Option<(u64, u64)>,
+) -> Task<Message> {
+    let update_status = Task::done(Message::ChangePaneStatus(
+        pane_uid,
+        pane::Status::Loading(pane::InfoType::FetchingFundingRate),
+    ));
+
+    let fetch_task = match stream {
+        StreamKind::Kline {
+            exchange, ticker, ..
+        } => Task::perform(
+            adapter::fetch_funding_rate(exchange, ticker, range).map_err(|err| format!("{err}")),
+            move |result| match result {
+                Ok(fr) => {
+                    let data = FetchedData::FundingRate(fr, req_id);
                     Message::DistributeFetchedData(layout_id, pane_uid, data, stream)
                 }
                 Err(err) => Message::ErrorOccurred(Some(pane_uid), DashboardError::Fetch(err)),

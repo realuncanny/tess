@@ -13,6 +13,8 @@ use iced_futures::{
     stream,
 };
 
+use crate::FundingRate;
+
 use super::{
     super::{
         Exchange, Kline, MarketKind, OpenInterest, StreamKind, Ticker, TickerInfo, TickerStats,
@@ -587,6 +589,85 @@ pub async fn fetch_historical_oi(
     }
 
     Ok(open_interest)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct DeFundingRate {
+    #[serde(rename = "fundingRate", deserialize_with = "de_string_to_f32")]
+    pub value: f32,
+    #[serde(rename = "fundingRateTimestamp", deserialize_with = "de_string_to_u64")]
+    pub timestamp: u64,
+}
+
+pub async fn fetch_historical_fr(
+    ticker: Ticker,
+    range: Option<(u64, u64)>,
+) -> Result<Vec<FundingRate>, StreamError> {
+    let ticker_str = ticker.to_full_symbol_and_type().0.to_uppercase();
+
+    // Passing only startTime returns an error.
+    // Passing only endTime returns 200 records up till endTime.
+    // Passing neither returns 200 records up till the current time.
+    let mut url = format!(
+        "https://api.bybit.com/v5/market/funding/history?category=linear&symbol={ticker_str}&limit=200",
+    );
+
+    if let Some((_, end)) = range {
+        url.push_str(&format!("&endTime={end}"));
+    }
+
+    let response = reqwest::get(&url).await.map_err(|e| {
+        log::error!("Failed to fetch from {}: {}", url, e);
+        StreamError::FetchError(e)
+    })?;
+
+    let text = response.text().await.map_err(|e| {
+        log::error!("Failed to get response text from {}: {}", url, e);
+        StreamError::FetchError(e)
+    })?;
+
+    let content: Value = sonic_rs::from_str(&text).map_err(|e| {
+        log::error!(
+            "Failed to parse JSON from {}: {}\nResponse: {}",
+            url,
+            e,
+            text
+        );
+        StreamError::ParseError(e.to_string())
+    })?;
+
+    let result_list = content["result"]["list"].as_array().ok_or_else(|| {
+        log::error!("Result list is not an array in response: {}", text);
+        StreamError::ParseError("Result list is not an array".to_string())
+    })?;
+
+    let bybit_fr: Vec<DeFundingRate> = serde_json::from_value(json!(result_list)).map_err(|e| {
+        log::error!(
+            "Failed to parse funding rate array: {}\nResponse: {}",
+            e,
+            text
+        );
+        StreamError::ParseError(format!("Failed to parse funding rate : {e}"))
+    })?;
+
+    let funding_rate: Vec<FundingRate> = bybit_fr
+        .into_iter()
+        .map(|x| FundingRate {
+            time: x.timestamp,
+            value: x.value,
+        })
+        .collect();
+
+    if funding_rate.is_empty() {
+        log::warn!(
+            "No funding rate data found for {}, from url: {}",
+            ticker_str,
+            url
+        );
+    }
+
+    Ok(funding_rate)
 }
 
 #[allow(dead_code)]

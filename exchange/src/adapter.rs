@@ -3,7 +3,7 @@ use std::{
     str::FromStr,
 };
 
-use crate::{Kline, OpenInterest, TickerInfo, TickerStats, Trade, depth::Depth};
+use crate::{FundingRate, Kline, OpenInterest, TickerInfo, TickerStats, Trade, depth::Depth};
 
 use super::{Ticker, Timeframe};
 use serde::{Deserialize, Serialize};
@@ -342,6 +342,22 @@ pub async fn fetch_open_interest(
         }
         Exchange::BybitLinear | Exchange::BybitInverse => {
             bybit::fetch_historical_oi(ticker, range, timeframe).await
+        }
+        _ => Err(StreamError::InvalidRequest("Invalid exchange".to_string())),
+    }
+}
+
+pub async fn fetch_funding_rate(
+    exchange: Exchange,
+    ticker: Ticker,
+    range: Option<(u64, u64)>,
+) -> Result<Vec<FundingRate>, StreamError> {
+    match exchange {
+        Exchange::BinanceLinear | Exchange::BinanceInverse => {
+            todo!()
+        }
+        Exchange::BybitLinear | Exchange::BybitInverse => {
+            bybit::fetch_historical_fr(ticker, range).await
         }
         _ => Err(StreamError::InvalidRequest("Invalid exchange".to_string())),
     }

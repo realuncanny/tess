@@ -1,21 +1,23 @@
-pub fn abbr_large_numbers(value: f32) -> String {
+pub fn abbr_large_numbers(value: f32, max_decimals: Option<usize>) -> String {
     let abs_value = value.abs();
     let sign = if value < 0.0 { "-" } else { "" };
 
-    if abs_value >= 1_000_000_000.0 {
-        format!("{}{:.2}b", sign, abs_value / 1_000_000_000.0)
-    } else if abs_value >= 1_000_000.0 {
-        format!("{}{:.2}m", sign, abs_value / 1_000_000.0)
-    } else if abs_value >= 1000.0 {
-        format!("{}{:.1}k", sign, abs_value / 1000.0)
-    } else if abs_value >= 100.0 {
-        format!("{}{:.0}", sign, abs_value)
-    } else if abs_value >= 10.0 {
-        format!("{}{:.1}", sign, abs_value)
-    } else if abs_value >= 1.0 {
-        format!("{}{:.2}", sign, abs_value)
-    } else {
-        format!("{}{:.3}", sign, abs_value)
+    match abs_value {
+        v if v >= 1_000_000_000.0 => format!("{}{:.2}b", sign, v / 1_000_000_000.0),
+        v if v >= 1_000_000.0 => format!("{}{:.2}m", sign, v / 1_000_000.0),
+        v if v >= 1_000.0 => format!("{}{:.1}k", sign, v / 1_000.0),
+        v if v >= 100.0 => format!("{}{:.0}", sign, v),
+        v if v >= 10.0 => format!("{}{:.1}", sign, v),
+        v if v >= 1.0 => format!("{}{:.2}", sign, v),
+        _ => {
+            let precision = max_decimals.unwrap_or(3);
+            let rounded = (abs_value * 10_f32.powi(precision as i32)).round();
+            if rounded == 0.0 {
+                "0".to_string()
+            } else {
+                format!("{}{:.precision$}", sign, abs_value, precision = precision)
+            }
+        }
     }
 }
 

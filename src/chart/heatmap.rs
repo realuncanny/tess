@@ -610,7 +610,7 @@ impl canvas::Program<Message> for HeatmapChart {
                                         && color_alpha > 0.4
                                     {
                                         frame.fill_text(canvas::Text {
-                                            content: abbr_large_numbers(run.qty()),
+                                            content: abbr_large_numbers(run.qty(), None),
                                             position: Point::new(
                                                 start_x + (cell_height / 2.0),
                                                 y_position,
@@ -673,7 +673,7 @@ impl canvas::Program<Message> for HeatmapChart {
 
                 // max bid/ask quantity text
                 let text_size = 9.0 / chart.scaling;
-                let text_content = abbr_large_numbers(max_qty);
+                let text_content = abbr_large_numbers(max_qty, None);
                 let text_position = Point::new(50.0, region.y);
 
                 frame.fill_text(canvas::Text {
@@ -820,7 +820,7 @@ impl canvas::Program<Message> for HeatmapChart {
 
                 if max_vpsr > 0.0 {
                     let text_size = 9.0 / chart.scaling;
-                    let text_content = abbr_large_numbers(max_vpsr);
+                    let text_content = abbr_large_numbers(max_vpsr, None);
 
                     let text_position = Point::new(region.x + max_bar_width, region.y);
 
@@ -837,7 +837,7 @@ impl canvas::Program<Message> for HeatmapChart {
 
             if volume_indicator && max_aggr_volume > 0.0 {
                 let text_size = 9.0 / chart.scaling;
-                let text_content = abbr_large_numbers(max_aggr_volume);
+                let text_content = abbr_large_numbers(max_aggr_volume, None);
                 let text_width = (text_content.len() as f32 * text_size) / 1.5;
 
                 let text_position = Point::new(

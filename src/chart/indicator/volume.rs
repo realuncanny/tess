@@ -10,6 +10,8 @@ use crate::style::{self, get_dashed_line};
 
 use data::util::{format_with_commas, round_to_tick};
 
+const LABEL_BINNING: f32 = 1.0;
+
 pub fn create_indicator_elem<'a>(
     chart_state: &'a CommonChartData,
     cache: &'a Caches,
@@ -59,6 +61,7 @@ pub fn create_indicator_elem<'a>(
         min: 0.0,
         crosshair: chart_state.crosshair,
         chart_bounds: chart_state.bounds,
+        tick_size: LABEL_BINNING,
     })
     .height(Length::Fill)
     .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)));

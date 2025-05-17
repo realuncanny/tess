@@ -1,4 +1,4 @@
-use crate::{Kline, OpenInterest, Trade};
+use crate::{FundingRate, Kline, OpenInterest, Trade};
 use std::collections::HashMap;
 use uuid::Uuid;
 
@@ -7,6 +7,7 @@ pub enum FetchedData {
     Trades(Vec<Trade>, u64),
     Klines(Vec<Kline>, Option<uuid::Uuid>),
     OI(Vec<OpenInterest>, Option<uuid::Uuid>),
+    FundingRate(Vec<FundingRate>, Option<uuid::Uuid>),
 }
 
 #[derive(thiserror::Error, Debug, Clone)]
@@ -95,6 +96,7 @@ impl Default for RequestHandler {
 pub enum FetchRange {
     Kline(u64, u64),
     OpenInterest(u64, u64),
+    FundingRate(u64, u64),
     Trades(u64, u64),
 }
 
@@ -116,6 +118,9 @@ impl FetchRequest {
         match (&self.fetch_type, &other.fetch_type) {
             (FetchRange::Kline(s1, e1), FetchRange::Kline(s2, e2)) => e1 == e2 && s1 == s2,
             (FetchRange::OpenInterest(s1, e1), FetchRange::OpenInterest(s2, e2)) => {
+                e1 == e2 && s1 == s2
+            }
+            (FetchRange::FundingRate(s1, e1), FetchRange::FundingRate(s2, e2)) => {
                 e1 == e2 && s1 == s2
             }
             _ => false,

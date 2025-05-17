@@ -1,3 +1,4 @@
+pub mod funding_rate;
 pub mod open_interest;
 pub mod volume;
 
@@ -18,6 +19,7 @@ pub struct IndicatorLabel<'a> {
     pub max: f32,
     pub min: f32,
     pub chart_bounds: Rectangle,
+    pub tick_size: f32,
 }
 
 impl canvas::Program<Message> for IndicatorLabel<'_> {
@@ -47,8 +49,7 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
         let range = highest - lowest;
 
         let text_size = 12.0;
-
-        let tick_size = 1.0;
+        let max_decimals = data::util::count_decimals(self.tick_size);
 
         let labels = self.label_cache.draw(renderer, bounds.size(), |frame| {
             let mut all_labels = linear::generate_labels(
@@ -71,11 +72,11 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
                 if let Some(crosshair_pos) = cursor.position_in(common_bounds) {
                     let rounded_value = round_to_tick(
                         lowest + (range * (bounds.height - crosshair_pos.y) / bounds.height),
-                        tick_size,
+                        self.tick_size,
                     );
 
                     let label = Label {
-                        content: abbr_large_numbers(rounded_value),
+                        content: abbr_large_numbers(rounded_value, Some(max_decimals)),
                         background_color: Some(palette.secondary.base.color),
                         text_color: palette.secondary.base.text,
                         text_size,

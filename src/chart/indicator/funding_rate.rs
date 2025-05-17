@@ -1,15 +1,15 @@
 use std::collections::BTreeMap;
 
-use iced::widget::canvas::{self, Cache, Event, Geometry, Path, Stroke};
+use iced::theme::palette::Extended;
+use iced::widget::canvas::{self, Cache, Event, Geometry, Path};
 use iced::widget::{Canvas, center, container, row, text, vertical_rule};
 use iced::{Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
 use crate::chart::{Basis, Caches, CommonChartData, Interaction, Message};
 use crate::style::{self, get_dashed_line};
 use data::util::{format_with_commas, round_to_tick};
-use exchange::Timeframe;
 
-const LABEL_BINNING: f32 = 1.0;
+const LABEL_BINNING: f32 = 0.0001;
 
 pub fn create_indicator_elem<'a>(
     chart_state: &'a CommonChartData,
@@ -20,23 +20,14 @@ pub fn create_indicator_elem<'a>(
 ) -> Element<'a, Message> {
     let (mut max_value, mut min_value) = {
         match chart_state.basis {
-            Basis::Time(interval) => {
-                if interval < Timeframe::M5.to_milliseconds() {
-                    return center(text(
-                        "WIP: Open Interest is not available with intervals less than 5 minutes.",
-                    ))
-                    .into();
-                } else {
-                    data_points
-                        .iter()
-                        .filter(|(timestamp, _)| **timestamp >= earliest && **timestamp <= latest)
-                        .fold((f32::MIN, f32::MAX), |(max, min), (_, value)| {
-                            (max.max(*value), min.min(*value))
-                        })
-                }
-            }
+            Basis::Time(_) => data_points
+                .iter()
+                .filter(|(timestamp, _)| **timestamp >= earliest && **timestamp <= latest)
+                .fold((f32::MIN, f32::MAX), |(max, min), (_, value)| {
+                    (max.max(*value), min.min(*value))
+                }),
             Basis::Tick(_) => {
-                return center(text("WIP: Open Interest is not available for tick charts.")).into();
+                return center(text("WIP: Funding Rate is not available for tick charts.")).into();
             }
         }
     };
@@ -46,11 +37,12 @@ pub fn create_indicator_elem<'a>(
     max_value += padding;
     min_value -= padding;
 
-    let indi_chart = Canvas::new(OpenInterest {
+    let indi_chart = Canvas::new(FundingRate {
         indicator_cache: &cache.main,
         crosshair_cache: &cache.crosshair,
         chart_state,
         max_value,
+        min_value,
         timeseries: data_points,
     })
     .height(Length::Fill)
@@ -75,15 +67,16 @@ pub fn create_indicator_elem<'a>(
     .into()
 }
 
-pub struct OpenInterest<'a> {
+pub struct FundingRate<'a> {
     pub indicator_cache: &'a Cache,
     pub crosshair_cache: &'a Cache,
     pub chart_state: &'a CommonChartData,
     pub max_value: f32,
+    pub min_value: f32,
     pub timeseries: &'a BTreeMap<u64, f32>,
 }
 
-impl OpenInterest<'_> {
+impl FundingRate<'_> {
     fn visible_region(&self, size: Size) -> Rectangle {
         let width = size.width / self.chart_state.scaling;
         let height = size.height / self.chart_state.scaling;
@@ -97,7 +90,7 @@ impl OpenInterest<'_> {
     }
 }
 
-impl canvas::Program<Message> for OpenInterest<'_> {
+impl canvas::Program<Message> for FundingRate<'_> {
     type State = Interaction;
 
     fn update(
@@ -142,24 +135,28 @@ impl canvas::Program<Message> for OpenInterest<'_> {
     ) -> Vec<Geometry> {
         let chart_state = self.chart_state;
 
-        if chart_state.bounds.width == 0.0 {
+        if chart_state.bounds.width == 0.0 || self.max_value == 0.0 {
             return vec![];
         }
 
         let timeframe: u64 = match chart_state.basis {
             Basis::Time(interval) => interval,
             Basis::Tick(_) => {
-                // TODO: implement
+                // TODO
                 return vec![];
             }
         };
 
-        if self.max_value == 0.0 {
-            return vec![];
-        }
-
         let center = Vector::new(bounds.width / 2.0, bounds.height / 2.0);
         let palette = theme.extended_palette();
+
+        let interval = {
+            let mut rev_keys = self.timeseries.keys().rev();
+            let latest = rev_keys.next().copied().unwrap_or(0);
+            let prev = rev_keys.next().copied().unwrap_or(latest);
+
+            latest.saturating_sub(prev)
+        };
 
         let indicator = self.indicator_cache.draw(renderer, bounds.size(), |frame| {
             frame.translate(center);
@@ -170,11 +167,12 @@ impl canvas::Program<Message> for OpenInterest<'_> {
             ));
 
             let region = self.visible_region(frame.size());
+            let (mut earliest, latest) = chart_state.interval_range(&region);
 
-            let (earliest, latest) = chart_state.interval_range(&region);
+            earliest = earliest.saturating_sub(interval);
 
-            let mut max_value: f32 = f32::MIN;
-            let mut min_value: f32 = f32::MAX;
+            let mut max_value = f32::MIN;
+            let mut min_value = f32::MAX;
 
             self.timeseries
                 .range(earliest..=latest)
@@ -187,7 +185,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
             max_value += padding;
             min_value -= padding;
 
-            let points: Vec<Point> = self
+            let points = self
                 .timeseries
                 .range(earliest..=latest)
                 .map(|(timestamp, value)| {
@@ -202,27 +200,63 @@ impl canvas::Program<Message> for OpenInterest<'_> {
 
                     Point::new(x_position - (chart_state.cell_width / 2.0), y_position)
                 })
-                .collect();
+                .collect::<Vec<Point>>();
 
-            if points.len() >= 2 {
-                for points in points.windows(2) {
-                    let stroke = Stroke {
-                        width: 1.0,
-                        ..Stroke::default()
-                    };
-                    frame.stroke(
-                        &Path::line(points[0], points[1]),
-                        Stroke::with_color(stroke, palette.secondary.strong.color),
-                    );
-                }
+            if let Some(first_point) = points.first() {
+                let first_value = self
+                    .timeseries
+                    .range(earliest..=latest)
+                    .next()
+                    .map(|(_, v)| *v)
+                    .unwrap_or(0.0);
+
+                let first_size = Size::new(
+                    chart_state.interval_to_x(earliest)
+                        - (chart_state.cell_width / 2.0)
+                        - first_point.x,
+                    1.0,
+                );
+
+                draw_colored_rect(frame, *first_point, first_size, first_value, palette);
             }
 
-            let radius = (chart_state.cell_width * 0.2).min(5.0);
-            for point in points {
-                frame.fill(
-                    &Path::circle(Point::new(point.x, point.y), radius),
-                    palette.secondary.strong.color,
+            let mut value_iter = self.timeseries.range(earliest..=latest).map(|(_, v)| *v);
+            for segment in points.windows(2) {
+                let value = value_iter.next().unwrap_or(0.0);
+                let width = segment[1].x - segment[0].x;
+                draw_colored_rect(
+                    frame,
+                    Point::new(segment[0].x, segment[0].y),
+                    Size::new(width, 1.0),
+                    value,
+                    palette,
                 );
+            }
+
+            if let Some(last_point) = points.last() {
+                let next_expected = {
+                    let mut rev_keys = self.timeseries.keys().rev();
+                    let latest = rev_keys.next().copied().unwrap_or(0);
+                    let prev = rev_keys.next().copied().unwrap_or(latest);
+
+                    latest + latest.saturating_sub(prev)
+                };
+
+                let last_value = self
+                    .timeseries
+                    .range(earliest..=latest)
+                    .last()
+                    .map(|(_, v)| *v)
+                    .unwrap_or(0.0);
+
+                let last_size = Size::new(
+                    chart_state.interval_to_x(next_expected)
+                        - (chart_state.cell_width / 2.0)
+                        - last_point.x,
+                    1.0,
+                );
+
+                draw_colored_rect(frame, *last_point, last_size, last_value, palette);
             }
         });
 
@@ -253,49 +287,25 @@ impl canvas::Program<Message> for OpenInterest<'_> {
                         dashed_line,
                     );
 
-                    let oi_data = {
-                        let exact_match = self
-                            .timeseries
-                            .iter()
-                            .find(|(time, _)| **time == rounded_timestamp);
-
-                        if exact_match.is_none()
-                            && rounded_timestamp
-                                > self.timeseries.keys().last().copied().unwrap_or(0)
-                        {
-                            self.timeseries.iter().last()
-                        } else {
-                            exact_match
-                        }
+                    let fr_data = {
+                        self.timeseries
+                            .range(..=rounded_timestamp)
+                            .next_back()
+                            .or_else(|| self.timeseries.iter().next())
                     };
 
-                    if let Some((_, oi_value)) = oi_data {
-                        let next_value = self
-                            .timeseries
-                            .range((rounded_timestamp + timeframe)..=u64::MAX)
-                            .next()
-                            .map(|(_, val)| *val);
-
-                        let change_text = if let Some(next_oi) = next_value {
-                            let difference = next_oi - *oi_value;
-                            let sign = if difference >= 0.0 { "+" } else { "" };
-                            format!("Change: {}{}", sign, format_with_commas(difference))
-                        } else {
-                            "Change: N/A".to_string()
-                        };
-                        let value_text = format!("Value: {}", format_with_commas(*oi_value));
-
-                        let tooltip_text = format!("{}\n{}", value_text, change_text);
-                        let tooltip_bg_width = value_text.len().max(change_text.len()) as f32 * 8.0;
+                    if let Some((_, fr_value)) = fr_data {
+                        let value_text = format!("Value: {}", format_with_commas(*fr_value));
+                        let tooltip_bg_width = value_text.len() as f32 * 8.0;
 
                         frame.fill_rectangle(
                             Point::new(4.0, 0.0),
-                            Size::new(tooltip_bg_width, 28.0),
+                            Size::new(tooltip_bg_width, 14.0),
                             palette.background.weakest.color.scale_alpha(0.9),
                         );
 
                         let text = canvas::Text {
-                            content: tooltip_text,
+                            content: value_text,
                             position: Point::new(8.0, 2.0),
                             size: iced::Pixels(9.0),
                             color: palette.background.base.text,
@@ -307,12 +317,12 @@ impl canvas::Program<Message> for OpenInterest<'_> {
                 } else if let Some(cursor_position) = cursor.position_in(bounds) {
                     // Horizontal price line
                     let highest = self.max_value;
-                    let lowest = 0.0;
+                    let lowest = self.min_value;
 
                     let crosshair_ratio = cursor_position.y / bounds.height;
                     let crosshair_price = highest + crosshair_ratio * (lowest - highest);
 
-                    let rounded_price = round_to_tick(crosshair_price, 1.0);
+                    let rounded_price = round_to_tick(crosshair_price, LABEL_BINNING);
                     let snap_ratio = (rounded_price - highest) / (lowest - highest);
 
                     frame.stroke(
@@ -350,4 +360,25 @@ impl canvas::Program<Message> for OpenInterest<'_> {
             _ => mouse::Interaction::default(),
         }
     }
+}
+
+fn draw_colored_rect(
+    frame: &mut canvas::Frame,
+    point: Point,
+    size: Size,
+    value: f32,
+    palette: &Extended,
+) {
+    let positive_color = palette.danger.strong.color;
+    let negative_color = palette.success.strong.color;
+
+    let alpha = 0.1 + 0.9 * (value.abs() / 0.02).min(1.0);
+    let overlay_color = if value >= 0.0 {
+        positive_color.scale_alpha(alpha)
+    } else {
+        negative_color.scale_alpha(alpha)
+    };
+
+    frame.fill_rectangle(point, size, palette.primary.weak.color.scale_alpha(0.4));
+    frame.fill_rectangle(point, size, overlay_color);
 }
