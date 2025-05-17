@@ -218,7 +218,9 @@ impl Flowsurface {
                 let main_window_id = self.main_window.id;
 
                 if let Some(dashboard) = self.active_dashboard_mut() {
-                    dashboard.tick(now, main_window_id);
+                    return dashboard
+                        .tick(now, main_window_id)
+                        .map(move |msg| Message::Dashboard(None, msg));
                 }
             }
             Message::WindowEvent(event) => match event {

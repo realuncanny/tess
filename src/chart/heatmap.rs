@@ -401,11 +401,7 @@ impl HeatmapChart {
         }
     }
 
-    pub fn invalidate(&mut self, now: Option<Instant>) {
-        if let Some(t) = now {
-            self.last_tick = t;
-        }
-
+    pub fn invalidate(&mut self, now: Option<Instant>) -> Option<super::Action> {
         let autoscaled_coords = self.autoscaled_coords();
         let chart = &mut self.chart;
 
@@ -414,6 +410,12 @@ impl HeatmapChart {
         }
 
         chart.cache.clear_all();
+
+        if let Some(t) = now {
+            self.last_tick = t;
+        }
+
+        None
     }
 
     pub fn last_update(&self) -> Instant {

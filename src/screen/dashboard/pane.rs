@@ -610,8 +610,8 @@ impl State {
         self.streams.iter().any(|existing| existing == stream)
     }
 
-    pub fn invalidate(&mut self, now: Instant) {
-        self.content.invalidate(now);
+    pub fn invalidate(&mut self, now: Instant) -> Option<chart::Action> {
+        self.content.invalidate(now)
     }
 
     pub fn basis_interval(&self) -> Option<u64> {
@@ -626,7 +626,7 @@ impl State {
         self.content.last_tick()
     }
 
-    pub fn tick(&mut self, now: Instant) {
+    pub fn tick(&mut self, now: Instant) -> Option<chart::Action> {
         let invalidate_interval: Option<u64> = self.basis_interval();
         let last_tick: Option<Instant> = self.last_tick();
 
@@ -635,17 +635,19 @@ impl State {
                 if interval_ms > 0 {
                     let interval_duration = std::time::Duration::from_millis(interval_ms);
                     if now.duration_since(previous_tick_time) >= interval_duration {
-                        self.invalidate(now);
+                        return self.invalidate(now);
                     }
                 }
             }
             (Some(interval_ms), None) => {
                 if interval_ms > 0 {
-                    self.invalidate(now);
+                    return self.invalidate(now);
                 }
             }
             (None, _) => {}
         }
+
+        None
     }
 }
 
@@ -673,11 +675,11 @@ pub enum Content {
 }
 
 impl Content {
-    pub fn invalidate(&mut self, now: Instant) {
+    pub fn invalidate(&mut self, now: Instant) -> Option<chart::Action> {
         match self {
             Content::Heatmap(chart, _) => chart.invalidate(Some(now)),
             Content::Kline(chart, _) => chart.invalidate(Some(now)),
-            Content::Starter | Content::TimeAndSales(_) => {}
+            Content::Starter | Content::TimeAndSales(_) => None,
         }
     }
 

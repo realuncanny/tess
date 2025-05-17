@@ -1059,31 +1059,15 @@ impl Dashboard {
         kline: &Kline,
         main_window: window::Id,
     ) -> Task<Message> {
-        let mut tasks = vec![];
         let mut found_match = false;
 
         self.iter_all_panes_mut(main_window)
-            .for_each(|(window, pane, pane_state)| {
+            .for_each(|(_, _, pane_state)| {
                 if pane_state.matches_stream(stream) {
-                    let action = match &mut pane_state.content {
+                    match &mut pane_state.content {
                         pane::Content::Kline(chart, _) => chart.update_latest_kline(kline),
-                        _ => None,
+                        _ => {}
                     };
-
-                    match action {
-                        Some(chart::Action::ErrorOccurred(err)) => {
-                            tasks.push(Task::done(Message::ErrorOccurred(
-                                Some(pane_state.id),
-                                DashboardError::Unknown(err.to_string()),
-                            )));
-                        }
-                        Some(chart::Action::FetchRequested(req_id, range)) => {
-                            tasks.push(Task::done(Message::ChartRequestedFetch(
-                                pane, window, req_id, range,
-                            )));
-                        }
-                        None => {}
-                    }
 
                     found_match = true;
                 }
@@ -1091,10 +1075,10 @@ impl Dashboard {
 
         if !found_match {
             log::warn!("{stream:?} stream had no matching panes - dropping");
-            tasks.push(Task::done(Message::RefreshStreams));
+            Task::done(Message::RefreshStreams)
+        } else {
+            Task::none()
         }
-
-        Task::batch(tasks)
     }
 
     pub fn update_depth_and_trades(
@@ -1138,12 +1122,31 @@ impl Dashboard {
 
     pub fn invalidate_all_panes(&mut self, main_window: window::Id) {
         self.iter_all_panes_mut(main_window)
-            .for_each(|(_, _, state)| state.invalidate(Instant::now()));
+            .for_each(|(_, _, state)| {
+                let _ = state.invalidate(Instant::now());
+            });
     }
 
-    pub fn tick(&mut self, now: Instant, main_window: window::Id) {
+    pub fn tick(&mut self, now: Instant, main_window: window::Id) -> Task<Message> {
+        let mut tasks = vec![];
+
         self.iter_all_panes_mut(main_window)
-            .for_each(|(_, _, state)| state.tick(now));
+            .for_each(|(window, pane, state)| match state.tick(now) {
+                Some(chart::Action::ErrorOccurred(err)) => {
+                    tasks.push(Task::done(Message::ErrorOccurred(
+                        Some(state.id),
+                        DashboardError::Unknown(err.to_string()),
+                    )));
+                }
+                Some(chart::Action::FetchRequested(req_id, range)) => {
+                    tasks.push(Task::done(Message::ChartRequestedFetch(
+                        pane, window, req_id, range,
+                    )));
+                }
+                None => {}
+            });
+
+        Task::batch(tasks)
     }
 
     pub fn market_subscriptions(&self) -> Subscription<exchange::Event> {

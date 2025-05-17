@@ -317,7 +317,7 @@ impl KlineChart {
         }
     }
 
-    pub fn update_latest_kline(&mut self, kline: &Kline) -> Option<Action> {
+    pub fn update_latest_kline(&mut self, kline: &Kline) {
         match self.data_source {
             ChartData::TimeBased(ref mut timeseries) => {
                 timeseries.insert_klines(&[kline.to_owned()]);
@@ -335,16 +335,9 @@ impl KlineChart {
                 }
 
                 chart.last_price = Some(PriceInfoLabel::new(kline.close, kline.open));
-
-                self.invalidate(None);
-                return self.missing_data_task();
             }
-            ChartData::TickBased(_) => {
-                self.invalidate(None);
-            }
+            ChartData::TickBased(_) => {}
         }
-
-        None
     }
 
     pub fn kind(&self) -> &KlineChartKind {
@@ -724,11 +717,7 @@ impl KlineChart {
         self.last_tick
     }
 
-    pub fn invalidate(&mut self, now: Option<Instant>) {
-        if let Some(t) = now {
-            self.last_tick = t;
-        }
-
+    pub fn invalidate(&mut self, now: Option<Instant>) -> Option<Action> {
         let autoscaled_coords = self.autoscaled_coords();
         let chart = &mut self.chart;
 
@@ -741,6 +730,13 @@ impl KlineChart {
         self.indicators.iter_mut().for_each(|(_, data)| {
             data.clear_cache();
         });
+
+        if let Some(t) = now {
+            self.last_tick = t;
+            self.missing_data_task()
+        } else {
+            None
+        }
     }
 
     pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {
