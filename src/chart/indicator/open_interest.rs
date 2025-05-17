@@ -6,7 +6,7 @@ use iced::{Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector, mou
 
 use crate::chart::{Basis, Caches, CommonChartData, Interaction, Message};
 use crate::style::{self, get_dashed_line};
-use data::util::{format_with_commas, round_to_tick};
+use data::util::{format_with_commas, guesstimate_ticks, round_to_tick};
 use exchange::Timeframe;
 
 pub fn create_indicator_elem<'a>(
@@ -309,7 +309,8 @@ impl canvas::Program<Message> for OpenInterest<'_> {
                     let crosshair_ratio = cursor_position.y / bounds.height;
                     let crosshair_price = highest + crosshair_ratio * (lowest - highest);
 
-                    let rounded_price = round_to_tick(crosshair_price, 1.0);
+                    let rounded_price =
+                        round_to_tick(crosshair_price, guesstimate_ticks(highest - lowest));
                     let snap_ratio = (rounded_price - highest) / (lowest - highest);
 
                     frame.stroke(
