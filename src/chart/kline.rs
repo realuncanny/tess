@@ -14,7 +14,7 @@ use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
     indicator,
 };
-use super::{calc_splits, canvas_interaction, draw_horizontal_volume_bars, request_fetch};
+use super::{canvas_interaction, draw_horizontal_volume_bars, request_fetch};
 
 use crate::{dashboard::panel::study, style};
 
@@ -775,7 +775,7 @@ impl KlineChart {
                 })
                 .count();
 
-            self.chart.splits = calc_splits(*main_split, active_indicators);
+            self.chart.splits = super::calc_splits(*main_split, active_indicators);
         }
     }
 

@@ -291,11 +291,11 @@ impl State {
 
                 let enabled_indicators = match existing_indicators {
                     Some(ExistingIndicators::Kline(indicators)) => indicators,
-                    _ => KlineIndicator::get_available(ticker_info.market_type()).to_vec(),
+                    _ => vec![KlineIndicator::Volume],
                 };
 
                 let splits = {
-                    let main_chart_split: f32 = 0.7;
+                    let main_chart_split: f32 = 0.8;
                     let mut splits = vec![main_chart_split];
 
                     if !enabled_indicators.is_empty() {
