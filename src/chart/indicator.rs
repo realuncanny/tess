@@ -48,7 +48,7 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
 
         let text_size = 12.0;
 
-        let tick_size = 1.0;
+        let tick_size = data::util::guesstimate_ticks(range);
 
         let labels = self.label_cache.draw(renderer, bounds.size(), |frame| {
             let mut all_labels = linear::generate_labels(

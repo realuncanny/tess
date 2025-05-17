@@ -111,3 +111,18 @@ pub fn pct_change(change: f32) -> String {
         _ => format!("{:.2}%", change),
     }
 }
+
+pub fn guesstimate_ticks(range: f32) -> f32 {
+    match range {
+        r if r > 1_000_000.0 => 10.0,
+        r if r > 100_000.0 => 1_000.0,
+        r if r > 10_000.0 => 100.0,
+        r if r > 1_000.0 => 10.0,
+        r if r > 100.0 => 1.0,
+        r if r > 10.0 => 0.1,
+        r if r > 1.0 => 0.01,
+        r if r > 0.1 => 0.001,
+        r if r > 0.01 => 0.0001,
+        _ => 0.00001,
+    }
+}

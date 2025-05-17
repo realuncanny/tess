@@ -389,10 +389,12 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                     let highest = max_volume;
                     let lowest = 0.0;
 
+                    let tick_size = data::util::guesstimate_ticks(highest - lowest);
+
                     let crosshair_ratio = cursor_position.y / bounds.height;
                     let crosshair_price = highest + crosshair_ratio * (lowest - highest);
 
-                    let rounded_price = round_to_tick(crosshair_price, 1.0);
+                    let rounded_price = round_to_tick(crosshair_price, tick_size);
                     let snap_ratio = (rounded_price - highest) / (lowest - highest);
 
                     frame.stroke(

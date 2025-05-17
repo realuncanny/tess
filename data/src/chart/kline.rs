@@ -208,7 +208,7 @@ impl FootprintStudy {
         FootprintStudy::NPoC { lookback: 80 },
         FootprintStudy::Imbalance {
             threshold: 200,
-            color_scale: None,
+            color_scale: Some(400),
             ignore_zeros: true,
         },
     ];
