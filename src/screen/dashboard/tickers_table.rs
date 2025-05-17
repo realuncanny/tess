@@ -226,8 +226,8 @@ impl TickersTable {
 
         TickerDisplayData {
             display_ticker,
-            price_change_display: convert_to_pct_change(stats.daily_price_chg).to_string(),
-            volume_display: convert_to_currency_abbr(stats.daily_volume).to_string(),
+            price_change_display: data::util::pct_change(stats.daily_price_chg),
+            volume_display: data::util::currency_abbr(stats.daily_volume),
             mark_price_display: stats.mark_price.to_string(),
             card_color_alpha: { (stats.daily_price_chg / 8.0).clamp(-1.0, 1.0) },
         }
@@ -848,24 +848,4 @@ fn create_tab_button<'a>(
         btn = btn.on_press(Message::ChangeTickersTableTab(target_tab));
     }
     btn
-}
-
-fn convert_to_currency_abbr(price: f32) -> String {
-    if price > 1_000_000_000.0 {
-        format!("${:.2}b", price / 1_000_000_000.0)
-    } else if price > 1_000_000.0 {
-        format!("${:.1}m", price / 1_000_000.0)
-    } else if price > 1000.0 {
-        format!("${:.2}k", price / 1000.0)
-    } else {
-        format!("${price:.2}")
-    }
-}
-
-fn convert_to_pct_change(change: f32) -> String {
-    if change > 0.0 {
-        format!("+{change:.2}%")
-    } else {
-        format!("{change:.2}%")
-    }
 }

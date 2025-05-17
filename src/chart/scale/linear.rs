@@ -4,28 +4,21 @@ use data::util::abbr_large_numbers;
 const MAX_ITERATIONS: usize = 1000;
 
 fn calc_optimal_ticks(highest: f32, lowest: f32, labels_can_fit: i32) -> (f32, f32) {
-    let range = highest - lowest;
+    let range = (highest - lowest).abs().max(f32::EPSILON);
     let labels = labels_can_fit.max(1) as f32;
 
     let base = 10.0f32.powf(range.log10().floor());
 
-    let step = if range / (0.1 * base) <= labels {
-        0.1 * base
-    } else if range / (0.2 * base) <= labels {
-        0.2 * base
-    } else if range / (0.5 * base) <= labels {
-        0.5 * base
-    } else if range / base <= labels {
-        base
-    } else if range / (2.0 * base) <= labels {
-        2.0 * base
-    } else {
-        (range / labels).min(5.0 * base)
+    let step = match range / base {
+        r if r <= labels * 0.1 => 0.1 * base,
+        r if r <= labels * 0.2 => 0.2 * base,
+        r if r <= labels * 0.5 => 0.5 * base,
+        r if r <= labels => base,
+        r if r <= labels * 2.0 => 2.0 * base,
+        _ => (range / labels).min(5.0 * base),
     };
 
     let rounded_highest = (highest / step).ceil() * step;
-    let rounded_highest = rounded_highest.min(highest + step);
-
     (step, rounded_highest)
 }
 
@@ -68,32 +61,39 @@ pub fn generate_labels(
 
     let (step, max) = calc_optimal_ticks(highest, lowest, labels_can_fit);
 
-    let mut labels = Vec::with_capacity((labels_can_fit + 2) as usize);
+    let mut value = max;
+    while value > highest {
+        value -= step;
+    }
 
+    let mut labels = Vec::with_capacity((labels_can_fit + 2) as usize);
     let mut safety_counter = 0;
 
-    let mut value = max;
     while value >= lowest && safety_counter < MAX_ITERATIONS {
-        let label = Label {
-            content: {
-                if let Some(decimals) = decimals {
-                    format!("{value:.decimals$}")
-                } else {
-                    abbr_large_numbers(value)
-                }
-            },
-            background_color: None,
-            text_color,
-            text_size,
-        };
+        if value <= highest + step * 0.5 && value >= lowest - step * 0.5 {
+            let content = if let Some(decimals) = decimals {
+                format!("{value:.decimals$}")
+            } else {
+                abbr_large_numbers(value)
+            };
 
-        let label_pos = bounds.height - ((value - lowest) / (highest - lowest) * bounds.height);
+            let label = Label {
+                content,
+                background_color: None,
+                text_color,
+                text_size,
+            };
 
-        labels.push(AxisLabel::Y(
-            calc_label_rect(label_pos, 1, text_size, bounds),
-            label,
-            None,
-        ));
+            let clamped_value = value.max(lowest).min(highest);
+            let label_pos =
+                bounds.height - ((clamped_value - lowest) / (highest - lowest) * bounds.height);
+
+            labels.push(AxisLabel::Y(
+                calc_label_rect(label_pos, 1, text_size, bounds),
+                label,
+                None,
+            ));
+        }
 
         value -= step;
         safety_counter += 1;
