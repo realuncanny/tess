@@ -1,6 +1,6 @@
 ///
-/// This widget is slight modification of `color_picker` widget at [`Halloy`]: https://github.com/squidowl/halloy/blob/main/src/widget/color_picker.rs
-/// All credits goes to authors of [`Halloy`], https://github.com/squidowl/halloy/
+/// This widget is slight modification of `color_picker` widget at [`Halloy`]: <https://github.com/squidowl/halloy/blob/main/src/widget/color_picker.rs>
+/// All credits goes to authors of [`Halloy`], <https://github.com/squidowl/halloy/>
 /// I just removed alpha channel support as to fully rely on Iced's color palette generation.
 ///
 use iced::Length::{self, Fill, FillPortion};

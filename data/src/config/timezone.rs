@@ -17,11 +17,11 @@ impl UserTimezone {
             match self {
                 UserTimezone::Local => {
                     let time_with_zone = datetime.with_timezone(&chrono::Local);
-                    Self::format_by_timeframe(time_with_zone, timeframe)
+                    Self::format_by_timeframe(&time_with_zone, timeframe)
                 }
                 UserTimezone::Utc => {
                     let time_with_zone = datetime.with_timezone(&chrono::Utc);
-                    Self::format_by_timeframe(time_with_zone, timeframe)
+                    Self::format_by_timeframe(&time_with_zone, timeframe)
                 }
             }
         } else {
@@ -30,7 +30,7 @@ impl UserTimezone {
     }
 
     /// Formats a `DateTime` with appropriate format based on timeframe
-    fn format_by_timeframe<Tz: chrono::TimeZone>(datetime: DateTime<Tz>, timeframe: u64) -> String
+    fn format_by_timeframe<Tz: chrono::TimeZone>(datetime: &DateTime<Tz>, timeframe: u64) -> String
     where
         Tz::Offset: std::fmt::Display,
     {

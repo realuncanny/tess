@@ -344,6 +344,8 @@ impl HeatmapChart {
 
         let autoscaled_coords = self.autoscaled_coords();
         self.chart.translation = autoscaled_coords;
+
+        self.invalidate(None);
     }
 
     pub fn basis_interval(&self) -> Option<u64> {

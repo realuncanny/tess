@@ -261,16 +261,6 @@ pub mod button {
                 },
                 ..Default::default()
             },
-            Status::Pressed => Style {
-                text_color: palette.background.base.text,
-                background: Some(palette.background.weakest.color.into()),
-                border: Border {
-                    radius: 2.0.into(),
-                    width: 1.0,
-                    color: palette.background.weak.color,
-                },
-                ..Default::default()
-            },
             _ => Style {
                 text_color: palette.background.base.text,
                 background: Some(palette.background.weakest.color.into()),

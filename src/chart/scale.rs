@@ -168,7 +168,6 @@ pub struct AxisLabelsX<'a> {
 
 impl AxisLabelsX<'_> {
     fn create_label(
-        &self,
         position: f32,
         text: String,
         bounds: Rectangle,
@@ -209,9 +208,8 @@ impl AxisLabelsX<'_> {
         palette: &Extended,
         x_labels_can_fit: i32,
     ) -> Vec<AxisLabel> {
-        let interval_keys = match &self.interval_keys {
-            Some(keys) => keys,
-            None => return Vec::new(),
+        let Some(interval_keys) = &self.interval_keys else {
+            return Vec::new();
         };
 
         let chart_x_min = region.x;
@@ -249,7 +247,9 @@ impl AxisLabelsX<'_> {
                     .timezone
                     .format_timestamp((*timestamp / 1000) as i64, 100);
 
-                labels.push(self.create_label(snap_x, label_text, bounds, false, palette));
+                labels.push(AxisLabelsX::create_label(
+                    snap_x, label_text, bounds, false, palette,
+                ));
             }
         }
 
@@ -286,7 +286,7 @@ impl AxisLabelsX<'_> {
                     .timezone
                     .format_timestamp((time / 1000) as i64, timeframe);
 
-                labels.push(self.create_label(
+                labels.push(AxisLabelsX::create_label(
                     x_position as f32,
                     text_content,
                     bounds,
@@ -322,9 +322,8 @@ impl AxisLabelsX<'_> {
 
         match self.basis {
             Basis::Tick(interval) => {
-                let interval_keys = match &self.interval_keys {
-                    Some(keys) => keys,
-                    None => return None,
+                let Some(interval_keys) = &self.interval_keys else {
+                    return None;
                 };
 
                 let (crosshair_pos, _, cell_index) = self.calc_crosshair_pos(cursor_pos, region);
@@ -353,7 +352,13 @@ impl AxisLabelsX<'_> {
                         .timezone
                         .format_crosshair_timestamp(*timestamp as i64, interval);
 
-                    return Some(self.create_label(snap_x, text_content, bounds, true, palette));
+                    return Some(AxisLabelsX::create_label(
+                        snap_x,
+                        text_content,
+                        bounds,
+                        true,
+                        palette,
+                    ));
                 }
             }
             Basis::Time(timeframe) => {
@@ -382,7 +387,13 @@ impl AxisLabelsX<'_> {
                     .timezone
                     .format_crosshair_timestamp(rounded_timestamp as i64, timeframe);
 
-                return Some(self.create_label(snap_x as f32, text_content, bounds, true, palette));
+                return Some(AxisLabelsX::create_label(
+                    snap_x as f32,
+                    text_content,
+                    bounds,
+                    true,
+                    palette,
+                ));
             }
         }
 

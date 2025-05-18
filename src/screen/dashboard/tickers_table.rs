@@ -18,6 +18,9 @@ use iced::{
     },
 };
 
+const ACTIVE_UPDATE_INTERVAL: u64 = 25;
+const INACTIVE_UPDATE_INTERVAL: u64 = 300;
+
 const TICKER_CARD_HEIGHT: f32 = 64.0;
 const SEARCH_BAR_HEIGHT: f32 = 120.0;
 
@@ -680,9 +683,9 @@ impl TickersTable {
 
     pub fn subscription(&self) -> Subscription<Message> {
         iced::time::every(std::time::Duration::from_secs(if self.is_open() {
-            25
+            ACTIVE_UPDATE_INTERVAL
         } else {
-            300
+            INACTIVE_UPDATE_INTERVAL
         }))
         .map(|_| Message::FetchForTickerStats(None))
     }

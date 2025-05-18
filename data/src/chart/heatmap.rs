@@ -283,9 +283,7 @@ pub enum CoalesceKind {
 impl CoalesceKind {
     pub fn threshold(&self) -> f32 {
         match self {
-            CoalesceKind::First(t) => *t,
-            CoalesceKind::Average(t) => *t,
-            CoalesceKind::Max(t) => *t,
+            CoalesceKind::Average(t) | CoalesceKind::First(t) | CoalesceKind::Max(t) => *t,
         }
     }
 
@@ -342,8 +340,7 @@ impl CoalescingRun {
     pub fn comparison_qty(&self, kind: &CoalesceKind) -> f32 {
         match kind {
             CoalesceKind::Average(_) => self.current_average_qty(),
-            CoalesceKind::First(_) => self.first_qty,
-            CoalesceKind::Max(_) => self.first_qty,
+            CoalesceKind::Max(_) | CoalesceKind::First(_) => self.first_qty,
         }
     }
 

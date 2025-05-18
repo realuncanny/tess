@@ -490,12 +490,10 @@ impl KlineChart {
     }
 
     pub fn update_study_configurator(&mut self, message: study::Message) {
-        let studies = if let KlineChartKind::Footprint {
+        let KlineChartKind::Footprint {
             ref mut studies, ..
         } = self.kind
-        {
-            studies
-        } else {
+        else {
             return;
         };
 

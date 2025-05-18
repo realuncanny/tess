@@ -326,16 +326,16 @@ impl Flowsurface {
                 let layout_id = id.unwrap_or(self.layout_manager.active_layout.id);
 
                 if let Some(dashboard) = self.layout_manager.mut_dashboard(&layout_id) {
-                    let (task, event) = dashboard.update(message, &main_window, &layout_id);
+                    let (main_task, event) = dashboard.update(message, &main_window, &layout_id);
 
-                    let event_task = match event {
-                        Some(dashboard::Event::DistributeFetchedData(
+                    let additional_task = match event {
+                        Some(dashboard::Event::DistributeFetchedData {
                             layout_id,
-                            pane_uid,
+                            pane_id,
                             data,
                             stream,
-                        )) => dashboard
-                            .distribute_fetched_data(main_window.id, pane_uid, data, stream)
+                        }) => dashboard
+                            .distribute_fetched_data(main_window.id, pane_id, data, stream)
                             .map(move |msg| Message::Dashboard(Some(layout_id), msg)),
                         Some(dashboard::Event::Notification(toast)) => {
                             Task::done(Message::AddNotification(toast))
@@ -343,9 +343,9 @@ impl Flowsurface {
                         None => Task::none(),
                     };
 
-                    return task
+                    return main_task
                         .map(move |msg| Message::Dashboard(Some(layout_id), msg))
-                        .chain(event_task);
+                        .chain(additional_task);
                 }
             }
             Message::TickersTable(message) => {
