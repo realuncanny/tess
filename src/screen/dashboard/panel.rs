@@ -324,7 +324,10 @@ pub fn timesales_cfg_view<'a>(
                 .spacing(20)
                 .padding(16)
                 .align_x(Alignment::Center),
-            sync_all_button(VisualConfig::TimeAndSales(cfg)),
+            row![
+                horizontal_space(),
+                sync_all_button(VisualConfig::TimeAndSales(cfg))
+            ],
         ]
         .spacing(8),
     ))

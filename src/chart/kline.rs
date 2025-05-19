@@ -3,16 +3,18 @@ use data::aggr::time::TimeSeries;
 use data::chart::{
     ChartLayout, KlineChartKind,
     indicators::{Indicator, KlineIndicator},
+    kline::PointOfControl,
     kline::{ClusterKind, FootprintStudy, KlineTrades, NPoc},
 };
 use data::util::{abbr_large_numbers, count_decimals, round_to_tick};
-use exchange::fetcher::{FetchRange, RequestHandler};
-use exchange::{Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade};
+use exchange::{
+    Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade,
+    fetcher::{FetchRange, RequestHandler},
+};
 
-use super::scale::PriceInfoLabel;
 use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
-    indicator,
+    indicator, scale::PriceInfoLabel,
 };
 use super::{canvas_interaction, draw_horizontal_volume_bars, request_fetch};
 
@@ -93,12 +95,12 @@ impl Chart for KlineChart {
         match &self.kind {
             KlineChartKind::Footprint { .. } => Vector::new(
                 0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling),
-                self.data_source.get_latest_price_range_y_midpoint(chart),
+                self.data_source.latest_range_y_midpoint(chart),
             ),
             KlineChartKind::Candles => Vector::new(
                 0.5 * (chart.bounds.width / chart.scaling)
                     - (8.0 * chart.cell_width / chart.scaling),
-                self.data_source.get_latest_price_range_y_midpoint(chart),
+                self.data_source.latest_range_y_midpoint(chart),
             ),
         }
     }
@@ -908,6 +910,7 @@ impl canvas::Program<Message> for KlineChart {
                         interval_to_x,
                         candle_width,
                         chart.cell_width,
+                        chart.cell_height,
                         palette,
                         studies,
                     );
@@ -1133,6 +1136,7 @@ fn draw_all_npocs(
     interval_to_x: impl Fn(u64) -> f32,
     candle_width: f32,
     cell_width: f32,
+    cell_height: f32,
     palette: &Extended,
     studies: &[FootprintStudy],
 ) {
@@ -1146,6 +1150,40 @@ fn draw_all_npocs(
         return;
     };
 
+    let (filled_color, naked_color) = (
+        palette.background.strong.color,
+        if palette.is_dark {
+            palette.warning.weak.color.scale_alpha(0.5)
+        } else {
+            palette.warning.strong.color
+        },
+    );
+
+    let line_height = cell_height.min(1.0);
+
+    let mut draw_the_line = |interval: u64, poc: &PointOfControl| {
+        let x_position = interval_to_x(interval);
+        let start_x = x_position + (candle_width / 4.0);
+
+        let (until_x, color) = match poc.status {
+            NPoc::Naked => (-x_position, naked_color),
+            NPoc::Filled { at } => {
+                let until_x = interval_to_x(at) - start_x;
+                if until_x.abs() <= cell_width {
+                    return;
+                }
+                (until_x, filled_color)
+            }
+            _ => return,
+        };
+
+        frame.fill_rectangle(
+            Point::new(start_x, price_to_y(poc.price) - line_height / 2.0),
+            Size::new(until_x, line_height),
+            color,
+        );
+    };
+
     match data_source {
         ChartData::TickBased(tick_aggr) => {
             tick_aggr
@@ -1154,31 +1192,8 @@ fn draw_all_npocs(
                 .rev()
                 .enumerate()
                 .take(lookback)
-                .for_each(|(index, dp)| {
-                    if let Some(poc) = dp.footprint.poc {
-                        let x_position = interval_to_x(index as u64);
-                        let poc_y = price_to_y(poc.price);
-
-                        let start_x = x_position + (candle_width / 4.0);
-                        let (until_x, color) = match poc.status {
-                            NPoc::Naked => (-x_position, palette.warning.weak.color),
-                            NPoc::Filled { at } => {
-                                let until_x = interval_to_x(at) - start_x;
-                                if until_x.abs() <= cell_width {
-                                    return;
-                                }
-                                (until_x, palette.background.strong.color)
-                            }
-                            _ => return,
-                        };
-
-                        frame.fill_rectangle(
-                            Point::new(start_x, poc_y - 1.0),
-                            Size::new(until_x, 1.0),
-                            color,
-                        );
-                    }
-                });
+                .filter_map(|(index, dp)| dp.footprint.poc.as_ref().map(|poc| (index as u64, poc)))
+                .for_each(|(interval, poc)| draw_the_line(interval, poc));
         }
         ChartData::TimeBased(timeseries) => {
             timeseries
@@ -1186,35 +1201,13 @@ fn draw_all_npocs(
                 .iter()
                 .rev()
                 .take(lookback)
-                .for_each(|(timestamp, dp)| {
-                    if let Some(poc) = dp.footprint.poc {
-                        let x_position = interval_to_x(*timestamp);
-                        let poc_y = price_to_y(poc.price);
-
-                        let start_x = x_position + (candle_width / 4.0);
-                        let (until_x, color) = match poc.status {
-                            NPoc::Naked => (-x_position, palette.warning.weak.color),
-                            NPoc::Filled { at } => {
-                                let until_x = interval_to_x(at) - start_x;
-                                if until_x.abs() <= cell_width {
-                                    return;
-                                }
-                                (until_x, palette.background.strong.color)
-                            }
-                            _ => return,
-                        };
-
-                        frame.fill_rectangle(
-                            Point::new(start_x, poc_y - 1.0),
-                            Size::new(until_x, 1.0),
-                            color,
-                        );
-                    }
-                });
+                .filter_map(|(timestamp, dp)| {
+                    dp.footprint.poc.as_ref().map(|poc| (*timestamp, poc))
+                })
+                .for_each(|(interval, poc)| draw_the_line(interval, poc));
         }
     }
 }
-
 fn draw_clusters(
     frame: &mut canvas::Frame,
     price_to_y: impl Fn(f32) -> f32,
