@@ -1216,6 +1216,7 @@ dependencies = [
  "iced_core",
  "iced_futures",
  "log",
+ "num-traits",
  "ordered-float 5.0.0",
  "palette",
  "serde",

@@ -1,11 +1,11 @@
 pub mod timeandsales;
 
 use crate::style::{Icon, icon_text};
-use crate::widget::{column_drag, dragger_row};
+use crate::widget::{classic_slider_row, column_drag, dragger_row, labeled_slider};
 use crate::{
     screen::dashboard::pane::Message,
     style, tooltip,
-    widget::{self, create_slider_row, pane_modal, scrollable_content},
+    widget::{self, pane_modal, scrollable_content},
 };
 
 use super::pane;
@@ -20,13 +20,13 @@ use exchange::{
     adapter::{Exchange, MarketKind},
 };
 use iced::alignment::Vertical;
-use iced::widget::{horizontal_rule, horizontal_space, radio};
+use iced::widget::{horizontal_rule, horizontal_space, radio, slider};
 use iced::{
     Alignment, Element, Length,
     alignment::Horizontal,
     padding,
     widget::{
-        Slider, button, center, column, container, pane_grid, pick_list, row, scrollable, text,
+        button, center, column, container, pane_grid, pick_list, row, scrollable, text,
         tooltip::Position as TooltipPosition,
     },
 };
@@ -83,9 +83,11 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
     let trade_size_slider = {
         let filter = cfg.trade_size_filter;
 
-        create_slider_row(
-            text("Trade"),
-            Slider::new(0.0..=50000.0, filter, move |value| {
+        labeled_slider(
+            "Trade",
+            0.0..=50000.0,
+            filter,
+            move |value| {
                 Message::VisualConfigChanged(
                     Some(pane),
                     VisualConfig::Heatmap(heatmap::Config {
@@ -93,19 +95,20 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
                         ..cfg
                     }),
                 )
-            })
-            .step(500.0)
-            .into(),
-            Some(text(format!("${}", format_with_commas(filter))).size(13)),
+            },
+            |value| format!("${}", format_with_commas(*value)),
+            Some(500.0),
         )
     };
 
     let order_size_slider = {
         let filter = cfg.order_size_filter;
 
-        create_slider_row(
-            text("Order"),
-            Slider::new(0.0..=500_000.0, filter, move |value| {
+        labeled_slider(
+            "Order",
+            0.0..=500000.0,
+            filter,
+            move |value| {
                 Message::VisualConfigChanged(
                     Some(pane),
                     VisualConfig::Heatmap(heatmap::Config {
@@ -113,18 +116,17 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
                         ..cfg
                     }),
                 )
-            })
-            .step(5000.0)
-            .into(),
-            Some(text(format!("${}", format_with_commas(filter))).size(13)),
+            },
+            |value| format!("${}", format_with_commas(*value)),
+            Some(5000.0),
         )
     };
 
     let circle_scaling_slider = {
         if let Some(radius_scale) = cfg.trade_size_scale {
-            create_slider_row(
+            classic_slider_row(
                 text("Circle radius scaling"),
-                Slider::new(10..=200, radius_scale, move |value| {
+                slider(10..=200, radius_scale, move |value| {
                     Message::VisualConfigChanged(
                         Some(pane),
                         VisualConfig::Heatmap(heatmap::Config {
@@ -202,9 +204,9 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
                 .spacing(12)
             };
 
-            let threshold_slider = create_slider_row(
+            let threshold_slider = classic_slider_row(
                 text("Size similarity"),
-                Slider::new(0.05..=0.8, threshold_pct, move |value| {
+                slider(0.05..=0.8, threshold_pct, move |value| {
                     Message::VisualConfigChanged(
                         Some(pane),
                         VisualConfig::Heatmap(heatmap::Config {
@@ -231,7 +233,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
         column![
             column![
                 text("Size filters").size(14),
-                row![trade_size_slider, order_size_slider].spacing(8),
+                column![trade_size_slider, order_size_slider].spacing(8),
             ]
             .spacing(20)
             .padding(16)
@@ -290,7 +292,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
     ))
     .width(Length::Shrink)
     .padding(16)
-    .max_width(500)
+    .max_width(360)
     .style(style::chart_modal)
     .into()
 }
@@ -302,25 +304,26 @@ pub fn timesales_cfg_view<'a>(
     let trade_size_slider = {
         let filter = cfg.trade_size_filter;
 
-        create_slider_row(
-            text("Trade size"),
-            Slider::new(0.0..=50000.0, filter, move |value| {
+        labeled_slider(
+            "Trade",
+            0.0..=50000.0,
+            filter,
+            move |value| {
                 Message::VisualConfigChanged(
                     Some(pane),
                     VisualConfig::TimeAndSales(timeandsales::Config {
                         trade_size_filter: value,
                     }),
                 )
-            })
-            .step(500.0)
-            .into(),
-            Some(text(format!("${}", format_with_commas(filter))).size(13)),
+            },
+            |value| format!("${}", format_with_commas(*value)),
+            Some(500.0),
         )
     };
 
     container(scrollable_content(
         column![
-            column![text("Size Filtering").size(14), trade_size_slider,]
+            column![text("Size filter").size(14), trade_size_slider,]
                 .spacing(20)
                 .padding(16)
                 .align_x(Alignment::Center),

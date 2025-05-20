@@ -1,6 +1,6 @@
 use crate::TooltipPosition;
 use crate::style::{self, icon_text};
-use crate::widget::{create_slider_row, tooltip};
+use crate::widget::{labeled_slider, tooltip};
 use data::audio::{SoundCache, StreamCfg};
 use exchange::adapter::{Exchange, StreamKind};
 
@@ -99,14 +99,13 @@ impl AudioStream {
             let volume_slider = {
                 let volume_pct = self.cache.get_volume().unwrap_or(0.0);
 
-                create_slider_row(
-                    text("Volume"),
-                    slider(0.0..=100.0, volume_pct, move |value| {
-                        Message::SoundLevelChanged(value)
-                    })
-                    .step(1.0)
-                    .into(),
-                    Some(text(format!("{volume_pct}%")).size(13)),
+                labeled_slider(
+                    "Volume",
+                    0.0..=100.0,
+                    volume_pct,
+                    move |value| Message::SoundLevelChanged(value),
+                    |value| format!("{value}%"),
+                    Some(1.0),
                 )
             };
 

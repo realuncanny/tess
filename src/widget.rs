@@ -1,10 +1,13 @@
 use super::Element;
-use crate::style::{self, ICONS_FONT, Icon};
+use crate::style::{self, ICONS_FONT, Icon, modal_container};
 use iced::{
-    Alignment, Color, Length, padding,
+    Alignment::{self, Center},
+    Color,
+    Length::{self, Fill},
+    Theme, border, padding,
     widget::{
-        Text, button, center, column, container, mouse_area, opaque, row, scrollable, stack, text,
-        tooltip::Position,
+        button, center, column, container, horizontal_space, mouse_area, opaque, row, scrollable,
+        slider, stack, text, tooltip::Position,
     },
 };
 
@@ -143,10 +146,10 @@ where
     .into()
 }
 
-pub fn create_slider_row<'a, Message>(
-    label: Text<'a>,
+pub fn classic_slider_row<'a, Message>(
+    label: iced::widget::Text<'a>,
     slider: Element<'a, Message>,
-    placeholder: Option<Text<'a>>,
+    placeholder: Option<iced::widget::Text<'a>>,
 ) -> Element<'a, Message>
 where
     Message: Clone + 'a,
@@ -182,4 +185,62 @@ where
         .padding(2)
         .style(style::dragger_row_container)
         .into()
+}
+
+pub fn labeled_slider<'a, T, Message: Clone + 'static>(
+    label: impl text::IntoFragment<'a>,
+    range: std::ops::RangeInclusive<T>,
+    current: T,
+    on_change: impl Fn(T) -> Message + 'a,
+    to_string: impl Fn(&T) -> String,
+    step: Option<T>,
+) -> Element<'a, Message>
+where
+    T: 'static + Copy + PartialOrd + Into<f64> + From<u8> + num_traits::FromPrimitive,
+{
+    let mut slider = iced::widget::slider(range, current, on_change)
+        .width(Fill)
+        .height(24)
+        .style(|theme: &Theme, status| {
+            let palette = theme.extended_palette();
+
+            slider::Style {
+                rail: slider::Rail {
+                    backgrounds: (
+                        palette.background.strong.color.into(),
+                        Color::TRANSPARENT.into(),
+                    ),
+                    width: 24.0,
+                    border: border::rounded(2),
+                },
+                handle: slider::Handle {
+                    shape: slider::HandleShape::Rectangle {
+                        width: 2,
+                        border_radius: 2.0.into(),
+                    },
+                    background: match status {
+                        iced::widget::slider::Status::Active => {
+                            palette.background.strong.color.into()
+                        }
+                        iced::widget::slider::Status::Hovered => palette.primary.base.color.into(),
+                        iced::widget::slider::Status::Dragged => palette.primary.weak.color.into(),
+                    },
+                    border_width: 0.0,
+                    border_color: Color::TRANSPARENT,
+                },
+            }
+        });
+
+    if let Some(v) = step {
+        slider = slider.step(v);
+    }
+
+    iced::widget::stack![
+        container(slider).style(modal_container),
+        row![text(label), horizontal_space(), text(to_string(&current))]
+            .padding([0, 10])
+            .height(Fill)
+            .align_y(Center),
+    ]
+    .into()
 }
