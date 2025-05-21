@@ -50,11 +50,6 @@ pub enum Modal {
     Indicators,
 }
 
-enum ExistingIndicators {
-    Heatmap(Vec<HeatmapIndicator>),
-    Kline(Vec<KlineIndicator>),
-}
-
 #[derive(Debug, Clone)]
 pub enum Message {
     PaneClicked(pane_grid::Pane),
@@ -101,22 +96,6 @@ impl State {
             settings,
             streams,
             ..Default::default()
-        }
-    }
-
-    /// sets the ticker info, tries to return multiplied tick size, otherwise returns the min tick size
-    pub fn set_tickers_info(
-        &mut self,
-        multiplier: Option<TickMultiplier>,
-        ticker_info: TickerInfo,
-    ) -> f32 {
-        self.settings.ticker_info = Some(ticker_info);
-
-        if let Some(multiplier) = multiplier {
-            self.settings.tick_multiply = Some(multiplier);
-            multiplier.multiply_with_min_tick_size(ticker_info)
-        } else {
-            ticker_info.min_ticksize
         }
     }
 
@@ -218,137 +197,59 @@ impl State {
     pub fn set_content(
         &mut self,
         ticker_info: TickerInfo,
-        content: &str,
+        content_str: &str,
     ) -> Result<(), DashboardError> {
-        let (existing_indicators, existing_layout, chart_kind) = match (&self.content, content) {
-            (Content::Heatmap(chart, indicators), "heatmap") => (
-                Some(ExistingIndicators::Heatmap(indicators.clone())),
-                Some(chart.chart_layout()),
-                None,
-            ),
-            (Content::Kline(chart, indicators), "footprint" | "candlestick") => (
-                Some(ExistingIndicators::Kline(indicators.clone())),
-                Some(chart.chart_layout()),
-                {
-                    let kind = chart.kind();
-                    match kind {
-                        data::chart::KlineChartKind::Footprint { .. } => Some(kind.clone()),
-                        data::chart::KlineChartKind::Candles => None,
-                    }
-                },
-            ),
-            _ => (None, None, None),
-        };
+        self.settings.ticker_info = Some(ticker_info);
 
-        self.content = match content {
+        let new_content = match content_str {
             "heatmap" => {
-                let tick_size = self.set_tickers_info(Some(TickMultiplier(5)), ticker_info);
-                let enabled_indicators = match existing_indicators {
-                    Some(ExistingIndicators::Heatmap(indicators)) => indicators,
-                    _ => vec![HeatmapIndicator::Volume],
-                };
-                let layout = existing_layout.unwrap_or(ChartLayout {
-                    crosshair: true,
-                    splits: vec![],
+                let tick_multiplier = Some(TickMultiplier(5));
+                self.settings.tick_multiply = tick_multiplier;
+                let tick_size = tick_multiplier.map_or(ticker_info.min_ticksize, |tm| {
+                    tm.multiply_with_min_tick_size(ticker_info)
                 });
 
-                let basis = self
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Basis::default_time(Some(ticker_info)));
-                let config = self.settings.visual_config.and_then(|cfg| cfg.heatmap());
-
-                Content::Heatmap(
-                    HeatmapChart::new(
-                        layout,
-                        basis,
-                        tick_size,
-                        &enabled_indicators,
-                        Some(ticker_info),
-                        config,
-                    ),
-                    enabled_indicators,
-                )
+                Content::new_heatmap(&self.content, ticker_info, &self.settings, tick_size)
             }
             "footprint" | "candlestick" => {
-                let (tick_mltp, default_tf, chart_kind) = match content {
-                    "footprint" => (
-                        Some(TickMultiplier(50)),
-                        Timeframe::M5,
-                        chart_kind.unwrap_or(data::chart::KlineChartKind::Footprint {
-                            clusters: data::chart::kline::ClusterKind::default(),
-                            studies: vec![],
-                        }),
-                    ),
-                    _ => (None, Timeframe::M15, data::chart::KlineChartKind::Candles),
+                let tick_multiplier = if content_str == "footprint" {
+                    Some(TickMultiplier(50))
+                } else {
+                    None
                 };
+                self.settings.tick_multiply = tick_multiplier;
+                let tick_size = tick_multiplier.map_or(ticker_info.min_ticksize, |tm| {
+                    tm.multiply_with_min_tick_size(ticker_info)
+                });
 
-                let tick_size = self.set_tickers_info(tick_mltp, ticker_info);
-                let basis = self
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(default_tf.into()));
-
-                let enabled_indicators = match existing_indicators {
-                    Some(ExistingIndicators::Kline(indicators)) => indicators,
-                    _ => vec![KlineIndicator::Volume],
-                }
-                .into_iter()
-                .filter(|i| {
-                    !matches!(i, KlineIndicator::OpenInterest)
-                        || matches!(ticker_info.market_type(), MarketKind::LinearPerps)
-                })
-                .collect::<Vec<KlineIndicator>>();
-
-                let splits = {
-                    let main_chart_split: f32 = 0.8;
-                    let mut splits = vec![main_chart_split];
-
-                    if !enabled_indicators.is_empty() {
-                        let indicator_split = main_chart_split
-                            + (1.0 - main_chart_split) / (enabled_indicators.len()) as f32;
-                        splits.extend(vec![indicator_split; enabled_indicators.len() - 1]);
-                    }
-                    splits
-                };
-
-                let layout = existing_layout
-                    .filter(|layout| layout.splits.len() == splits.len())
-                    .unwrap_or(ChartLayout {
-                        crosshair: true,
-                        splits,
-                    });
-
-                Content::Kline(
-                    KlineChart::new(
-                        layout,
-                        basis,
-                        tick_size,
-                        &[],
-                        vec![],
-                        &enabled_indicators,
-                        Some(ticker_info),
-                        &chart_kind,
-                    ),
-                    enabled_indicators,
+                Content::new_kline(
+                    content_str,
+                    &self.content,
+                    ticker_info,
+                    &self.settings,
+                    tick_size,
                 )
             }
             "time&sales" => {
-                let _ = self.set_tickers_info(None, ticker_info);
+                self.settings.ticker_info = Some(ticker_info);
+
                 let config = self
                     .settings
                     .visual_config
                     .and_then(|cfg| cfg.time_and_sales());
+
                 Content::TimeAndSales(TimeAndSales::new(config, Some(ticker_info)))
             }
             _ => {
-                log::error!("content not found: {}", content);
-                return Err(DashboardError::PaneSet(
-                    "content not found: ".to_string() + content,
-                ));
+                log::error!("content not found: {}", content_str);
+                return Err(DashboardError::PaneSet(format!(
+                    "content not found: {}",
+                    content_str
+                )));
             }
         };
 
+        self.content = new_content;
         Ok(())
     }
 
@@ -683,6 +584,133 @@ pub enum Content {
 }
 
 impl Content {
+    fn new_heatmap(
+        current_content: &Content,
+        ticker_info: TickerInfo,
+        settings: &Settings,
+        tick_size: f32,
+    ) -> Self {
+        let (enabled_indicators, layout) = if let Content::Heatmap(chart, inds) = current_content {
+            (inds.clone(), chart.chart_layout())
+        } else {
+            (
+                vec![HeatmapIndicator::Volume],
+                ChartLayout {
+                    crosshair: true,
+                    splits: vec![],
+                },
+            )
+        };
+
+        let basis = settings
+            .selected_basis
+            .unwrap_or_else(|| Basis::default_time(Some(ticker_info)));
+        let config = settings.visual_config.and_then(|cfg| cfg.heatmap());
+
+        Content::Heatmap(
+            HeatmapChart::new(
+                layout,
+                basis,
+                tick_size,
+                &enabled_indicators,
+                Some(ticker_info),
+                config,
+            ),
+            enabled_indicators,
+        )
+    }
+
+    fn new_kline(
+        content_str: &str, // "footprint" or "candlestick"
+        current_content: &Content,
+        ticker_info: TickerInfo,
+        settings: &Settings,
+        tick_size: f32,
+    ) -> Self {
+        let (prev_indis, prev_layout, prev_kind_opt) =
+            if let Content::Kline(chart, inds) = current_content {
+                (
+                    Some(inds.clone()),
+                    Some(chart.chart_layout()),
+                    Some(chart.kind().clone()),
+                )
+            } else {
+                (None, None, None)
+            };
+
+        let (default_tf, determined_chart_kind) = match content_str {
+            "footprint" => (
+                Timeframe::M5,
+                prev_kind_opt
+                    .filter(|k| matches!(k, data::chart::KlineChartKind::Footprint { .. }))
+                    .unwrap_or_else(|| data::chart::KlineChartKind::Footprint {
+                        clusters: data::chart::kline::ClusterKind::default(),
+                        studies: vec![],
+                    }),
+            ),
+            _ => (
+                // "candlestick"
+                Timeframe::M15,
+                data::chart::KlineChartKind::Candles,
+            ),
+        };
+
+        let basis = settings
+            .selected_basis
+            .unwrap_or(Basis::Time(default_tf.into()));
+
+        let enabled_indicators = {
+            let available = KlineIndicator::for_market(ticker_info.market_type());
+            prev_indis.map_or_else(
+                || available.to_vec(),
+                |inds| inds.into_iter().filter(|i| available.contains(i)).collect(),
+            )
+        };
+
+        let splits = {
+            let main_chart_split: f32 = 0.8;
+            let mut splits_vec = vec![main_chart_split];
+
+            if !enabled_indicators.is_empty() {
+                let num_indicators = enabled_indicators.len();
+
+                if num_indicators > 0 {
+                    let indicator_total_height_ratio = 1.0 - main_chart_split;
+                    let height_per_indicator_pane =
+                        indicator_total_height_ratio / num_indicators as f32;
+
+                    let mut current_split_pos = main_chart_split;
+                    for _ in 0..(num_indicators - 1) {
+                        current_split_pos += height_per_indicator_pane;
+                        splits_vec.push(current_split_pos);
+                    }
+                }
+            }
+            splits_vec
+        };
+
+        let layout = prev_layout
+            .filter(|l| l.splits.len() == splits.len())
+            .unwrap_or(ChartLayout {
+                crosshair: true,
+                splits,
+            });
+
+        Content::Kline(
+            KlineChart::new(
+                layout,
+                basis,
+                tick_size,
+                &[],
+                vec![],
+                &enabled_indicators,
+                Some(ticker_info),
+                &determined_chart_kind,
+            ),
+            enabled_indicators,
+        )
+    }
+
     pub fn invalidate(&mut self, now: Instant) -> Option<chart::Action> {
         match self {
             Content::Heatmap(chart, _) => chart.invalidate(Some(now)),
