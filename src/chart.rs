@@ -68,13 +68,15 @@ pub enum Message {
 }
 
 pub trait Chart: ChartConstants + canvas::Program<Message> {
+    type IndicatorType: Indicator;
+
     fn common_data(&self) -> &CommonChartData;
 
     fn common_data_mut(&mut self) -> &mut CommonChartData;
 
     fn invalidate(&mut self);
 
-    fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Vec<Element<Message>>;
+    fn view_indicators(&self, enabled: &[Self::IndicatorType]) -> Vec<Element<Message>>;
 
     fn visible_timerange(&self) -> (u64, u64);
 
@@ -407,9 +409,9 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
     chart.invalidate();
 }
 
-pub fn view<'a, T: Chart, I: Indicator>(
+pub fn view<'a, T: Chart>(
     chart: &'a T,
-    indicators: &'a [I],
+    indicators: &'a [T::IndicatorType],
     timezone: data::UserTimezone,
 ) -> Element<'a, Message> {
     let chart_state = chart.common_data();

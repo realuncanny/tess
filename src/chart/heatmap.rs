@@ -2,7 +2,7 @@ use crate::style;
 use data::chart::{
     Basis, ChartLayout,
     heatmap::{Config, GroupedTrade, HistoricalDepth, QtyScale},
-    indicators::{HeatmapIndicator, Indicator},
+    indicators::HeatmapIndicator,
 };
 use data::util::{abbr_large_numbers, count_decimals};
 use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};
@@ -24,6 +24,8 @@ use std::{
 const CLEANUP_THRESHOLD: usize = 4800;
 
 impl Chart for HeatmapChart {
+    type IndicatorType = HeatmapIndicator;
+
     fn common_data(&self) -> &CommonChartData {
         &self.chart
     }
@@ -36,7 +38,7 @@ impl Chart for HeatmapChart {
         self.invalidate(None);
     }
 
-    fn view_indicators<I: Indicator>(&self, _indicators: &[I]) -> Vec<Element<Message>> {
+    fn view_indicators(&self, _indicators: &[Self::IndicatorType]) -> Vec<Element<Message>> {
         vec![]
     }
 

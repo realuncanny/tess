@@ -1,7 +1,4 @@
-use std::{
-    any::Any,
-    fmt::{self, Debug, Display},
-};
+use std::fmt::{self, Debug, Display};
 
 use exchange::adapter::MarketKind;
 use serde::{Deserialize, Serialize};
@@ -10,8 +7,6 @@ pub trait Indicator: PartialEq + Display + 'static {
     fn for_market(market: MarketKind) -> &'static [Self]
     where
         Self: Sized;
-
-    fn as_any(&self) -> &dyn Any;
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize, Eq, Hash)]
@@ -26,10 +21,6 @@ impl Indicator for KlineIndicator {
             MarketKind::Spot => &Self::SPOT,
             MarketKind::LinearPerps | MarketKind::InversePerps => &Self::PERPS,
         }
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 
@@ -59,10 +50,6 @@ impl Indicator for HeatmapIndicator {
             MarketKind::Spot => &Self::SPOT,
             MarketKind::LinearPerps | MarketKind::InversePerps => &Self::PERPS,
         }
-    }
-
-    fn as_any(&self) -> &dyn Any {
-        self
     }
 }
 

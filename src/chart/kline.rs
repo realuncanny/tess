@@ -31,6 +31,8 @@ use std::collections::{BTreeMap, HashMap};
 use std::time::Instant;
 
 impl Chart for KlineChart {
+    type IndicatorType = KlineIndicator;
+
     fn common_data(&self) -> &CommonChartData {
         &self.chart
     }
@@ -43,7 +45,7 @@ impl Chart for KlineChart {
         self.invalidate(None);
     }
 
-    fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Vec<Element<Message>> {
+    fn view_indicators(&self, enabled: &[Self::IndicatorType]) -> Vec<Element<Message>> {
         let chart_state: &CommonChartData = self.common_data();
 
         let visible_region = chart_state.visible_region(chart_state.bounds.size());
@@ -57,16 +59,11 @@ impl Chart for KlineChart {
         };
 
         for selected_indicator in enabled {
-            if !I::for_market(market).contains(selected_indicator) {
+            if !KlineIndicator::for_market(market).contains(selected_indicator) {
                 continue;
             }
 
-            let Some(indicator) = selected_indicator.as_any().downcast_ref::<KlineIndicator>()
-            else {
-                continue;
-            };
-
-            if let Some(data) = self.indicators.get(indicator) {
+            if let Some(data) = self.indicators.get(selected_indicator) {
                 indicators.push(data.indicator_elem(chart_state, earliest, latest));
             }
         }
