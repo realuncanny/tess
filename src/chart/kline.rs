@@ -12,11 +12,11 @@ use exchange::{
     fetcher::{FetchRange, RequestHandler},
 };
 
+use super::request_fetch;
 use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
     indicator, scale::PriceInfoLabel,
 };
-use super::{canvas_interaction, draw_horizontal_volume_bars, request_fetch};
 
 use crate::{dashboard::panel::study, style};
 
@@ -41,16 +41,6 @@ impl Chart for KlineChart {
 
     fn invalidate(&mut self) {
         self.invalidate(None);
-    }
-
-    fn canvas_interaction(
-        &self,
-        interaction: &mut Interaction,
-        event: &Event,
-        bounds: Rectangle,
-        cursor: mouse::Cursor,
-    ) -> Option<canvas::Action<Message>> {
-        canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
     fn view_indicators<I: Indicator>(&self, indicators: &[I]) -> Vec<Element<Message>> {
@@ -831,7 +821,7 @@ impl canvas::Program<Message> for KlineChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        self.canvas_interaction(interaction, event, bounds, cursor)
+        super::canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
     fn draw(
@@ -1259,7 +1249,7 @@ fn draw_clusters(
 
                 let start_x = x_position + (candle_width / 4.0);
 
-                draw_horizontal_volume_bars(
+                super::draw_horizontal_volume_bars(
                     frame,
                     start_x,
                     y_position,

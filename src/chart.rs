@@ -74,14 +74,6 @@ pub trait Chart: ChartConstants + canvas::Program<Message> {
 
     fn invalidate(&mut self);
 
-    fn canvas_interaction(
-        &self,
-        interaction: &mut Interaction,
-        event: &iced::Event,
-        bounds: Rectangle,
-        cursor: mouse::Cursor,
-    ) -> Option<canvas::Action<Message>>;
-
     fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Vec<Element<Message>>;
 
     fn visible_timerange(&self) -> (u64, u64);

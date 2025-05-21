@@ -7,8 +7,7 @@ use data::chart::{
 use data::util::{abbr_large_numbers, count_decimals};
 use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};
 
-use super::{Chart, ChartConstants, CommonChartData, Interaction, Message};
-use super::{canvas_interaction, draw_horizontal_volume_bars, scale::PriceInfoLabel};
+use super::{Chart, ChartConstants, CommonChartData, Interaction, Message, scale::PriceInfoLabel};
 
 use iced::widget::canvas::{self, Event, Geometry, Path};
 use iced::{
@@ -35,16 +34,6 @@ impl Chart for HeatmapChart {
 
     fn invalidate(&mut self) {
         self.invalidate(None);
-    }
-
-    fn canvas_interaction(
-        &self,
-        interaction: &mut Interaction,
-        event: &Event,
-        bounds: Rectangle,
-        cursor: mouse::Cursor,
-    ) -> Option<canvas::Action<Message>> {
-        canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
     fn view_indicators<I: Indicator>(&self, indicators: &[I]) -> Vec<Element<Message>> {
@@ -496,7 +485,7 @@ impl canvas::Program<Message> for HeatmapChart {
         bounds: Rectangle,
         cursor: mouse::Cursor,
     ) -> Option<canvas::Action<Message>> {
-        self.canvas_interaction(interaction, event, bounds, cursor)
+        super::canvas_interaction(self, interaction, event, bounds, cursor)
     }
 
     fn draw(
@@ -807,7 +796,7 @@ impl canvas::Program<Message> for HeatmapChart {
                     .for_each(|(price, (buy_v, sell_v))| {
                         let y_position = chart.price_to_y(**price);
 
-                        draw_horizontal_volume_bars(
+                        super::draw_horizontal_volume_bars(
                             frame,
                             region.x,
                             y_position,
