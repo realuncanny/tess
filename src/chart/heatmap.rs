@@ -36,8 +36,8 @@ impl Chart for HeatmapChart {
         self.invalidate(None);
     }
 
-    fn view_indicators<I: Indicator>(&self, indicators: &[I]) -> Vec<Element<Message>> {
-        self.view_indicators(indicators)
+    fn view_indicators<I: Indicator>(&self, _indicators: &[I]) -> Vec<Element<Message>> {
+        vec![]
     }
 
     fn visible_timerange(&self) -> (u64, u64) {
@@ -468,10 +468,6 @@ impl HeatmapChart {
             max_aggr_volume,
             max_depth_qty,
         }
-    }
-
-    pub fn view_indicators<I: Indicator>(&self, _indis: &[I]) -> Vec<Element<Message>> {
-        vec![]
     }
 }
 

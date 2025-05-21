@@ -828,7 +828,7 @@ fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Option<Acti
     }
 }
 
-pub fn draw_horizontal_volume_bars(
+fn draw_horizontal_volume_bars(
     frame: &mut canvas::Frame,
     start_x: f32,
     y_position: f32,

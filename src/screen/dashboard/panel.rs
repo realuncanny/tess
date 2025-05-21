@@ -420,7 +420,7 @@ pub fn indicators_view<I: Indicator>(
             indicators_column = indicators_column.push(dragger_row(indicator_row.into()));
         }
 
-        for indicator in I::get_available(market) {
+        for indicator in I::for_market(market) {
             if !selected.contains(indicator) {
                 let indicator_row = button(text(indicator.to_string()))
                     .on_press(Message::ToggleIndicator(pane, indicator.to_string()))

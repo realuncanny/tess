@@ -9,7 +9,7 @@ use crate::style::{self, get_dashed_line};
 use data::util::{format_with_commas, guesstimate_ticks, round_to_tick};
 use exchange::Timeframe;
 
-pub fn create_indicator_elem<'a>(
+pub fn indicator_elem<'a>(
     chart_state: &'a CommonChartData,
     cache: &'a Caches,
     data_points: &'a BTreeMap<u64, f32>,

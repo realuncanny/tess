@@ -43,8 +43,35 @@ impl Chart for KlineChart {
         self.invalidate(None);
     }
 
-    fn view_indicators<I: Indicator>(&self, indicators: &[I]) -> Vec<Element<Message>> {
-        self.view_indicators(indicators)
+    fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Vec<Element<Message>> {
+        let chart_state: &CommonChartData = self.common_data();
+
+        let visible_region = chart_state.visible_region(chart_state.bounds.size());
+        let (earliest, latest) = chart_state.interval_range(&visible_region);
+
+        let mut indicators = vec![];
+
+        let market = match chart_state.ticker_info {
+            Some(ref info) => info.market_type(),
+            None => return indicators,
+        };
+
+        for selected_indicator in enabled {
+            if !I::for_market(market).contains(selected_indicator) {
+                continue;
+            }
+
+            let Some(indicator) = selected_indicator.as_any().downcast_ref::<KlineIndicator>()
+            else {
+                continue;
+            };
+
+            if let Some(data) = self.indicators.get(indicator) {
+                indicators.push(data.indicator_elem(chart_state, earliest, latest));
+            }
+        }
+
+        indicators
     }
 
     fn visible_timerange(&self) -> (u64, u64) {
@@ -117,7 +144,7 @@ impl IndicatorData {
         }
     }
 
-    fn create_indicator_elem<'a>(
+    fn indicator_elem<'a>(
         &'a self,
         chart: &'a CommonChartData,
         earliest: u64,
@@ -125,12 +152,10 @@ impl IndicatorData {
     ) -> Element<'a, Message> {
         match self {
             IndicatorData::Volume(cache, data) => {
-                indicator::volume::create_indicator_elem(chart, cache, data, earliest, latest)
+                indicator::volume::indicator_elem(chart, cache, data, earliest, latest)
             }
             IndicatorData::OpenInterest(cache, data) => {
-                indicator::open_interest::create_indicator_elem(
-                    chart, cache, data, earliest, latest,
-                )
+                indicator::open_interest::indicator_elem(chart, cache, data, earliest, latest)
             }
         }
     }
@@ -763,51 +788,6 @@ impl KlineChart {
 
             self.chart.splits = super::calc_splits(*main_split, active_indicators);
         }
-    }
-
-    pub fn view_indicators<I: Indicator>(&self, enabled: &[I]) -> Vec<Element<Message>> {
-        let chart_state: &CommonChartData = self.common_data();
-
-        let visible_region = chart_state.visible_region(chart_state.bounds.size());
-        let (earliest, latest) = chart_state.interval_range(&visible_region);
-
-        let mut indicators = vec![];
-
-        let market = match chart_state.ticker_info {
-            Some(ref info) => info.market_type(),
-            None => return indicators,
-        };
-
-        for selected_indicator in enabled {
-            if I::get_available(market).contains(selected_indicator) {
-                if let Some(indicator) =
-                    selected_indicator.as_any().downcast_ref::<KlineIndicator>()
-                {
-                    match indicator {
-                        KlineIndicator::Volume => {
-                            if let Some(data) = self.indicators.get(&KlineIndicator::Volume) {
-                                indicators.push(data.create_indicator_elem(
-                                    chart_state,
-                                    earliest,
-                                    latest,
-                                ));
-                            }
-                        }
-                        KlineIndicator::OpenInterest => {
-                            if let Some(data) = self.indicators.get(&KlineIndicator::OpenInterest) {
-                                indicators.push(data.create_indicator_elem(
-                                    chart_state,
-                                    earliest,
-                                    latest,
-                                ));
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        indicators
     }
 }
 
