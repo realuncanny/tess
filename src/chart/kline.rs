@@ -2,7 +2,7 @@ use data::aggr::ticks::TickAggr;
 use data::aggr::time::TimeSeries;
 use data::chart::{
     ChartLayout, KlineChartKind,
-    indicators::{Indicator, KlineIndicator},
+    indicator::{Indicator, KlineIndicator},
     kline::PointOfControl,
     kline::{ClusterKind, FootprintStudy, KlineTrades, NPoc},
 };

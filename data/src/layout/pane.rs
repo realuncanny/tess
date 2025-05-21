@@ -4,7 +4,7 @@ use serde_json::Value;
 
 use crate::chart::{
     Basis, ChartLayout, VisualConfig,
-    indicators::{HeatmapIndicator, KlineIndicator},
+    indicator::{HeatmapIndicator, KlineIndicator},
     kline::KlineChartKind,
 };
 

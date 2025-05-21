@@ -2,7 +2,7 @@ use exchange::adapter::Exchange;
 use serde::{Deserialize, Serialize};
 
 pub mod heatmap;
-pub mod indicators;
+pub mod indicator;
 pub mod kline;
 pub mod timeandsales;
 

@@ -11,7 +11,7 @@ use crate::{
 use super::pane;
 use data::chart::heatmap::CoalesceKind;
 use data::chart::{
-    Basis, KlineChartKind, VisualConfig, heatmap, indicators::Indicator, kline::ClusterKind,
+    Basis, KlineChartKind, VisualConfig, heatmap, indicator::Indicator, kline::ClusterKind,
 };
 use data::util::format_with_commas;
 use exchange::{TickMultiplier, Ticker};

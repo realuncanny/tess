@@ -2,7 +2,7 @@ use crate::style;
 use data::chart::{
     Basis, ChartLayout,
     heatmap::{Config, GroupedTrade, HistoricalDepth, QtyScale},
-    indicators::HeatmapIndicator,
+    indicator::HeatmapIndicator,
 };
 use data::util::{abbr_large_numbers, count_decimals};
 use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};

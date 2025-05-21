@@ -20,7 +20,7 @@ use scale::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
 use crate::widget::multi_split::MultiSplit;
 use crate::{style, widget::tooltip};
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
-use data::chart::{Basis, ChartLayout, indicators::Indicator};
+use data::chart::{Basis, ChartLayout, indicator::Indicator};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{TickerInfo, Timeframe};
 

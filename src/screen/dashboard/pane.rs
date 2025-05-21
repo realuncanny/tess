@@ -9,7 +9,7 @@ use data::{
     UserTimezone,
     chart::{
         Basis, ChartLayout, VisualConfig,
-        indicators::{HeatmapIndicator, Indicator, KlineIndicator},
+        indicator::{HeatmapIndicator, Indicator, KlineIndicator},
     },
     layout::pane::Settings,
 };
@@ -292,7 +292,13 @@ impl State {
                 let enabled_indicators = match existing_indicators {
                     Some(ExistingIndicators::Kline(indicators)) => indicators,
                     _ => vec![KlineIndicator::Volume],
-                };
+                }
+                .into_iter()
+                .filter(|i| {
+                    !matches!(i, KlineIndicator::OpenInterest)
+                        || matches!(ticker_info.market_type(), MarketKind::LinearPerps)
+                })
+                .collect::<Vec<KlineIndicator>>();
 
                 let splits = {
                     let main_chart_split: f32 = 0.8;
@@ -306,10 +312,12 @@ impl State {
                     splits
                 };
 
-                let layout = existing_layout.unwrap_or(ChartLayout {
-                    crosshair: true,
-                    splits,
-                });
+                let layout = existing_layout
+                    .filter(|layout| layout.splits.len() == splits.len())
+                    .unwrap_or(ChartLayout {
+                        crosshair: true,
+                        splits,
+                    });
 
                 Content::Kline(
                     KlineChart::new(
