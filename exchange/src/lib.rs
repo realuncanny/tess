@@ -444,17 +444,13 @@ impl TickMultiplier {
     pub fn multiply_with_min_tick_size(&self, ticker_info: TickerInfo) -> f32 {
         let min_tick_size = ticker_info.min_ticksize;
 
-        let multiplier = if let Some(m) = Decimal::from_f32(f32::from(self.0)) {
-            m
-        } else {
+        let Some(multiplier) = Decimal::from_f32(f32::from(self.0)) else {
             log::error!("Failed to convert multiplier: {}", self.0);
             return f32::from(self.0) * min_tick_size;
         };
 
-        let decimal_min_tick_size = if let Some(d) = Decimal::from_f32(min_tick_size) {
-            d
-        } else {
-            log::error!("Failed to convert min_tick_size: {}", min_tick_size);
+        let Some(decimal_min_tick_size) = Decimal::from_f32(min_tick_size) else {
+            log::error!("Failed to convert min_tick_size: {min_tick_size}",);
             return f32::from(self.0) * min_tick_size;
         };
 

@@ -607,6 +607,15 @@ struct ApiResult {
     list: Vec<Vec<Value>>,
 }
 
+fn parse_kline_field<T: std::str::FromStr>(field: Option<&str>) -> Result<T, StreamError> {
+    field
+        .ok_or_else(|| StreamError::ParseError("Failed to parse kline".to_string()))
+        .and_then(|s| {
+            s.parse::<T>()
+                .map_err(|_| StreamError::ParseError("Failed to parse kline".to_string()))
+        })
+}
+
 pub async fn fetch_klines(
     ticker: Ticker,
     timeframe: Timeframe,
@@ -614,15 +623,6 @@ pub async fn fetch_klines(
 ) -> Result<Vec<Kline>, StreamError> {
     let (symbol_str, market_type) = &ticker.to_full_symbol_and_type();
     let timeframe_str = timeframe.to_minutes().to_string();
-
-    fn parse_kline_field<T: std::str::FromStr>(field: Option<&str>) -> Result<T, StreamError> {
-        field
-            .ok_or_else(|| StreamError::ParseError("Failed to parse kline".to_string()))
-            .and_then(|s| {
-                s.parse::<T>()
-                    .map_err(|_| StreamError::ParseError("Failed to parse kline".to_string()))
-            })
-    }
 
     let market = match market_type {
         MarketKind::Spot => "spot",

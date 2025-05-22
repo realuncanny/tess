@@ -778,8 +778,11 @@ impl KlineChart {
 
         if let Some(main_split) = self.chart.splits.first() {
             let current_indi_count = self.indicators.len();
-            self.chart.splits =
-                super::calc_splits(*main_split, current_indi_count, Some(prev_indi_count));
+            self.chart.splits = data::util::calc_panel_splits(
+                *main_split,
+                current_indi_count,
+                Some(prev_indi_count),
+            );
         }
     }
 }
@@ -1171,6 +1174,7 @@ fn draw_all_npocs(
         }
     }
 }
+
 fn draw_clusters(
     frame: &mut canvas::Frame,
     price_to_y: impl Fn(f32) -> f32,

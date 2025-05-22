@@ -103,7 +103,7 @@ impl AudioStream {
                     "Volume",
                     0.0..=100.0,
                     volume_pct,
-                    move |value| Message::SoundLevelChanged(value),
+                    Message::SoundLevelChanged,
                     |value| format!("{value}%"),
                     Some(1.0),
                 )

@@ -106,7 +106,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
 
         labeled_slider(
             "Order",
-            0.0..=500000.0,
+            0.0..=500_000.0,
             filter,
             move |value| {
                 Message::VisualConfigChanged(

@@ -212,7 +212,7 @@ impl HistoricalDepth {
         for (price_at_level, runs_at_price_level) in
             self.iter_time_filtered(earliest, latest, highest, lowest)
         {
-            let candidate_runs: Vec<&OrderRun> = runs_at_price_level
+            let candidate_runs = runs_at_price_level
                 .iter()
                 .filter(|run_ref| {
                     if !(run_ref.until_time >= earliest && run_ref.start_time <= latest) {
@@ -224,7 +224,7 @@ impl HistoricalDepth {
                     };
                     order_size > order_size_filter
                 })
-                .collect();
+                .collect::<Vec<&OrderRun>>();
 
             if candidate_runs.is_empty() {
                 continue;
@@ -235,32 +235,30 @@ impl HistoricalDepth {
             for run_to_process_ref in candidate_runs {
                 let run_to_process = *run_to_process_ref;
 
-                if current_accumulator_opt.is_none() {
-                    current_accumulator_opt = Some(CoalescingRun::new(&run_to_process));
-                    continue;
-                }
+                if let Some(current_accumulator) = current_accumulator_opt.as_mut() {
+                    let comparison_base_qty = current_accumulator.comparison_qty(&coalesce_kind);
 
-                let current_accumulator = current_accumulator_opt.as_mut().unwrap();
-                let comparison_base_qty = current_accumulator.comparison_qty(&coalesce_kind);
+                    let qty_diff_pct = if comparison_base_qty > FRACTIONAL_THRESHOLD {
+                        (run_to_process.qty() - comparison_base_qty).abs() / comparison_base_qty
+                    } else if run_to_process.qty() > FRACTIONAL_THRESHOLD {
+                        f32::INFINITY
+                    } else {
+                        0.0
+                    };
 
-                let qty_diff_pct = if comparison_base_qty > 0.00001 {
-                    (run_to_process.qty() - comparison_base_qty).abs() / comparison_base_qty
-                } else if run_to_process.qty() > 0.00001 {
-                    f32::INFINITY
+                    if run_to_process.start_time <= current_accumulator.until_time
+                        && run_to_process.is_bid == current_accumulator.is_bid
+                        && qty_diff_pct <= threshold_pct
+                    {
+                        current_accumulator.merge_run(&run_to_process);
+                    } else {
+                        result_runs.push((
+                            *price_at_level,
+                            current_accumulator.to_order_run(&coalesce_kind),
+                        ));
+                        current_accumulator_opt = Some(CoalescingRun::new(&run_to_process));
+                    }
                 } else {
-                    0.0
-                };
-
-                if run_to_process.start_time <= current_accumulator.until_time
-                    && run_to_process.is_bid == current_accumulator.is_bid
-                    && qty_diff_pct <= threshold_pct
-                {
-                    current_accumulator.merge_run(&run_to_process);
-                } else {
-                    result_runs.push((
-                        *price_at_level,
-                        current_accumulator.to_order_run(&coalesce_kind),
-                    ));
                     current_accumulator_opt = Some(CoalescingRun::new(&run_to_process));
                 }
             }
@@ -272,6 +270,8 @@ impl HistoricalDepth {
         result_runs
     }
 }
+
+const FRACTIONAL_THRESHOLD: f32 = 0.00001;
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
 pub enum CoalesceKind {
