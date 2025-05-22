@@ -875,16 +875,50 @@ fn draw_horizontal_volume_bars(
     }
 }
 
-pub fn calc_splits(main_split: f32, active_indicators: usize) -> Vec<f32> {
+/// Shrinks main panel if needed when adding a new panel.
+/// Ensures indicators never shrink below MIN_PANEL_HEIGHT
+pub fn calc_splits(
+    initial_main_split: f32,
+    active_indicators: usize,
+    previous_indicators: Option<usize>,
+) -> Vec<f32> {
+    const MIN_PANEL_HEIGHT: f32 = 0.1;
+    const TOTAL_HEIGHT: f32 = 1.0;
+
+    let mut main_split = initial_main_split;
+
+    if let Some(prev_inds) = previous_indicators {
+        if active_indicators > prev_inds {
+            let min_space_needed_all_indis = active_indicators as f32 * MIN_PANEL_HEIGHT;
+
+            let max_main_split_if_indis_get_min =
+                (TOTAL_HEIGHT - min_space_needed_all_indis).max(MIN_PANEL_HEIGHT);
+
+            if main_split > max_main_split_if_indis_get_min {
+                main_split = max_main_split_if_indis_get_min;
+            }
+        }
+    }
+
+    let upper_bound_for_main = if active_indicators == 0 {
+        TOTAL_HEIGHT
+    } else {
+        (TOTAL_HEIGHT - active_indicators as f32 * MIN_PANEL_HEIGHT).max(MIN_PANEL_HEIGHT)
+    };
+
+    main_split = main_split.clamp(MIN_PANEL_HEIGHT, upper_bound_for_main);
+    main_split = main_split.min(TOTAL_HEIGHT);
+
     let mut splits = vec![main_split];
 
     if active_indicators > 1 {
-        let remaining_space = 0.9 - main_split;
-        let section_size = remaining_space / (active_indicators) as f32;
+        let indicator_total_space = (TOTAL_HEIGHT - main_split).max(0.0);
+        let per_indicator_space = indicator_total_space / active_indicators as f32;
 
         for i in 1..active_indicators {
-            let split_position = main_split + section_size * (i as f32);
-            splits.push(split_position);
+            let cumulative_indicator_space = per_indicator_space * i as f32;
+            let split_pos = main_split + cumulative_indicator_space;
+            splits.push(split_pos.min(TOTAL_HEIGHT));
         }
     }
     splits

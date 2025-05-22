@@ -752,6 +752,8 @@ impl KlineChart {
     }
 
     pub fn toggle_indicator(&mut self, indicator: KlineIndicator) {
+        let prev_indi_count = self.indicators.len();
+
         match self.indicators.entry(indicator) {
             Entry::Occupied(entry) => {
                 entry.remove();
@@ -775,15 +777,9 @@ impl KlineChart {
         }
 
         if let Some(main_split) = self.chart.splits.first() {
-            let active_indicators = self
-                .indicators
-                .iter()
-                .filter(|(_, data)| match data {
-                    IndicatorData::OpenInterest(_, _) | IndicatorData::Volume(_, _) => true,
-                })
-                .count();
-
-            self.chart.splits = super::calc_splits(*main_split, active_indicators);
+            let current_indi_count = self.indicators.len();
+            self.chart.splits =
+                super::calc_splits(*main_split, current_indi_count, Some(prev_indi_count));
         }
     }
 }
