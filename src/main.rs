@@ -687,7 +687,7 @@ impl Flowsurface {
                         let scale_factor = {
                             let current_value: f64 = self.scale_factor.into();
 
-                            let decrease_btn = if current_value > 0.8 {
+                            let decrease_btn = if current_value > data::config::MIN_SCALE {
                                 button(text("-")).on_press(Message::ScaleFactorChanged(
                                     (current_value - 0.1).into(),
                                 ))
@@ -695,7 +695,7 @@ impl Flowsurface {
                                 button(text("-"))
                             };
 
-                            let increase_btn = if current_value < 1.8 {
+                            let increase_btn = if current_value < data::config::MAX_SCALE {
                                 button(text("+")).on_press(Message::ScaleFactorChanged(
                                     (current_value + 0.1).into(),
                                 ))

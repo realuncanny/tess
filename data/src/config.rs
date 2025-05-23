@@ -5,6 +5,9 @@ pub mod state;
 pub mod theme;
 pub mod timezone;
 
+pub const MIN_SCALE: f64 = 0.8;
+pub const MAX_SCALE: f64 = 1.5;
+
 #[derive(Debug, Clone, Copy, Deserialize, Serialize, PartialEq)]
 pub struct ScaleFactor(f64);
 
@@ -16,7 +19,7 @@ impl Default for ScaleFactor {
 
 impl From<f64> for ScaleFactor {
     fn from(value: f64) -> Self {
-        ScaleFactor(value.clamp(0.8, 1.8))
+        ScaleFactor(value.clamp(MIN_SCALE, MAX_SCALE))
     }
 }
 

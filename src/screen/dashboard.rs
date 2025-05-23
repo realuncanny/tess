@@ -812,10 +812,8 @@ impl Dashboard {
         main_window: &'a Window,
         timezone: UserTimezone,
     ) -> Element<'a, Message> {
-        let focus = self.focus;
-
         let pane_grid: Element<_> = PaneGrid::new(&self.panes, |id, pane, maximized| {
-            let is_focused = focus == Some((main_window.id, id));
+            let is_focused = self.focus == Some((main_window.id, id));
             pane.view(
                 id,
                 self.panes.len(),
@@ -826,14 +824,15 @@ impl Dashboard {
                 timezone,
             )
         })
+        .min_size(200)
         .on_click(pane::Message::PaneClicked)
-        .on_resize(8, pane::Message::PaneResized)
         .on_drag(pane::Message::PaneDragged)
+        .on_resize(8, pane::Message::PaneResized)
         .spacing(6)
         .style(style::pane_grid)
         .into();
 
-        container(pane_grid.map(move |message| Message::Pane(main_window.id, message))).into()
+        pane_grid.map(move |message| Message::Pane(main_window.id, message))
     }
 
     pub fn view_window<'a>(

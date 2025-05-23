@@ -2,7 +2,7 @@ use crate::chart::{heatmap::HeatmapChart, kline::KlineChart};
 use crate::screen::dashboard::pane;
 use crate::screen::dashboard::{Dashboard, panel::timeandsales::TimeAndSales};
 use crate::style::icon_text;
-use crate::widget::column_drag::{self, DragEvent, DropPosition};
+use crate::widget::column_drag::{self, DragEvent};
 use crate::widget::dragger_row;
 use crate::{style, tooltip};
 use data::{
@@ -226,32 +226,7 @@ impl LayoutManager {
                         .insert(new_layout.id, (new_layout.clone(), dashboard));
                 }
             }
-            Message::Reorder(event) => match event {
-                DragEvent::Picked { .. } => {}
-                DragEvent::Dropped {
-                    index,
-                    target_index,
-                    drop_position,
-                } => match drop_position {
-                    DropPosition::Before | DropPosition::After => {
-                        if target_index != index && target_index != index + 1 {
-                            let item = self.layout_order.remove(index);
-                            let insert_index = if index < target_index {
-                                target_index - 1
-                            } else {
-                                target_index
-                            };
-                            self.layout_order.insert(insert_index, item);
-                        }
-                    }
-                    DropPosition::Swap => {
-                        if target_index != index {
-                            self.layout_order.swap(index, target_index);
-                        }
-                    }
-                },
-                DragEvent::Canceled { .. } => {}
-            },
+            Message::Reorder(event) => column_drag::reorder_vec(&mut self.layout_order, &event),
         }
 
         None

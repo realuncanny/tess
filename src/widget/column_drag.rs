@@ -1,49 +1,39 @@
+// Modification of `Column` widget of [`dragking`]
+// credits to https://github.com/airstrike/dragking/
+
+// Removed `DropPosition` enum and "ghost drawing": drop target position is decided by the closest index
+// Added limits so picked column only moves vertically, and clamping logic so it doesn't go outside bounds
+
 //! Distribute draggable content vertically.
 // This widget is a modification of the original `Column` widget from [`iced`]
 //
 // [`iced`]: https://github.com/iced-rs/iced
 //
 // Copyright 2019 Héctor Ramón, Iced contributors
-//
-// Modification of `Column` widget of [`dragking`]
-// credits to https://github.com/airstrike/dragking/
-
 use iced::advanced::layout::{self, Layout};
 use iced::advanced::widget::{Operation, Tree, Widget, tree};
 use iced::advanced::{Clipboard, Shell, overlay, renderer};
 use iced::alignment::{self, Alignment};
 use iced::event::Event;
 use iced::mouse;
-use iced::{
-    Background, Border, Element, Length, Padding, Pixels, Point, Rectangle, Size, Theme, Vector,
-};
+use iced::{Element, Length, Padding, Pixels, Point, Rectangle, Size, Theme, Vector};
+
+const DRAG_HANDLE_WIDTH: f32 = 14.0;
 
 pub fn reorder_vec<T>(vec: &mut Vec<T>, event: &DragEvent) {
     if let DragEvent::Dropped {
         index,
         target_index,
-        drop_position,
     } = event
     {
-        if vec.len() > 1 {
-            match drop_position {
-                DropPosition::Before | DropPosition::After => {
-                    if target_index != index && *target_index != index + 1 {
-                        let item = vec.remove(*index);
-                        let insert_index = if index < target_index {
-                            *target_index - 1
-                        } else {
-                            *target_index
-                        };
-                        vec.insert(insert_index, item);
-                    }
-                }
-                DropPosition::Swap => {
-                    if target_index != index && *target_index < vec.len() {
-                        vec.swap(*index, *target_index);
-                    }
-                }
-            }
+        if vec.len() > 1 && target_index != index {
+            let item = vec.remove(*index);
+            let insert_index = if index < target_index {
+                *target_index - 1
+            } else {
+                *target_index
+            };
+            vec.insert(insert_index, item);
         }
     }
 }
@@ -62,33 +52,15 @@ pub enum Action {
     },
 }
 
-#[derive(Debug, Clone, Copy)]
-pub enum DropPosition {
-    Before,
-    Swap,
-    After,
-}
-
 #[derive(Debug, Clone)]
 pub enum DragEvent {
-    Picked {
-        index: usize,
-    },
-    Dropped {
-        index: usize,
-        target_index: usize,
-        drop_position: DropPosition,
-    },
-    Canceled {
-        index: usize,
-    },
+    Picked { index: usize },
+    Dropped { index: usize, target_index: usize },
+    Canceled { index: usize },
 }
 
 #[allow(missing_debug_implementations)]
-pub struct Column<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer>
-where
-    Theme: Catalog,
-{
+pub struct Column<'a, Message, Theme = iced::Theme, Renderer = iced::Renderer> {
     spacing: f32,
     padding: Padding,
     width: Length,
@@ -98,13 +70,11 @@ where
     clip: bool,
     children: Vec<Element<'a, Message, Theme, Renderer>>,
     on_drag: Option<Box<dyn Fn(DragEvent) -> Message + 'a>>,
-    class: Theme::Class<'a>,
 }
 
 impl<'a, Message, Theme, Renderer> Column<'a, Message, Theme, Renderer>
 where
     Renderer: renderer::Renderer,
-    Theme: Catalog,
 {
     /// Creates an empty [`Column`].
     pub fn new() -> Self {
@@ -142,7 +112,6 @@ where
             align: Alignment::Start,
             clip: false,
             children,
-            class: Theme::default(),
             on_drag: None,
         }
     }
@@ -218,23 +187,6 @@ where
         }
     }
 
-    /// Sets the style of the [`Column`].
-    #[must_use]
-    pub fn style(mut self, style: impl Fn(&Theme) -> Style + 'a) -> Self
-    where
-        Theme::Class<'a>: From<StyleFn<'a, Theme>>,
-    {
-        self.class = (Box::new(style) as StyleFn<'a, Theme>).into();
-        self
-    }
-
-    /// Sets the style class of the [`Column`].
-    #[must_use]
-    pub fn class(mut self, class: impl Into<Theme::Class<'a>>) -> Self {
-        self.class = class.into();
-        self
-    }
-
     /// Extends the [`Column`] with the given children.
     pub fn extend(
         self,
@@ -249,55 +201,57 @@ where
         self
     }
 
-    // Computes the index and position where a dragged item should be dropped.
     fn compute_target_index(
         &self,
         cursor_position: Point,
         layout: Layout<'_>,
         dragged_index: usize,
-    ) -> (usize, DropPosition) {
+    ) -> usize {
         let cursor_y = cursor_position.y;
+        let bounds = layout.bounds();
+
+        // Check if cursor is at the top edge
+        if cursor_y <= bounds.y {
+            return 0;
+        }
+
+        // Check if cursor is at the bottom edge
+        if cursor_y >= bounds.y + bounds.height {
+            return self.children.len();
+        }
 
         for (i, child_layout) in layout.children().enumerate() {
-            let bounds = child_layout.bounds();
-            let y = bounds.y;
-            let height = bounds.height;
+            let child_bounds = child_layout.bounds();
+            let y = child_bounds.y;
+            let height = child_bounds.height;
+            let middle = y + height / 2.0;
 
             if cursor_y >= y && cursor_y <= y + height {
+                // Skip the dragged item itself
                 if i == dragged_index {
-                    // Cursor is over the dragged item itself
-                    return (i, DropPosition::Swap);
+                    continue;
                 }
 
-                let thickness = height / 4.0;
-                let top_threshold = y + thickness;
-                let bottom_threshold = y + height - thickness;
-
-                if cursor_y < top_threshold {
-                    // Near the top edge - insert above
-                    return (i, DropPosition::Before);
-                } else if cursor_y > bottom_threshold {
-                    // Near the bottom edge - insert below
-                    return (i + 1, DropPosition::After);
+                // Insert before or after based on which half of the item we're over
+                if cursor_y < middle {
+                    return i;
                 } else {
-                    // Middle area - swap
-                    return (i, DropPosition::Swap);
+                    return i + 1;
                 }
             } else if cursor_y < y {
                 // Cursor is above this child
-                return (i, DropPosition::Before);
+                return i;
             }
         }
 
         // Cursor is below all children
-        (self.children.len(), DropPosition::After)
+        self.children.len()
     }
 }
 
 impl<Message, Renderer> Default for Column<'_, Message, Theme, Renderer>
 where
     Renderer: renderer::Renderer,
-    Theme: Catalog,
 {
     fn default() -> Self {
         Self::new()
@@ -306,8 +260,6 @@ where
 
 impl<'a, Message, Theme, Renderer: renderer::Renderer>
     FromIterator<Element<'a, Message, Theme, Renderer>> for Column<'a, Message, Theme, Renderer>
-where
-    Theme: Catalog,
 {
     fn from_iter<T: IntoIterator<Item = Element<'a, Message, Theme, Renderer>>>(iter: T) -> Self {
         Self::with_children(iter)
@@ -318,7 +270,6 @@ impl<Message, Theme, Renderer> Widget<Message, Theme, Renderer>
     for Column<'_, Message, Theme, Renderer>
 where
     Renderer: renderer::Renderer,
-    Theme: Catalog,
 {
     fn tag(&self) -> tree::Tag {
         tree::Tag::of::<Action>()
@@ -406,7 +357,7 @@ where
                     let drag_handle_bounds = Rectangle {
                         x: bounds.x,
                         y: bounds.y,
-                        width: 12.0,
+                        width: DRAG_HANDLE_WIDTH,
                         height: bounds.height,
                     };
 
@@ -462,23 +413,16 @@ where
             }
             Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left)) => {
                 match *action {
-                    Action::Dragging { index, .. } => {
-                        if let Some(cursor_position) = cursor.position() {
-                            let bounds = layout.bounds();
-                            if bounds.contains(cursor_position) {
-                                let (target_index, drop_position) =
-                                    self.compute_target_index(cursor_position, layout, index);
+                    Action::Dragging {
+                        index, last_cursor, ..
+                    } => {
+                        let target_index = self.compute_target_index(last_cursor, layout, index);
 
-                                if let Some(on_reorder) = &self.on_drag {
-                                    shell.publish(on_reorder(DragEvent::Dropped {
-                                        index,
-                                        target_index,
-                                        drop_position,
-                                    }));
-                                }
-                            } else if let Some(on_reorder) = &self.on_drag {
-                                shell.publish(on_reorder(DragEvent::Canceled { index }));
-                            }
+                        if let Some(on_reorder) = &self.on_drag {
+                            shell.publish(on_reorder(DragEvent::Dropped {
+                                index,
+                                target_index,
+                            }));
                         }
                         *action = Action::Idle;
                     }
@@ -522,7 +466,7 @@ where
                 let drag_handle_bounds = Rectangle {
                     x: bounds.x,
                     y: bounds.y,
-                    width: 12.0,
+                    width: DRAG_HANDLE_WIDTH,
                     height: bounds.height,
                 };
 
@@ -556,7 +500,6 @@ where
         viewport: &Rectangle,
     ) {
         let action = tree.state.downcast_ref::<Action>();
-        let style = theme.style(&self.class);
 
         match action {
             Action::Dragging {
@@ -566,30 +509,22 @@ where
                 ..
             } => {
                 let child_count = self.children.len();
+                // Always use last_cursor (which is clamped) instead of checking actual cursor position
+                let target_index = self
+                    .compute_target_index(*last_cursor, layout, *index)
+                    .min(child_count);
 
-                // Determine the target index based on cursor position
-                let target_index = if cursor.position().is_some() {
-                    let (target_index, _) = self.compute_target_index(*last_cursor, layout, *index);
-                    target_index.min(child_count - 1)
-                } else {
-                    *index
-                };
-
-                // Store the width of the dragged item
                 let drag_bounds = layout.children().nth(*index).unwrap().bounds();
                 let drag_height = drag_bounds.height + self.spacing;
 
-                // Draw all children except the one being dragged
-                let mut translations = 0.0;
+                // Draw all children with appropriate translations
                 for i in 0..child_count {
                     let child = &self.children[i];
                     let state = &tree.children[i];
                     let child_layout = layout.children().nth(i).unwrap();
 
-                    // Draw the dragged item separately
-                    // TODO: Draw a shadow below the picked item to enhance the
-                    // floating effect
                     if i == *index {
+                        // Draw the dragged item at cursor position
                         let translation_y = last_cursor.y - origin.y;
                         renderer.with_translation(
                             Vector {
@@ -611,9 +546,10 @@ where
                             },
                         );
                     } else {
+                        // Calculate offset for non-dragged items
                         let offset: i32 = match target_index.cmp(index) {
                             std::cmp::Ordering::Less if i >= target_index && i < *index => 1,
-                            std::cmp::Ordering::Greater if i > *index && i <= target_index => -1,
+                            std::cmp::Ordering::Greater if i > *index && i < target_index => -1,
                             _ => 0,
                         };
 
@@ -628,30 +564,9 @@ where
                                 cursor,
                                 viewport,
                             );
-                            // Draw an overlay if this item is being moved
-                            // TODO: instead of drawing an overlay, it would be nicer to
-                            // draw the item with a reduced opacity, but that's not possible today
-                            if offset != 0 {
-                                // Keep track of the total translation so we can
-                                // draw the "ghost" of the dragged item later
-                                translations -= (child_layout.bounds().height + self.spacing)
-                                    * offset.signum() as f32;
-                            }
                         });
                     }
                 }
-                // Draw a ghost of the dragged item in its would-be position
-                let ghost_translation = Vector::new(0.0, translations);
-                renderer.with_translation(ghost_translation, |renderer| {
-                    renderer.fill_quad(
-                        renderer::Quad {
-                            bounds: drag_bounds,
-                            border: style.ghost_border,
-                            ..renderer::Quad::default()
-                        },
-                        style.ghost_background,
-                    );
-                });
             }
             _ => {
                 // Draw all children normally when not dragging
@@ -668,7 +583,6 @@ where
             }
         }
     }
-
     fn overlay<'b>(
         &'b mut self,
         tree: &'b mut Tree,
@@ -692,66 +606,10 @@ impl<'a, Message, Theme, Renderer> From<Column<'a, Message, Theme, Renderer>>
     for Element<'a, Message, Theme, Renderer>
 where
     Message: 'a,
-    Theme: Catalog + 'a,
+    Theme: 'a,
     Renderer: renderer::Renderer + 'a,
 {
     fn from(column: Column<'a, Message, Theme, Renderer>) -> Self {
         Self::new(column)
-    }
-}
-
-/// The theme catalog of a [`Column`].
-pub trait Catalog {
-    /// The item class of the [`Catalog`].
-    type Class<'a>;
-
-    /// The default class produced by the [`Catalog`].
-    fn default<'a>() -> Self::Class<'a>;
-
-    /// The [`Style`] of a class with the given status.
-    fn style(&self, class: &Self::Class<'_>) -> Style;
-}
-
-/// The appearance of a [`Column`].
-#[derive(Debug, Clone, Copy)]
-pub struct Style {
-    /// The scaling to apply to a picked element while it's being dragged.
-    pub scale: f32,
-    /// The outline border of the dragged item's ghost
-    pub ghost_border: Border,
-    /// The background of the dragged item's ghost
-    pub ghost_background: Background,
-}
-
-/// A styling function for a [`Column`].
-pub type StyleFn<'a, Theme> = Box<dyn Fn(&Theme) -> Style + 'a>;
-
-impl Catalog for Theme {
-    type Class<'a> = StyleFn<'a, Self>;
-
-    fn default<'a>() -> Self::Class<'a> {
-        Box::new(default)
-    }
-
-    fn style(&self, class: &Self::Class<'_>) -> Style {
-        class(self)
-    }
-}
-
-pub fn default(theme: &Theme) -> Style {
-    Style {
-        scale: 1.05,
-        ghost_border: Border {
-            width: 1.0,
-            color: theme.extended_palette().secondary.base.color,
-            radius: 4.0.into(),
-        },
-        ghost_background: theme
-            .extended_palette()
-            .secondary
-            .base
-            .color
-            .scale_alpha(0.2)
-            .into(),
     }
 }
