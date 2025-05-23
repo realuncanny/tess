@@ -9,21 +9,18 @@ use crate::{
 };
 
 use super::pane;
-use data::chart::heatmap::CoalesceKind;
 use data::chart::{
-    Basis, KlineChartKind, VisualConfig, heatmap, indicator::Indicator, kline::ClusterKind,
+    Basis, KlineChartKind, VisualConfig,
+    heatmap::{self, CoalesceKind},
+    indicator::Indicator,
+    kline::ClusterKind,
 };
 use data::util::format_with_commas;
-use exchange::{TickMultiplier, Ticker};
-use exchange::{
-    Timeframe,
-    adapter::{Exchange, MarketKind},
-};
-use iced::alignment::Vertical;
+use exchange::{TickMultiplier, Ticker, Timeframe, adapter::Exchange};
 use iced::widget::{horizontal_rule, horizontal_space, radio, slider};
 use iced::{
     Alignment, Element, Length,
-    alignment::Horizontal,
+    alignment::{Horizontal, Vertical},
     padding,
     widget::{
         button, center, column, container, pane_grid, pick_list, row, scrollable, text,
@@ -395,48 +392,88 @@ pub fn kline_cfg_view<'a>(
     }
 }
 
-pub fn indicators_view<I: Indicator>(
+pub fn indicators_view<'a, I: Indicator>(
     pane: pane_grid::Pane,
-    market_type: Option<MarketKind>,
+    state: &'a pane::State,
     selected: &[I],
-) -> Element<Message> {
-    let mut indicators_column = column_drag::Column::new()
-        .on_drag(move |event| Message::ReorderIndicator(pane, event))
-        .spacing(4);
+) -> Element<'a, Message> {
+    let market_type = state.settings.ticker_info.map(|info| info.market_type());
 
-    if let Some(market) = market_type {
-        for indicator in selected {
-            let indicator_row = button(
-                row![
-                    text(indicator.to_string()),
-                    horizontal_space(),
-                    container(icon_text(Icon::Checkmark, 12)),
-                ]
-                .width(Length::Fill),
-            )
-            .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
-            .style(move |theme, status| style::button::modifier(theme, status, true));
+    let build_indicators = |is_draggable: bool| -> Element<'a, Message> {
+        if let Some(market) = market_type {
+            let indicator_row_elem = |indicator: &I, is_selected_indicator: bool| {
+                let content = if is_selected_indicator {
+                    row![
+                        text(indicator.to_string()),
+                        horizontal_space(),
+                        container(icon_text(Icon::Checkmark, 12)),
+                    ]
+                    .width(Length::Fill)
+                } else {
+                    row![text(indicator.to_string())].width(Length::Fill)
+                };
 
-            indicators_column = indicators_column.push(dragger_row(indicator_row.into()));
-        }
-
-        for indicator in I::for_market(market) {
-            if !selected.contains(indicator) {
-                let indicator_row = button(text(indicator.to_string()))
+                button(content)
                     .on_press(Message::ToggleIndicator(pane, indicator.to_string()))
                     .width(Length::Fill)
-                    .style(move |theme, status| style::button::modifier(theme, status, false));
+                    .style(move |theme, status| {
+                        style::button::modifier(theme, status, is_selected_indicator)
+                    })
+                    .into()
+            };
 
-                indicators_column = indicators_column.push(dragger_row(indicator_row.into()));
+            let mut all_indicator_elements: Vec<Element<'a, Message>> = vec![];
+
+            for indicator in selected {
+                let base_row = indicator_row_elem(indicator, true);
+                all_indicator_elements.push(if is_draggable {
+                    dragger_row(base_row)
+                } else {
+                    base_row
+                });
             }
-        }
-    }
 
-    let content_row = column![
-        container(text("Indicators").size(14)).padding(padding::bottom(8)),
-        indicators_column
-    ]
-    .spacing(4);
+            for indicator in I::for_market(market) {
+                if !selected.contains(indicator) {
+                    let base_row = indicator_row_elem(indicator, false);
+                    all_indicator_elements.push(if is_draggable {
+                        dragger_row(base_row)
+                    } else {
+                        base_row
+                    });
+                }
+            }
+
+            let indicators_list_content: Element<'a, Message> = if is_draggable {
+                let mut draggable_column = column_drag::Column::new()
+                    .on_drag(move |event| Message::ReorderIndicator(pane, event))
+                    .spacing(4);
+                for element in all_indicator_elements {
+                    draggable_column = draggable_column.push(element);
+                }
+                draggable_column.into()
+            } else {
+                iced::widget::Column::with_children(all_indicator_elements)
+                    .spacing(4)
+                    .into()
+            };
+
+            column![
+                container(text("Indicators").size(14)).padding(padding::bottom(8)),
+                indicators_list_content
+            ]
+            .spacing(4)
+            .into()
+        } else {
+            column![].spacing(4).into()
+        }
+    };
+
+    let content_row = match state.content {
+        pane::Content::Heatmap(_, _) => build_indicators(false),
+        pane::Content::Kline(_, _) => build_indicators(true),
+        pane::Content::TimeAndSales(_) | pane::Content::Starter => unreachable!(),
+    };
 
     container(content_row)
         .max_width(200)

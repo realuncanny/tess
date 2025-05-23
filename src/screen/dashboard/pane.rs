@@ -909,11 +909,7 @@ where
         ),
         Some(Modal::Indicators) => pane_modal(
             base,
-            super::panel::indicators_view(
-                pane,
-                state.settings.ticker_info.map(|info| info.market_type()),
-                indicators,
-            ),
+            super::panel::indicators_view(pane, state, indicators),
             Message::ToggleModal(pane, Modal::Indicators),
             padding::right(12).left(12),
             Alignment::End,
