@@ -24,6 +24,11 @@ use data::chart::{Basis, ChartLayout, indicator::Indicator};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{TickerInfo, Timeframe};
 
+const DEFAULT_CELL_WIDTH: f32 = 4.0;
+const DEFAULT_CELL_HEIGHT: f32 = 3.0;
+
+const ZOOM_SENSITIVITY: f32 = 30.0;
+
 #[derive(Default, Debug, Clone, Copy)]
 pub enum Interaction {
     #[default]
@@ -102,7 +107,7 @@ fn canvas_interaction<T: Chart>(
         return Some(canvas::Action::publish(Message::BoundsChanged(bounds)));
     }
 
-    let cursor_position = cursor.position_in(bounds.shrink(4.0))?;
+    let cursor_position = cursor.position_in(bounds)?;
 
     match event {
         Event::Mouse(mouse_event) => {
@@ -219,18 +224,18 @@ fn canvas_interaction<T: Chart>(
                         || (*y > 0.0 && chart_state.scaling < max_scaling)
                     {
                         let old_scaling = chart_state.scaling;
-                        let scaling = (chart_state.scaling * (1.0 + y / 30.0))
+                        let scaling = (chart_state.scaling * (1.0 + y / ZOOM_SENSITIVITY))
                             .clamp(min_scaling, max_scaling);
 
                         let translation = {
                             let factor = scaling - old_scaling;
-                            let denominator = old_scaling * old_scaling;
+                            let new_denominator = old_scaling * scaling;
 
                             // safeguard against division by very small numbers
-                            let vector_diff = if denominator > 0.0001 {
+                            let vector_diff = if new_denominator.abs() > 0.00001 {
                                 Vector::new(
-                                    cursor_to_center.x * factor / denominator,
-                                    cursor_to_center.y * factor / denominator,
+                                    cursor_to_center.x * factor / new_denominator,
+                                    cursor_to_center.y * factor / new_denominator,
                                 )
                             } else {
                                 Vector::new(0.0, 0.0)
@@ -310,7 +315,11 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
                 let (old_scaling, old_translation_x) =
                     { (chart_state.scaling, chart_state.translation.x) };
 
-                let zoom_factor = if is_wheel_scroll { 30.0 } else { 90.0 };
+                let zoom_factor = if is_wheel_scroll {
+                    ZOOM_SENSITIVITY
+                } else {
+                    ZOOM_SENSITIVITY * 3.0
+                };
 
                 let new_width = (chart_state.cell_width * (1.0 + delta / zoom_factor))
                     .clamp(min_cell_width, max_cell_width);
@@ -362,7 +371,11 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
                 let (old_scaling, old_translation_y) =
                     { (chart_state.scaling, chart_state.translation.y) };
 
-                let zoom_factor = if is_wheel_scroll { 30.0 } else { 90.0 };
+                let zoom_factor = if is_wheel_scroll {
+                    ZOOM_SENSITIVITY
+                } else {
+                    ZOOM_SENSITIVITY * 3.0
+                };
 
                 let new_height = (chart_state.cell_height * (1.0 + delta / zoom_factor))
                     .clamp(min_cell_height, max_cell_height);
@@ -605,8 +618,8 @@ impl Default for CommonChartData {
             last_price: None,
             scaling: 1.0,
             autoscale: true,
-            cell_width: 40.0,
-            cell_height: 30.0,
+            cell_width: DEFAULT_CELL_WIDTH,
+            cell_height: DEFAULT_CELL_HEIGHT,
             base_price_y: 0.0,
             latest_x: 0,
             tick_size: 0.0,
