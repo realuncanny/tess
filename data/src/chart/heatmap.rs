@@ -187,7 +187,7 @@ impl HistoricalDepth {
 
     pub fn cleanup_old_price_levels(&mut self, oldest_time: u64) {
         self.price_levels.iter_mut().for_each(|(_, runs)| {
-            runs.retain(|run| run.start_time >= oldest_time);
+            runs.retain(|run| run.until_time >= oldest_time);
         });
 
         self.price_levels.retain(|_, runs| !runs.is_empty());

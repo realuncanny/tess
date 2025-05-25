@@ -645,36 +645,35 @@ impl canvas::Program<Message> for HeatmapChart {
                     .ceil()
                     * 5.0
                     / 5.0;
-                if max_qty.is_infinite() {
-                    return;
-                }
 
-                self.heatmap
-                    .latest_order_runs(highest, lowest, *latest_timestamp)
-                    .for_each(|(price, run)| {
-                        let y_position = chart.price_to_y(price.0);
-                        let bar_width = (run.qty() / max_qty) * 50.0;
+                if !max_qty.is_infinite() {
+                    self.heatmap
+                        .latest_order_runs(highest, lowest, *latest_timestamp)
+                        .for_each(|(price, run)| {
+                            let y_position = chart.price_to_y(price.0);
+                            let bar_width = (run.qty() / max_qty) * 50.0;
 
-                        frame.fill_rectangle(
-                            Point::new(0.0, y_position - (cell_height / 2.0)),
-                            Size::new(bar_width, cell_height),
-                            depth_color(palette, run.is_bid, 0.5),
-                        );
+                            frame.fill_rectangle(
+                                Point::new(0.0, y_position - (cell_height / 2.0)),
+                                Size::new(bar_width, cell_height),
+                                depth_color(palette, run.is_bid, 0.5),
+                            );
+                        });
+
+                    // max bid/ask quantity text
+                    let text_size = 9.0 / chart.scaling;
+                    let text_content = abbr_large_numbers(max_qty);
+                    let text_position = Point::new(50.0, region.y);
+
+                    frame.fill_text(canvas::Text {
+                        content: text_content,
+                        position: text_position,
+                        size: iced::Pixels(text_size),
+                        color: palette.background.base.text,
+                        font: style::AZERET_MONO,
+                        ..canvas::Text::default()
                     });
-
-                // max bid/ask quantity text
-                let text_size = 9.0 / chart.scaling;
-                let text_content = abbr_large_numbers(max_qty);
-                let text_position = Point::new(50.0, region.y);
-
-                frame.fill_text(canvas::Text {
-                    content: text_content,
-                    position: text_position,
-                    size: iced::Pixels(text_size),
-                    color: palette.background.base.text,
-                    font: style::AZERET_MONO,
-                    ..canvas::Text::default()
-                });
+                }
             };
 
             self.timeseries.range(earliest..=latest).for_each(
