@@ -17,7 +17,7 @@ use iced::{
 };
 use scale::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
 
-use crate::widget::multi_split::MultiSplit;
+use crate::widget::multi_split::{DRAG_SIZE, MultiSplit};
 use crate::{style, widget::tooltip};
 use data::aggr::{ticks::TickAggr, time::TimeSeries};
 use data::chart::{Basis, ChartLayout, indicator::Indicator};
@@ -107,7 +107,7 @@ fn canvas_interaction<T: Chart>(
         return Some(canvas::Action::publish(Message::BoundsChanged(bounds)));
     }
 
-    let cursor_position = cursor.position_in(bounds)?;
+    let cursor_position = cursor.position_in(bounds.shrink(DRAG_SIZE * 4.0))?;
 
     match event {
         Event::Mouse(mouse_event) => {
@@ -228,17 +228,16 @@ fn canvas_interaction<T: Chart>(
                             .clamp(min_scaling, max_scaling);
 
                         let translation = {
-                            let factor = scaling - old_scaling;
-                            let new_denominator = old_scaling * scaling;
-
+                            let denominator = old_scaling * scaling;
                             // safeguard against division by very small numbers
-                            let vector_diff = if new_denominator.abs() > 0.00001 {
+                            let vector_diff = if denominator.abs() > 0.0001 {
+                                let factor = scaling - old_scaling;
                                 Vector::new(
-                                    cursor_to_center.x * factor / new_denominator,
-                                    cursor_to_center.y * factor / new_denominator,
+                                    cursor_to_center.x * factor / denominator,
+                                    cursor_to_center.y * factor / denominator,
                                 )
                             } else {
-                                Vector::new(0.0, 0.0)
+                                Vector::default()
                             };
 
                             chart_state.translation - vector_diff

@@ -100,15 +100,10 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
 
     fn mouse_interaction(
         &self,
-        interaction: &Interaction,
-        bounds: Rectangle,
-        cursor: mouse::Cursor,
+        _interaction: &Interaction,
+        _bounds: Rectangle,
+        _cursor: mouse::Cursor,
     ) -> mouse::Interaction {
-        match interaction {
-            Interaction::Zoomin { .. } => mouse::Interaction::ResizingVertically,
-            Interaction::Panning { .. } => mouse::Interaction::None,
-            Interaction::None if cursor.is_over(bounds) => mouse::Interaction::ResizingVertically,
-            _ => mouse::Interaction::default(),
-        }
+        mouse::Interaction::default()
     }
 }

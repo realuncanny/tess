@@ -14,7 +14,7 @@ use std::fmt::{Debug, Formatter};
 
 use crate::style;
 
-const DRAG_SIZE: f32 = 1.0;
+pub const DRAG_SIZE: f32 = 1.0;
 const MIN_PANEL_HEIGHT: f32 = 40.0;
 
 #[derive(Default)]
@@ -178,7 +178,7 @@ impl<Message> Widget<Message, Theme, Renderer> for MultiSplit<'_, Message> {
         let mut ruler_bounds = Vec::new();
         for (i, layout_child) in layout.children().enumerate() {
             if i % 2 == 1 {
-                ruler_bounds.push((i / 2, layout_child.bounds().expand(4.0)));
+                ruler_bounds.push((i / 2, layout_child.bounds().expand(DRAG_SIZE * 4.0)));
             }
         }
 

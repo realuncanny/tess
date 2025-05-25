@@ -662,8 +662,13 @@ impl Content {
         let enabled_indicators = {
             let available = KlineIndicator::for_market(ticker_info.market_type());
             prev_indis.map_or_else(
-                || available.to_vec(),
-                |inds| inds.into_iter().filter(|i| available.contains(i)).collect(),
+                || vec![KlineIndicator::Volume],
+                |indis| {
+                    indis
+                        .into_iter()
+                        .filter(|i| available.contains(i))
+                        .collect()
+                },
             )
         };
 
