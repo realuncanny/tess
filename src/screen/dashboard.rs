@@ -582,7 +582,10 @@ impl Dashboard {
                             let (task, handle) = Task::sip(
                                 fetch_trades_batched(ticker, from_time, to_time, data_path),
                                 move |batch| {
-                                    let data = FetchedData::Trades(batch, to_time);
+                                    let data = FetchedData::Trades {
+                                        batch,
+                                        until_time: to_time,
+                                    };
                                     Message::DistributeFetchedData {
                                         layout_id: dashboard_id,
                                         pane_id,
@@ -987,19 +990,19 @@ impl Dashboard {
         stream_type: StreamKind,
     ) -> Task<Message> {
         match data {
-            FetchedData::Trades(trades, to_time) => {
-                let last_trade_time = trades.last().map_or(0, |trade| trade.time);
+            FetchedData::Trades { batch, until_time } => {
+                let last_trade_time = batch.last().map_or(0, |trade| trade.time);
 
-                if last_trade_time < to_time {
+                if last_trade_time < until_time {
                     if let Err(reason) =
-                        self.insert_fetched_trades(main_window, pane_id, &trades, false)
+                        self.insert_fetched_trades(main_window, pane_id, &batch, false)
                     {
                         return Task::done(Message::ErrorOccurred(Some(pane_id), reason));
                     }
                 } else {
-                    let filtered_batch = trades
+                    let filtered_batch = batch
                         .iter()
-                        .filter(|trade| trade.time <= to_time)
+                        .filter(|trade| trade.time <= until_time)
                         .copied()
                         .collect::<Vec<_>>();
 
@@ -1010,21 +1013,21 @@ impl Dashboard {
                     }
                 }
             }
-            FetchedData::Klines(klines, req_id) => {
+            FetchedData::Klines { data, req_id } => {
                 if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
                     pane_state.status = pane::Status::Ready;
 
                     if let StreamKind::Kline { timeframe, .. } = stream_type {
-                        pane_state.insert_klines_vec(req_id, timeframe, &klines);
+                        pane_state.insert_klines_vec(req_id, timeframe, &data);
                     }
                 }
             }
-            FetchedData::OI(oi, req_id) => {
+            FetchedData::OI { data, req_id } => {
                 if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window, pane_id) {
                     pane_state.status = pane::Status::Ready;
 
                     if let StreamKind::Kline { .. } = stream_type {
-                        pane_state.insert_oi_vec(req_id, &oi);
+                        pane_state.insert_oi_vec(req_id, &data);
                     }
                 }
             }
@@ -1284,7 +1287,7 @@ fn oi_fetch_task(
                 .map_err(|err| format!("{err}")),
             move |result| match result {
                 Ok(oi) => {
-                    let data = FetchedData::OI(oi, req_id);
+                    let data = FetchedData::OI { data: oi, req_id };
                     Message::DistributeFetchedData {
                         layout_id,
                         pane_id,
@@ -1323,7 +1326,10 @@ fn kline_fetch_task(
                 .map_err(|err| format!("{err}")),
             move |result| match result {
                 Ok(klines) => {
-                    let data = FetchedData::Klines(klines, req_id);
+                    let data = FetchedData::Klines {
+                        data: klines,
+                        req_id,
+                    };
                     Message::DistributeFetchedData {
                         layout_id,
                         pane_id,

@@ -4,9 +4,18 @@ use uuid::Uuid;
 
 #[derive(Debug, Clone)]
 pub enum FetchedData {
-    Trades(Vec<Trade>, u64),
-    Klines(Vec<Kline>, Option<uuid::Uuid>),
-    OI(Vec<OpenInterest>, Option<uuid::Uuid>),
+    Trades {
+        batch: Vec<Trade>,
+        until_time: u64,
+    },
+    Klines {
+        data: Vec<Kline>,
+        req_id: Option<uuid::Uuid>,
+    },
+    OI {
+        data: Vec<OpenInterest>,
+        req_id: Option<uuid::Uuid>,
+    },
 }
 
 #[derive(thiserror::Error, Debug, Clone)]

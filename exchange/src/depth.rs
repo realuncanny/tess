@@ -1,10 +1,9 @@
 use ordered_float::OrderedFloat;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
 use super::de_string_to_f32;
 
-#[derive(Serialize, Deserialize, Clone, Copy)]
+#[derive(serde::Deserialize, Clone, Copy)]
 pub struct Order {
     #[serde(rename = "0", deserialize_with = "de_string_to_f32")]
     pub price: f32,
@@ -86,10 +85,6 @@ pub struct LocalDepthCache {
 }
 
 impl LocalDepthCache {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
     pub fn update(&mut self, new_depth: DepthUpdate) {
         match new_depth {
             DepthUpdate::Snapshot(snapshot) => {

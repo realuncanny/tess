@@ -1,5 +1,5 @@
 use csv::ReaderBuilder;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use std::{collections::HashMap, io::BufReader, path::PathBuf};
 
 use fastwebsockets::{FragmentCollector, OpCode};
@@ -82,7 +82,7 @@ struct SonicKlineWrap {
     kline: SonicKline,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct SonicTrade {
     #[serde(rename = "T")]
     time: u64,
@@ -99,7 +99,7 @@ enum SonicDepth {
     Perp(PerpDepth),
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct SpotDepth {
     #[serde(rename = "E")]
     time: u64,
@@ -113,7 +113,7 @@ struct SpotDepth {
     asks: Vec<Order>,
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct PerpDepth {
     #[serde(rename = "T")]
     time: u64,
@@ -277,7 +277,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
         let stream_1 = format!("{}@aggTrade", symbol_str.to_lowercase());
         let stream_2 = format!("{}@depth@100ms", symbol_str.to_lowercase());
 
-        let mut orderbook: LocalDepthCache = LocalDepthCache::new();
+        let mut orderbook: LocalDepthCache = LocalDepthCache::default();
         let mut trades_buffer: Vec<Trade> = Vec::new();
         let mut already_fetching: bool = false;
         let mut prev_id: u64 = 0;

@@ -1,7 +1,6 @@
-use serde_json::Value;
-use serde_json::json;
+use serde_json::{Value, json};
 use sonic_rs::to_object_iter_unchecked;
-use sonic_rs::{Deserialize, JsonValueTrait, Serialize};
+use sonic_rs::{Deserialize, JsonValueTrait};
 use std::collections::HashMap;
 
 use fastwebsockets::{FragmentCollector, Frame, OpCode};
@@ -32,7 +31,7 @@ fn exchange_from_market_type(market: MarketKind) -> Exchange {
     }
 }
 
-#[derive(Serialize, Deserialize)]
+#[derive(Deserialize)]
 struct SonicDepth {
     #[serde(rename = "u")]
     pub update_id: u64,
@@ -42,7 +41,7 @@ struct SonicDepth {
     pub asks: Vec<Order>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Deserialize, Debug)]
 struct SonicTrade {
     #[serde(rename = "T")]
     pub time: u64,
@@ -295,7 +294,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
         });
 
         let mut trades_buffer: Vec<Trade> = Vec::new();
-        let mut orderbook = LocalDepthCache::new();
+        let mut orderbook = LocalDepthCache::default();
 
         loop {
             match &mut state {
