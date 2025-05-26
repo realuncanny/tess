@@ -10,27 +10,20 @@ mod widget;
 mod window;
 
 use layout::{Layout, LayoutManager};
-use screen::{
-    create_button,
-    dashboard::{
-        self, Dashboard, pane,
-        theme_editor::{self, ThemeEditor},
-        tickers_table::{self, TickersTable},
-    },
-};
-use style::{Icon, icon_text};
+use screen::dashboard::{self, Dashboard};
+use screen::theme_editor::{self, ThemeEditor};
+use screen::tickers_table::{self, TickersTable};
 use widget::{
-    confirm_dialog_container, dashboard_modal, main_dialog_modal,
     toast::{self, Toast},
     tooltip,
 };
 
-use data::{InternalError, config::theme::default_theme, layout::WindowSpec, sidebar};
+use data::{InternalError, layout::WindowSpec, sidebar};
 use exchange::adapter::{Exchange, StreamKind, fetch_ticker_info};
 use iced::{
-    Alignment, Element, Length, Subscription, Task, padding,
+    Alignment, Element, Subscription, Task, padding,
     widget::{
-        Space, button, center, column, container, pane_grid, pick_list, responsive, row, text,
+        button, center, column, container, responsive, row, text,
         tooltip::Position as TooltipPosition,
     },
 };
@@ -67,10 +60,10 @@ struct Flowsurface {
     main_window: window::Window,
     layout_manager: LayoutManager,
     tickers_table: TickersTable,
+    sidebar: screen::Sidebar,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
-    sidebar: data::Sidebar,
     theme: data::Theme,
     notifications: Vec<Toast>,
     audio_stream: audio::AudioStream,
@@ -99,7 +92,7 @@ enum Message {
     ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
     SetSidebarPosition(sidebar::Position),
-    ToggleSidebarMenu(sidebar::Menu),
+    ToggleSidebarMenu(Option<sidebar::Menu>),
     ToggleDialogModal(Option<(String, Box<Message>)>),
     DataFolderRequested,
 
@@ -136,7 +129,7 @@ impl Flowsurface {
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
-                sidebar: saved_state.sidebar,
+                sidebar: screen::Sidebar::new(saved_state.sidebar),
                 theme: saved_state.theme,
                 notifications: vec![],
                 audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
@@ -291,7 +284,7 @@ impl Flowsurface {
                     self.tickers_table.favorited_tickers(),
                     main_window,
                     self.timezone,
-                    self.sidebar,
+                    self.sidebar.0,
                     self.scale_factor,
                     audio_cfg,
                 );
@@ -385,12 +378,8 @@ impl Flowsurface {
                 self.scale_factor = value;
             }
             Message::ToggleSidebarMenu(menu) => {
-                let new_menu = if self.sidebar.is_menu_active(menu) {
-                    sidebar::Menu::None
-                } else {
-                    menu
-                };
-                self.sidebar.set_menu(new_menu);
+                self.sidebar
+                    .set_menu(menu.filter(|&m| !self.sidebar.is_menu_active(m)));
             }
             Message::ToggleTradeFetch(checked) => {
                 self.layout_manager
@@ -469,7 +458,7 @@ impl Flowsurface {
 
                 match action {
                     Some(theme_editor::Action::Exit) => {
-                        self.sidebar.set_menu(sidebar::Menu::Settings);
+                        self.sidebar.set_menu(Some(sidebar::Menu::Settings));
                     }
                     Some(theme_editor::Action::UpdateTheme(theme)) => {
                         self.theme = data::Theme(theme);
@@ -505,115 +494,26 @@ impl Flowsurface {
             .into();
         };
 
-        let sidebar_pos = self.sidebar.position;
+        let sidebar_pos = self.sidebar.position();
 
         let content = if id == self.main_window.id {
-            let tooltip_position = if sidebar_pos == sidebar::Position::Left {
-                TooltipPosition::Right
-            } else {
-                TooltipPosition::Left
-            };
-
             let sidebar = {
                 let is_table_open = self.tickers_table.is_open();
 
-                let nav_buttons = {
-                    let settings_modal_button = {
-                        let is_active = self.sidebar.is_menu_active(sidebar::Menu::Settings)
-                            || self.sidebar.is_menu_active(sidebar::Menu::ThemeEditor);
-
-                        create_button(
-                            icon_text(Icon::Cog, 14)
-                                .width(24)
-                                .align_x(Alignment::Center),
-                            Message::ToggleSidebarMenu(sidebar::Menu::Settings),
-                            None,
-                            tooltip_position,
-                            move |theme, status| {
-                                style::button::transparent(theme, status, is_active)
-                            },
-                        )
-                    };
-                    let layout_modal_button = {
-                        let is_active = self.sidebar.is_menu_active(sidebar::Menu::Layout);
-
-                        create_button(
-                            icon_text(Icon::Layout, 14)
-                                .width(24)
-                                .align_x(Alignment::Center),
-                            Message::ToggleSidebarMenu(sidebar::Menu::Layout),
-                            None,
-                            tooltip_position,
-                            move |theme, status| {
-                                style::button::transparent(theme, status, is_active)
-                            },
-                        )
-                    };
-                    let ticker_search_button = {
-                        create_button(
-                            icon_text(Icon::Search, 14)
-                                .width(24)
-                                .align_x(Alignment::Center),
-                            Message::TickersTable(tickers_table::Message::ToggleTable),
-                            None,
-                            tooltip_position,
-                            move |theme, status| {
-                                style::button::transparent(theme, status, is_table_open)
-                            },
-                        )
-                    };
-
-                    let audio_btn = {
-                        let is_active = self.sidebar.is_menu_active(sidebar::Menu::Audio);
-
-                        let icon = match self.audio_stream.volume().unwrap_or(0.0) {
-                            v if v >= 40.0 => Icon::SpeakerHigh,
-                            v if v > 0.0 => Icon::SpeakerLow,
-                            _ => Icon::SpeakerOff,
-                        };
-
-                        create_button(
-                            icon_text(icon, 14).width(24).align_x(Alignment::Center),
-                            Message::ToggleSidebarMenu(sidebar::Menu::Audio),
-                            None,
-                            tooltip_position,
-                            move |theme, status| {
-                                style::button::transparent(theme, status, is_active)
-                            },
-                        )
-                    };
-
-                    column![
-                        ticker_search_button,
-                        layout_modal_button,
-                        audio_btn,
-                        Space::with_height(Length::Fill),
-                        settings_modal_button,
-                    ]
-                    .width(32)
-                    .spacing(8)
+                let tickers_table_view = if is_table_open {
+                    column![responsive(move |size| self
+                        .tickers_table
+                        .view(size)
+                        .map(Message::TickersTable))]
+                } else {
+                    column![]
                 };
 
-                let tickers_table = {
-                    if is_table_open {
-                        column![responsive(move |size| {
-                            self.tickers_table.view(size).map(Message::TickersTable)
-                        })]
-                        .width(200)
-                    } else {
-                        column![]
-                    }
-                };
-
-                match sidebar_pos {
-                    sidebar::Position::Left => {
-                        row![nav_buttons, tickers_table,]
-                    }
-                    sidebar::Position::Right => {
-                        row![tickers_table, nav_buttons,]
-                    }
-                }
-                .spacing(if is_table_open { 8 } else { 4 })
+                self.sidebar.view(
+                    is_table_open,
+                    self.audio_stream.volume(),
+                    tickers_table_view.into(),
+                )
             };
 
             let dashboard_view = dashboard
@@ -651,280 +551,11 @@ impl Flowsurface {
                 .padding(8),
             ];
 
-            match self.sidebar.active_menu {
-                sidebar::Menu::Settings => {
-                    let settings_modal = {
-                        let theme_picklist = {
-                            let mut themes: Vec<iced::Theme> = iced_core::Theme::ALL.to_vec();
-
-                            let default_theme = iced_core::Theme::Custom(default_theme().into());
-                            themes.push(default_theme);
-
-                            if let Some(custom_theme) = self.theme_editor.custom_theme.clone() {
-                                themes.push(custom_theme);
-                            }
-
-                            pick_list(themes, Some(self.theme.clone().0), |theme| {
-                                Message::ThemeSelected(data::Theme(theme))
-                            })
-                        };
-
-                        let toggle_theme_editor = button(text("Theme editor"))
-                            .on_press(Message::ToggleSidebarMenu(sidebar::Menu::ThemeEditor));
-
-                        let timezone_picklist = pick_list(
-                            [data::UserTimezone::Utc, data::UserTimezone::Local],
-                            Some(self.timezone),
-                            Message::SetTimezone,
-                        );
-
-                        let sidebar_pos = pick_list(
-                            [sidebar::Position::Left, sidebar::Position::Right],
-                            Some(sidebar_pos),
-                            Message::SetSidebarPosition,
-                        );
-
-                        let scale_factor = {
-                            let current_value: f64 = self.scale_factor.into();
-
-                            let decrease_btn = if current_value > data::config::MIN_SCALE {
-                                button(text("-")).on_press(Message::ScaleFactorChanged(
-                                    (current_value - 0.1).into(),
-                                ))
-                            } else {
-                                button(text("-"))
-                            };
-
-                            let increase_btn = if current_value < data::config::MAX_SCALE {
-                                button(text("+")).on_press(Message::ScaleFactorChanged(
-                                    (current_value + 0.1).into(),
-                                ))
-                            } else {
-                                button(text("+"))
-                            };
-
-                            container(
-                                row![
-                                    decrease_btn,
-                                    text(format!("{:.0}%", current_value * 100.0)).size(14),
-                                    increase_btn,
-                                ]
-                                .align_y(Alignment::Center)
-                                .spacing(8)
-                                .padding(4),
-                            )
-                            .style(style::modal_container)
-                        };
-
-                        let trade_fetch_checkbox = {
-                            let is_active = dashboard.trade_fetch_enabled;
-
-                            let checkbox =
-                                iced::widget::checkbox("Fetch trades (Binance)", is_active)
-                                    .on_toggle(|checked| {
-                                        if checked {
-                                            Message::ToggleDialogModal(Some((
-                                        "This might be unreliable and take some time to complete"
-                                            .to_string(),
-                                        Box::new(Message::ToggleTradeFetch(true)),
-                                    )))
-                                        } else {
-                                            Message::ToggleTradeFetch(false)
-                                        }
-                                    });
-
-                            tooltip(
-                                checkbox,
-                                Some("Try to fetch trades for footprint charts"),
-                                TooltipPosition::Top,
-                            )
-                        };
-
-                        let open_data_folder = {
-                            let button = button(text("Open data folder"))
-                                .on_press(Message::DataFolderRequested);
-
-                            tooltip(
-                                button,
-                                Some("Open the folder where the data & config is stored"),
-                                TooltipPosition::Top,
-                            )
-                        };
-
-                        container(
-                            column![
-                                column![open_data_folder,].spacing(8),
-                                column![text("Sidebar position").size(14), sidebar_pos,].spacing(8),
-                                column![text("Time zone").size(14), timezone_picklist,].spacing(8),
-                                column![text("Theme").size(14), theme_picklist,].spacing(8),
-                                column![text("Interface scale").size(14), scale_factor,].spacing(8),
-                                column![
-                                    text("Experimental").size(14),
-                                    trade_fetch_checkbox,
-                                    toggle_theme_editor
-                                ]
-                                .spacing(8),
-                            ]
-                            .spacing(20),
-                        )
-                        .align_x(Alignment::Start)
-                        .max_width(400)
-                        .padding(24)
-                        .style(style::dashboard_modal)
-                    };
-
-                    let (align_x, padding) = match sidebar_pos {
-                        sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
-                        sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
-                    };
-
-                    let base_content = dashboard_modal(
-                        base,
-                        settings_modal,
-                        Message::ToggleSidebarMenu(sidebar::Menu::None),
-                        padding,
-                        Alignment::End,
-                        align_x,
-                    );
-
-                    if let Some((dialog, on_confirm)) = &self.confirm_dialog {
-                        let dialog_content = confirm_dialog_container(
-                            dialog,
-                            *on_confirm.to_owned(),
-                            Message::ToggleDialogModal(None),
-                        );
-
-                        main_dialog_modal(
-                            base_content,
-                            dialog_content,
-                            Message::ToggleDialogModal(None),
-                        )
-                    } else {
-                        base_content
-                    }
-                }
-                sidebar::Menu::Layout => {
-                    let reset_pane_button = tooltip(
-                        button(text("Reset").align_x(Alignment::Center))
-                            .width(iced::Length::Fill)
-                            .on_press(Message::Dashboard(
-                                None,
-                                dashboard::Message::Pane(
-                                    id,
-                                    pane::Message::ReplacePane(
-                                        if let Some(focus) = dashboard.focus {
-                                            focus.1
-                                        } else {
-                                            *dashboard.panes.iter().next().unwrap().0
-                                        },
-                                    ),
-                                ),
-                            )),
-                        Some("Reset selected pane"),
-                        TooltipPosition::Top,
-                    );
-                    let split_pane_button = tooltip(
-                        button(text("Split").align_x(Alignment::Center))
-                            .width(iced::Length::Fill)
-                            .on_press(Message::Dashboard(
-                                None,
-                                dashboard::Message::Pane(
-                                    id,
-                                    pane::Message::SplitPane(
-                                        pane_grid::Axis::Horizontal,
-                                        if let Some(focus) = dashboard.focus {
-                                            focus.1
-                                        } else {
-                                            *dashboard.panes.iter().next().unwrap().0
-                                        },
-                                    ),
-                                ),
-                            )),
-                        Some("Split selected pane horizontally"),
-                        TooltipPosition::Top,
-                    );
-
-                    let manage_layout_modal = {
-                        container(
-                            column![
-                                column![
-                                    text("Panes").size(14),
-                                    if dashboard.focus.is_some() {
-                                        row![reset_pane_button, split_pane_button,]
-                                            .padding(padding::left(8).right(8))
-                                            .spacing(8)
-                                    } else {
-                                        row![text("No pane selected"),]
-                                    },
-                                ]
-                                .align_x(Alignment::Center)
-                                .spacing(8),
-                                column![
-                                    text("Layouts").size(14),
-                                    self.layout_manager.view().map(Message::Layouts),
-                                ]
-                                .align_x(Alignment::Center)
-                                .spacing(8),
-                            ]
-                            .align_x(Alignment::Center)
-                            .spacing(32),
-                        )
-                        .width(280)
-                        .padding(24)
-                        .style(style::dashboard_modal)
-                    };
-
-                    let (align_x, padding) = match sidebar_pos {
-                        sidebar::Position::Left => (Alignment::Start, padding::left(48).top(40)),
-                        sidebar::Position::Right => (Alignment::End, padding::right(48).top(40)),
-                    };
-
-                    dashboard_modal(
-                        base,
-                        manage_layout_modal,
-                        Message::ToggleSidebarMenu(sidebar::Menu::None),
-                        padding,
-                        Alignment::Start,
-                        align_x,
-                    )
-                }
-                sidebar::Menu::Audio => {
-                    let (align_x, padding) = match sidebar_pos {
-                        sidebar::Position::Left => (Alignment::Start, padding::left(48).top(64)),
-                        sidebar::Position::Right => (Alignment::End, padding::right(48).top(64)),
-                    };
-
-                    let depth_streams_list = dashboard.streams.depth_streams(None);
-
-                    dashboard_modal(
-                        base,
-                        self.audio_stream
-                            .view(depth_streams_list)
-                            .map(Message::AudioStream),
-                        Message::ToggleSidebarMenu(sidebar::Menu::None),
-                        padding,
-                        Alignment::Start,
-                        align_x,
-                    )
-                }
-                sidebar::Menu::ThemeEditor => {
-                    let (align_x, padding) = match sidebar_pos {
-                        sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
-                        sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
-                    };
-
-                    dashboard_modal(
-                        base,
-                        self.theme_editor
-                            .view(&self.theme.0)
-                            .map(Message::ThemeEditor),
-                        Message::ToggleSidebarMenu(sidebar::Menu::None),
-                        padding,
-                        Alignment::End,
-                        align_x,
-                    )
-                }
-                sidebar::Menu::None => base.into(),
+            if let Some(menu) = self.sidebar.active_menu() {
+                self.sidebar
+                    .view_with_modals(menu, dashboard, self, base.into(), id)
+            } else {
+                base.into()
             }
         } else {
             container(

@@ -1,7 +1,5 @@
 pub mod pane;
 pub mod panel;
-pub mod theme_editor;
-pub mod tickers_table;
 
 use crate::{
     StreamKind, chart, style,

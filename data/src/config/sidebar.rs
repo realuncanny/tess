@@ -5,12 +5,12 @@ use serde::{Deserialize, Serialize};
 pub struct Sidebar {
     pub position: Position,
     #[serde(skip)]
-    pub active_menu: Menu,
+    pub active_menu: Option<Menu>,
 }
 
 impl Sidebar {
     pub fn set_menu(&mut self, new_menu: Menu) {
-        self.active_menu = new_menu;
+        self.active_menu = Some(new_menu);
     }
 
     pub fn set_position(&mut self, position: Position) {
@@ -18,7 +18,7 @@ impl Sidebar {
     }
 
     pub fn is_menu_active(&self, menu: Menu) -> bool {
-        self.active_menu == menu
+        self.active_menu == Some(menu)
     }
 }
 
@@ -26,7 +26,7 @@ impl Default for Sidebar {
     fn default() -> Self {
         Sidebar {
             position: Position::Left,
-            active_menu: Menu::None,
+            active_menu: None,
         }
     }
 }
@@ -47,12 +47,10 @@ impl std::fmt::Display for Position {
     }
 }
 
-#[derive(Default, Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
 pub enum Menu {
     Layout,
     Settings,
     Audio,
     ThemeEditor,
-    #[default]
-    None,
 }
