@@ -1,5 +1,6 @@
 use crate::{
     TooltipPosition,
+    layout::SavedState,
     screen::create_button,
     style::{Icon, icon_text},
 };
@@ -30,11 +31,17 @@ pub enum Action {
 }
 
 impl Sidebar {
-    pub fn new(state: data::Sidebar, tickers_table: TickersTable) -> Self {
-        Self {
-            state,
-            tickers_table,
-        }
+    pub fn new(state: &SavedState) -> (Self, Task<Message>) {
+        let sidebar_state = state.sidebar.clone();
+        let (tickers_table, initial_fetch) = TickersTable::new(state.favorited_tickers.clone());
+
+        (
+            Self {
+                state: sidebar_state,
+                tickers_table,
+            },
+            initial_fetch.map(Message::TickersTable),
+        )
     }
 
     pub fn update(&mut self, message: Message) -> (Task<Message>, Option<Action>) {

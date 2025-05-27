@@ -10,20 +10,22 @@ mod widget;
 mod window;
 
 use data::config::theme::default_theme;
-use iced::widget::{pane_grid, pick_list};
+use data::{layout::WindowSpec, sidebar};
+use exchange::adapter::StreamKind;
 use layout::Layout;
 use screen::dashboard::{self, Dashboard};
-use widget::{confirm_dialog_container, dashboard_modal, main_dialog_modal};
 use widget::{
+    confirm_dialog_container, dashboard_modal, main_dialog_modal,
     toast::{self, Toast},
     tooltip,
 };
 
-use data::{InternalError, layout::WindowSpec, sidebar};
-use exchange::adapter::StreamKind;
 use iced::{
     Alignment, Element, Subscription, Task, padding,
-    widget::{button, center, column, container, row, text, tooltip::Position as TooltipPosition},
+    widget::{
+        button, center, column, container, pane_grid, pick_list, row, text,
+        tooltip::Position as TooltipPosition,
+    },
 };
 use std::{
     borrow::Cow,
@@ -99,31 +101,34 @@ impl Flowsurface {
     fn new() -> (Self, Task<Message>) {
         let saved_state = layout::load_saved_state();
 
-        let main_window_cfg = window::Settings {
-            size: saved_state
-                .main_window
-                .map_or_else(window::default_size, |w| w.size()),
-            position: saved_state.main_window.map(|w| w.position()).map_or(
-                iced::window::Position::Centered,
-                iced::window::Position::Specific,
-            ),
-            exit_on_close_request: false,
-            ..window::settings()
+        let (main_window_id, open_main_window) = {
+            let config = window::Settings {
+                size: saved_state
+                    .main_window
+                    .map_or_else(window::default_size, |w| w.size()),
+                position: saved_state.main_window.map(|w| w.position()).map_or(
+                    iced::window::Position::Centered,
+                    iced::window::Position::Specific,
+                ),
+                exit_on_close_request: false,
+                ..window::settings()
+            };
+
+            window::open(config)
         };
 
-        let active_layout = saved_state.layout_manager.active_layout();
-        let (main_window_id, open_main_window) = window::open(main_window_cfg);
-
-        let (tickers_table, initial_fetch) =
-            dashboard::TickersTable::new(saved_state.favorited_tickers);
+        let load_layout = Task::done(Message::LoadLayout(
+            saved_state.layout_manager.active_layout(),
+        ));
+        let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state);
 
         (
             Self {
                 main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
                 theme_editor: modal::ThemeEditor::new(saved_state.custom_theme),
-                sidebar: dashboard::Sidebar::new(saved_state.sidebar, tickers_table),
                 audio_stream: modal::audio::AudioStream::new(saved_state.audio_cfg),
+                sidebar,
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
@@ -133,11 +138,9 @@ impl Flowsurface {
             open_main_window
                 .then(|_| Task::none())
                 .chain(Task::batch(vec![
-                    Task::done(Message::LoadLayout(active_layout)),
+                    load_layout,
+                    launch_sidebar.map(Message::Sidebar),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
-                    initial_fetch.map(|msg: dashboard::tickers_table::Message| {
-                        Message::Sidebar(dashboard::sidebar::Message::TickersTable(msg))
-                    }),
                 ])),
         )
     }
@@ -430,7 +433,7 @@ impl Flowsurface {
                         }
                     }
                     Some(dashboard::sidebar::Action::ErrorOccurred(err)) => {
-                        self.notify_error(err);
+                        self.notifications.push(Toast::error(err.to_string()));
                     }
                     None => {}
                 }
@@ -560,10 +563,6 @@ impl Flowsurface {
 
     fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
         self.layout_manager.active_dashboard_mut()
-    }
-
-    fn notify_error(&mut self, err: InternalError) {
-        self.notifications.push(Toast::error(err.to_string()));
     }
 
     fn view_with_modal<'a>(
