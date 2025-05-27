@@ -3,6 +3,9 @@ pub mod panel;
 pub mod sidebar;
 pub mod tickers_table;
 
+pub use sidebar::Sidebar;
+pub use tickers_table::TickersTable;
+
 use crate::{
     StreamKind, chart, style,
     widget::toast::Toast,

@@ -56,15 +56,15 @@ fn main() {
 
 struct Flowsurface {
     main_window: window::Window,
-    layout_manager: modal::layout_manager::LayoutManager,
-    sidebar: dashboard::sidebar::Sidebar,
+    sidebar: dashboard::Sidebar,
+    layout_manager: modal::LayoutManager,
     theme_editor: modal::ThemeEditor,
+    audio_stream: modal::audio::AudioStream,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
     theme: data::Theme,
     notifications: Vec<Toast>,
-    audio_stream: modal::audio::AudioStream,
 }
 
 #[derive(Debug, Clone)]
@@ -115,14 +115,14 @@ impl Flowsurface {
         let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
         let (tickers_table, initial_fetch) =
-            dashboard::tickers_table::TickersTable::new(saved_state.favorited_tickers);
+            dashboard::TickersTable::new(saved_state.favorited_tickers);
 
         (
             Self {
                 main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
                 theme_editor: modal::ThemeEditor::new(saved_state.custom_theme),
-                sidebar: dashboard::sidebar::Sidebar::new(saved_state.sidebar, tickers_table),
+                sidebar: dashboard::Sidebar::new(saved_state.sidebar, tickers_table),
                 audio_stream: modal::audio::AudioStream::new(saved_state.audio_cfg),
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
