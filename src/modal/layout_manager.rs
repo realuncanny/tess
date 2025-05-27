@@ -39,8 +39,8 @@ pub enum Action {
 }
 
 pub struct LayoutManager {
-    pub layouts: HashMap<Uuid, (Layout, Dashboard)>,
-    pub active_layout: Layout,
+    layouts: HashMap<Uuid, (Layout, Dashboard)>,
+    active_layout: Layout,
     pub layout_order: Vec<Uuid>,
     pub(crate) edit_mode: Editing,
 }
@@ -60,6 +60,19 @@ impl LayoutManager {
             layouts,
             active_layout: layout1.clone(),
             layout_order: vec![layout1.id],
+            edit_mode: Editing::None,
+        }
+    }
+
+    pub fn from_config(
+        layout_order: Vec<Uuid>,
+        layouts: HashMap<Uuid, (Layout, Dashboard)>,
+        active_layout: Layout,
+    ) -> Self {
+        LayoutManager {
+            layouts,
+            active_layout,
+            layout_order,
             edit_mode: Editing::None,
         }
     }
@@ -118,6 +131,15 @@ impl LayoutManager {
 
     pub fn active_layout(&self) -> Layout {
         self.active_layout.clone()
+    }
+
+    pub fn set_active_layout(&mut self, layout: Layout) -> Result<&mut Dashboard, String> {
+        if let Some((_, dashboard)) = self.layouts.get_mut(&layout.id) {
+            self.active_layout = layout;
+            Ok(dashboard)
+        } else {
+            Err(format!("Layout with id {} does not exist", layout.id))
+        }
     }
 
     pub fn update(&mut self, message: Message) -> Option<Action> {
@@ -351,6 +373,12 @@ impl LayoutManager {
             ),
         )
         .into()
+    }
+
+    pub fn get_layout(&self, layout_id: Uuid) -> Option<(&Layout, &Dashboard)> {
+        self.layouts
+            .get(&layout_id)
+            .map(|(layout, dashboard)| (layout, dashboard))
     }
 
     fn create_delete_button<'a>(&self, layout_id: Uuid) -> Element<'a, Message> {

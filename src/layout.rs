@@ -1,5 +1,5 @@
 use crate::chart::{heatmap::HeatmapChart, kline::KlineChart};
-use crate::modal::layout_manager::{Editing, LayoutManager};
+use crate::modal::layout_manager::LayoutManager;
 use crate::screen::dashboard::{Dashboard, pane, panel::timeandsales::TimeAndSales};
 use data::{
     UserTimezone,
@@ -28,6 +28,20 @@ pub struct SavedState {
     pub theme: data::Theme,
     pub custom_theme: Option<data::Theme>,
     pub audio_cfg: data::AudioStream,
+}
+
+impl SavedState {
+    pub fn window(&self) -> (iced::window::Position, iced::Size) {
+        let position = self.main_window.map(|w| w.position()).map_or(
+            iced::window::Position::Centered,
+            iced::window::Position::Specific,
+        );
+        let size = self
+            .main_window
+            .map_or_else(crate::window::default_size, |w| w.size());
+
+        (position, size)
+    }
 }
 
 impl Default for SavedState {
@@ -311,12 +325,7 @@ pub fn load_saved_state() -> SavedState {
                     layouts.insert(layout.id, (layout.clone(), dashboard));
                 }
 
-                LayoutManager {
-                    layouts,
-                    active_layout,
-                    layout_order,
-                    edit_mode: Editing::None,
-                }
+                LayoutManager::from_config(layout_order, layouts, active_layout)
             };
 
             SavedState {
