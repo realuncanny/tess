@@ -1,9 +1,9 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod audio;
 mod chart;
 mod layout;
 mod logger;
+mod modal;
 mod screen;
 mod style;
 mod widget;
@@ -11,9 +11,8 @@ mod window;
 
 use data::config::theme::default_theme;
 use iced::widget::{pane_grid, pick_list};
-use layout::{Layout, LayoutManager};
+use layout::Layout;
 use screen::dashboard::{self, Dashboard};
-use screen::{theme_editor, tickers_table};
 use widget::{confirm_dialog_container, dashboard_modal, main_dialog_modal};
 use widget::{
     toast::{self, Toast},
@@ -57,24 +56,24 @@ fn main() {
 
 struct Flowsurface {
     main_window: window::Window,
-    layout_manager: LayoutManager,
-    sidebar: screen::Sidebar,
-    theme_editor: screen::ThemeEditor,
+    layout_manager: modal::layout_manager::LayoutManager,
+    sidebar: dashboard::sidebar::Sidebar,
+    theme_editor: modal::ThemeEditor,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
     theme: data::Theme,
     notifications: Vec<Toast>,
-    audio_stream: audio::AudioStream,
+    audio_stream: modal::audio::AudioStream,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     LoadLayout(Layout),
-    Layouts(layout::Message),
+    Layouts(modal::layout_manager::Message),
 
     MarketWsEvent(exchange::Event),
-    AudioStream(audio::Message),
+    AudioStream(modal::audio::Message),
     ToggleTradeFetch(bool),
 
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
@@ -92,8 +91,8 @@ enum Message {
     AddNotification(Toast),
     DeleteNotification(usize),
 
-    ThemeEditor(theme_editor::Message),
-    Sidebar(screen::sidebar::Message),
+    ThemeEditor(modal::theme_editor::Message),
+    Sidebar(dashboard::sidebar::Message),
 }
 
 impl Flowsurface {
@@ -116,15 +115,15 @@ impl Flowsurface {
         let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
         let (tickers_table, initial_fetch) =
-            screen::TickersTable::new(saved_state.favorited_tickers);
+            dashboard::tickers_table::TickersTable::new(saved_state.favorited_tickers);
 
         (
             Self {
                 main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
-                theme_editor: screen::ThemeEditor::new(saved_state.custom_theme),
-                sidebar: screen::Sidebar::new(saved_state.sidebar, tickers_table),
-                audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
+                theme_editor: modal::ThemeEditor::new(saved_state.custom_theme),
+                sidebar: dashboard::sidebar::Sidebar::new(saved_state.sidebar, tickers_table),
+                audio_stream: modal::audio::AudioStream::new(saved_state.audio_cfg),
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
@@ -136,8 +135,8 @@ impl Flowsurface {
                 .chain(Task::batch(vec![
                     Task::done(Message::LoadLayout(active_layout)),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
-                    initial_fetch.map(|msg: tickers_table::Message| {
-                        Message::Sidebar(screen::sidebar::Message::TickersTable(msg))
+                    initial_fetch.map(|msg: dashboard::tickers_table::Message| {
+                        Message::Sidebar(dashboard::sidebar::Message::TickersTable(msg))
                     }),
                 ])),
         )
@@ -339,7 +338,7 @@ impl Flowsurface {
                 let action = self.layout_manager.update(message);
 
                 match action {
-                    Some(layout::Action::Select(layout)) => {
+                    Some(modal::layout_manager::Action::Select(layout)) => {
                         if let Some(dashboard) = self.active_dashboard() {
                             let active_popout_keys =
                                 dashboard.popout.keys().copied().collect::<Vec<_>>();
@@ -393,10 +392,10 @@ impl Flowsurface {
                 let action = self.theme_editor.update(msg, &self.theme.clone().into());
 
                 match action {
-                    Some(theme_editor::Action::Exit) => {
+                    Some(modal::theme_editor::Action::Exit) => {
                         self.sidebar.set_menu(Some(sidebar::Menu::Settings));
                     }
-                    Some(theme_editor::Action::UpdateTheme(theme)) => {
+                    Some(modal::theme_editor::Action::UpdateTheme(theme)) => {
                         self.theme = data::Theme(theme);
 
                         let main_window = self.main_window.id;
@@ -412,7 +411,7 @@ impl Flowsurface {
                 let (task, action) = self.sidebar.update(message);
 
                 match action {
-                    Some(screen::sidebar::Action::TickerSelected(
+                    Some(dashboard::sidebar::Action::TickerSelected(
                         ticker_info,
                         exchange,
                         content,
@@ -430,7 +429,7 @@ impl Flowsurface {
                             return task.map(move |msg| Message::Dashboard(None, msg));
                         }
                     }
-                    Some(screen::sidebar::Action::ErrorOccurred(err)) => {
+                    Some(dashboard::sidebar::Action::ErrorOccurred(err)) => {
                         self.notify_error(err);
                     }
                     None => {}
@@ -448,7 +447,7 @@ impl Flowsurface {
                 column![
                     text("No dashboard available").size(20),
                     button("Add new dashboard")
-                        .on_press(Message::Layouts(layout::Message::AddLayout))
+                        .on_press(Message::Layouts(modal::layout_manager::Message::AddLayout))
                 ]
                 .align_x(Alignment::Center)
                 .spacing(8),
@@ -595,7 +594,7 @@ impl Flowsurface {
                     };
 
                     let toggle_theme_editor = button(text("Theme editor")).on_press(
-                        Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(Some(
+                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(Some(
                             sidebar::Menu::ThemeEditor,
                         ))),
                     );
@@ -609,7 +608,9 @@ impl Flowsurface {
                     let sidebar_pos = pick_list(
                         [sidebar::Position::Left, sidebar::Position::Right],
                         Some(sidebar_pos),
-                        |pos| Message::Sidebar(screen::sidebar::Message::SetSidebarPosition(pos)),
+                        |pos| {
+                            Message::Sidebar(dashboard::sidebar::Message::SetSidebarPosition(pos))
+                        },
                     );
 
                     let scale_factor = {
@@ -706,7 +707,7 @@ impl Flowsurface {
                 let base_content = dashboard_modal(
                     base,
                     settings_modal,
-                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::End,
                     align_x,
@@ -803,7 +804,7 @@ impl Flowsurface {
                 dashboard_modal(
                     base,
                     manage_layout_modal,
-                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::Start,
                     align_x,
@@ -822,7 +823,7 @@ impl Flowsurface {
                     self.audio_stream
                         .view(depth_streams_list)
                         .map(Message::AudioStream),
-                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::Start,
                     align_x,
@@ -839,7 +840,7 @@ impl Flowsurface {
                     self.theme_editor
                         .view(&self.theme.0)
                         .map(Message::ThemeEditor),
-                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
                     padding,
                     Alignment::End,
                     align_x,

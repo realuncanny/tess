@@ -1,11 +1,15 @@
-use crate::screen::dashboard::pane::Message;
+use crate::modal::timesales_cfg_view;
+use crate::screen::dashboard::pane::{self, Message};
 use crate::style::{self, ts_table_container};
+use crate::widget::pane_modal;
 use data::UserTimezone;
 pub use data::chart::timeandsales::Config;
 use exchange::adapter::MarketKind;
 use exchange::{TickerInfo, Trade};
 use iced::widget::{center, column, container, responsive, row, text};
-use iced::{Alignment, Element, Length};
+use iced::{Alignment, Element, Length, padding};
+
+use super::PanelView;
 
 const TARGET_SIZE: usize = 700;
 const MAX_SIZE: usize = 900;
@@ -18,6 +22,30 @@ struct TradeDisplay {
 }
 
 const TRADE_ROW_HEIGHT: f32 = 14.0;
+
+impl PanelView for TimeAndSales {
+    fn view(
+        &self,
+        pane: iced::widget::pane_grid::Pane,
+        state: &pane::State,
+        timezone: data::UserTimezone,
+    ) -> Element<Message> {
+        let underlay = self.view(timezone);
+
+        let settings_view = timesales_cfg_view(self.get_config(), pane);
+
+        match state.modal {
+            Some(pane::Modal::Settings) => pane_modal(
+                underlay,
+                settings_view,
+                Message::ToggleModal(pane, pane::Modal::Settings),
+                padding::right(12).left(12),
+                Alignment::End,
+            ),
+            _ => underlay,
+        }
+    }
+}
 
 pub struct TimeAndSales {
     recent_trades: Vec<TradeDisplay>,

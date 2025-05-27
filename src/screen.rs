@@ -6,13 +6,6 @@ use iced::{
 use crate::widget::tooltip;
 
 pub mod dashboard;
-pub mod sidebar;
-pub mod theme_editor;
-pub mod tickers_table;
-
-pub use sidebar::Sidebar;
-pub use theme_editor::ThemeEditor;
-pub use tickers_table::TickersTable;
 
 pub fn create_button<'a, M: Clone + 'a>(
     content: impl Into<Element<'a, M>>,
