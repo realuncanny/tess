@@ -9,23 +9,22 @@ mod style;
 mod widget;
 mod window;
 
+use data::config::theme::default_theme;
+use iced::widget::{pane_grid, pick_list};
 use layout::{Layout, LayoutManager};
 use screen::dashboard::{self, Dashboard};
-use screen::theme_editor::{self, ThemeEditor};
-use screen::tickers_table::{self, TickersTable};
+use screen::{theme_editor, tickers_table};
+use widget::{confirm_dialog_container, dashboard_modal, main_dialog_modal};
 use widget::{
     toast::{self, Toast},
     tooltip,
 };
 
 use data::{InternalError, layout::WindowSpec, sidebar};
-use exchange::adapter::{Exchange, StreamKind, fetch_ticker_info};
+use exchange::adapter::StreamKind;
 use iced::{
     Alignment, Element, Subscription, Task, padding,
-    widget::{
-        button, center, column, container, responsive, row, text,
-        tooltip::Position as TooltipPosition,
-    },
+    widget::{button, center, column, container, row, text, tooltip::Position as TooltipPosition},
 };
 use std::{
     borrow::Cow,
@@ -59,15 +58,14 @@ fn main() {
 struct Flowsurface {
     main_window: window::Window,
     layout_manager: LayoutManager,
-    tickers_table: TickersTable,
     sidebar: screen::Sidebar,
+    theme_editor: screen::ThemeEditor,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
     theme: data::Theme,
     notifications: Vec<Toast>,
     audio_stream: audio::AudioStream,
-    theme_editor: ThemeEditor,
 }
 
 #[derive(Debug, Clone)]
@@ -77,22 +75,17 @@ enum Message {
 
     MarketWsEvent(exchange::Event),
     AudioStream(audio::Message),
-    FetchTickersInfo,
     ToggleTradeFetch(bool),
 
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
-    TickersTable(tickers_table::Message),
 
     Tick(Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
-    ErrorOccurred(InternalError),
 
     ThemeSelected(data::Theme),
     ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
-    SetSidebarPosition(sidebar::Position),
-    ToggleSidebarMenu(Option<sidebar::Menu>),
     ToggleDialogModal(Option<(String, Box<Message>)>),
     DataFolderRequested,
 
@@ -100,6 +93,7 @@ enum Message {
     DeleteNotification(usize),
 
     ThemeEditor(theme_editor::Message),
+    Sidebar(screen::sidebar::Message),
 }
 
 impl Flowsurface {
@@ -121,49 +115,36 @@ impl Flowsurface {
         let active_layout = saved_state.layout_manager.active_layout();
         let (main_window_id, open_main_window) = window::open(main_window_cfg);
 
+        let (tickers_table, initial_fetch) =
+            screen::TickersTable::new(saved_state.favorited_tickers);
+
         (
             Self {
                 main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
-                tickers_table: TickersTable::new(saved_state.favorited_tickers),
+                theme_editor: screen::ThemeEditor::new(saved_state.custom_theme),
+                sidebar: screen::Sidebar::new(saved_state.sidebar, tickers_table),
+                audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
-                sidebar: screen::Sidebar::new(saved_state.sidebar),
                 theme: saved_state.theme,
                 notifications: vec![],
-                audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
-                theme_editor: theme_editor::ThemeEditor::new(saved_state.custom_theme),
             },
             open_main_window
                 .then(|_| Task::none())
                 .chain(Task::batch(vec![
                     Task::done(Message::LoadLayout(active_layout)),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
-                    Task::done(Message::FetchTickersInfo),
+                    initial_fetch.map(|msg: tickers_table::Message| {
+                        Message::Sidebar(screen::sidebar::Message::TickersTable(msg))
+                    }),
                 ])),
         )
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchTickersInfo => {
-                let fetch_tasks = Exchange::ALL
-                    .iter()
-                    .map(|exchange| {
-                        Task::perform(fetch_ticker_info(*exchange), move |result| match result {
-                            Ok(ticker_info) => Message::TickersTable(
-                                tickers_table::Message::UpdateTickersInfo(*exchange, ticker_info),
-                            ),
-                            Err(err) => {
-                                Message::ErrorOccurred(InternalError::Fetch(err.to_string()))
-                            }
-                        })
-                    })
-                    .collect::<Vec<Task<Message>>>();
-
-                return Task::batch(fetch_tasks);
-            }
             Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
 
@@ -281,10 +262,10 @@ impl Flowsurface {
                     layouts,
                     self.theme.clone(),
                     self.theme_editor.custom_theme.clone().map(data::Theme),
-                    self.tickers_table.favorited_tickers(),
+                    self.sidebar.favorited_tickers(),
                     main_window,
                     self.timezone,
-                    self.sidebar.0,
+                    self.sidebar.state,
                     self.scale_factor,
                     audio_cfg,
                 );
@@ -303,13 +284,6 @@ impl Flowsurface {
                 }
 
                 return iced::exit();
-            }
-            Message::ErrorOccurred(err) => {
-                return match err {
-                    InternalError::Fetch(err) | InternalError::Layout(err) => {
-                        Task::done(Message::AddNotification(Toast::error(err)))
-                    }
-                };
             }
             Message::ThemeSelected(theme) => {
                 self.theme = theme.clone();
@@ -341,45 +315,11 @@ impl Flowsurface {
                         .chain(additional_task);
                 }
             }
-            Message::TickersTable(message) => {
-                let action = self.tickers_table.update(message);
-
-                match action {
-                    Some(tickers_table::Action::TickerSelected(ticker_info, exchange, content)) => {
-                        let main_window_id = self.main_window.id;
-
-                        if let Some(dashboard) = self.active_dashboard_mut() {
-                            let task = dashboard.init_pane_task(
-                                main_window_id,
-                                ticker_info,
-                                exchange,
-                                &content,
-                            );
-
-                            return task.map(move |msg| Message::Dashboard(None, msg));
-                        }
-                    }
-                    Some(tickers_table::Action::Fetch(task)) => {
-                        return task.map(Message::TickersTable);
-                    }
-                    Some(tickers_table::Action::ErrorOccurred(err)) => {
-                        return Task::done(Message::ErrorOccurred(err));
-                    }
-                    None => {}
-                }
-            }
             Message::SetTimezone(tz) => {
                 self.timezone = tz;
             }
-            Message::SetSidebarPosition(position) => {
-                self.sidebar.set_position(position);
-            }
             Message::ScaleFactorChanged(value) => {
                 self.scale_factor = value;
-            }
-            Message::ToggleSidebarMenu(menu) => {
-                self.sidebar
-                    .set_menu(menu.filter(|&m| !self.sidebar.is_menu_active(m)));
             }
             Message::ToggleTradeFetch(checked) => {
                 self.layout_manager
@@ -419,10 +359,6 @@ impl Flowsurface {
                             .map(move |msg| Message::Dashboard(None, msg))
                             .chain(window_tasks)
                             .chain(Task::done(Message::LoadLayout(layout)));
-                        } else {
-                            return Task::done(Message::ErrorOccurred(InternalError::Layout(
-                                "Couldn't get active dashboard".to_string(),
-                            )));
                         }
                     }
                     None => {}
@@ -467,14 +403,40 @@ impl Flowsurface {
 
                         if let Some(dashboard) = self.active_dashboard_mut() {
                             dashboard.invalidate_all_panes(main_window);
-                        } else {
-                            return Task::done(Message::ErrorOccurred(InternalError::Layout(
-                                "No active dashboard".to_string(),
-                            )));
                         }
                     }
                     None => {}
                 }
+            }
+            Message::Sidebar(message) => {
+                let (task, action) = self.sidebar.update(message);
+
+                match action {
+                    Some(screen::sidebar::Action::TickerSelected(
+                        ticker_info,
+                        exchange,
+                        content,
+                    )) => {
+                        let main_window_id = self.main_window.id;
+
+                        if let Some(dashboard) = self.active_dashboard_mut() {
+                            let task = dashboard.init_pane_task(
+                                main_window_id,
+                                ticker_info,
+                                exchange,
+                                &content,
+                            );
+
+                            return task.map(move |msg| Message::Dashboard(None, msg));
+                        }
+                    }
+                    Some(screen::sidebar::Action::ErrorOccurred(err)) => {
+                        self.notify_error(err);
+                    }
+                    None => {}
+                }
+
+                return task.map(Message::Sidebar);
             }
         }
         Task::none()
@@ -497,63 +459,49 @@ impl Flowsurface {
         let sidebar_pos = self.sidebar.position();
 
         let content = if id == self.main_window.id {
-            let sidebar = {
-                let is_table_open = self.tickers_table.is_open();
-
-                let tickers_table_view = if is_table_open {
-                    column![responsive(move |size| self
-                        .tickers_table
-                        .view(size)
-                        .map(Message::TickersTable))]
-                } else {
-                    column![]
-                };
-
-                self.sidebar.view(
-                    is_table_open,
-                    self.audio_stream.volume(),
-                    tickers_table_view.into(),
-                )
-            };
+            let sidebar_view = self
+                .sidebar
+                .view(self.audio_stream.volume())
+                .map(Message::Sidebar);
 
             let dashboard_view = dashboard
                 .view(&self.main_window, self.timezone)
                 .map(move |msg| Message::Dashboard(None, msg));
 
-            let base = column![
+            let header_title = {
+                #[cfg(target_os = "macos")]
                 {
-                    #[cfg(target_os = "macos")]
-                    {
-                        iced::widget::center(
-                            text("FLOWSURFACE")
-                                .font(iced::Font {
-                                    weight: iced::font::Weight::Bold,
-                                    ..Default::default()
-                                })
-                                .size(16)
-                                .style(style::title_text)
-                                .align_x(Alignment::Center),
-                        )
-                        .height(20)
-                        .align_y(Alignment::Center)
-                        .padding(padding::right(8).top(4))
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        column![]
-                    }
-                },
+                    iced::widget::center(
+                        text("FLOWSURFACE")
+                            .font(iced::Font {
+                                weight: iced::font::Weight::Bold,
+                                ..Default::default()
+                            })
+                            .size(16)
+                            .style(style::title_text),
+                    )
+                    .height(20)
+                    .align_y(Alignment::Center)
+                    .padding(padding::top(4))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    column![]
+                }
+            };
+
+            let base = column![
+                header_title,
                 match sidebar_pos {
-                    sidebar::Position::Left => row![sidebar, dashboard_view,],
-                    sidebar::Position::Right => row![dashboard_view, sidebar],
+                    sidebar::Position::Left => row![sidebar_view, dashboard_view,],
+                    sidebar::Position::Right => row![dashboard_view, sidebar_view],
                 }
                 .spacing(4)
                 .padding(8),
             ];
 
             if let Some(menu) = self.sidebar.active_menu() {
-                self.sidebar
-                    .view_with_modals(menu, dashboard, self, base.into(), id)
+                self.view_with_modal(base.into(), dashboard, menu)
             } else {
                 base.into()
             }
@@ -600,16 +548,11 @@ impl Flowsurface {
 
         let exchange_streams = dashboard.market_subscriptions().map(Message::MarketWsEvent);
 
-        let tickers_table_fetch = self.tickers_table.subscription().map(Message::TickersTable);
+        let sidebar = self.sidebar.subscription().map(Message::Sidebar);
 
         let tick = iced::time::every(Duration::from_millis(100)).map(Message::Tick);
 
-        Subscription::batch(vec![
-            exchange_streams,
-            tickers_table_fetch,
-            window_events,
-            tick,
-        ])
+        Subscription::batch(vec![exchange_streams, sidebar, window_events, tick])
     }
 
     fn active_dashboard(&self) -> Option<&Dashboard> {
@@ -618,5 +561,290 @@ impl Flowsurface {
 
     fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
         self.layout_manager.active_dashboard_mut()
+    }
+
+    fn notify_error(&mut self, err: InternalError) {
+        self.notifications.push(Toast::error(err.to_string()));
+    }
+
+    fn view_with_modal<'a>(
+        &'a self,
+        base: Element<'a, Message>,
+        dashboard: &'a Dashboard,
+        menu: sidebar::Menu,
+    ) -> Element<'a, Message> {
+        let sidebar_pos = self.sidebar.position();
+        let main_window = self.main_window.id;
+
+        match menu {
+            sidebar::Menu::Settings => {
+                let settings_modal = {
+                    let theme_picklist = {
+                        let mut themes: Vec<iced::Theme> = iced_core::Theme::ALL.to_vec();
+
+                        let default_theme = iced_core::Theme::Custom(default_theme().into());
+                        themes.push(default_theme);
+
+                        if let Some(custom_theme) = self.theme_editor.custom_theme.clone() {
+                            themes.push(custom_theme);
+                        }
+
+                        pick_list(themes, Some(self.theme.clone().0), |theme| {
+                            Message::ThemeSelected(data::Theme(theme))
+                        })
+                    };
+
+                    let toggle_theme_editor = button(text("Theme editor")).on_press(
+                        Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(Some(
+                            sidebar::Menu::ThemeEditor,
+                        ))),
+                    );
+
+                    let timezone_picklist = pick_list(
+                        [data::UserTimezone::Utc, data::UserTimezone::Local],
+                        Some(self.timezone),
+                        Message::SetTimezone,
+                    );
+
+                    let sidebar_pos = pick_list(
+                        [sidebar::Position::Left, sidebar::Position::Right],
+                        Some(sidebar_pos),
+                        |pos| Message::Sidebar(screen::sidebar::Message::SetSidebarPosition(pos)),
+                    );
+
+                    let scale_factor = {
+                        let current_value: f64 = self.scale_factor.into();
+
+                        let decrease_btn = if current_value > data::config::MIN_SCALE {
+                            button(text("-"))
+                                .on_press(Message::ScaleFactorChanged((current_value - 0.1).into()))
+                        } else {
+                            button(text("-"))
+                        };
+
+                        let increase_btn = if current_value < data::config::MAX_SCALE {
+                            button(text("+"))
+                                .on_press(Message::ScaleFactorChanged((current_value + 0.1).into()))
+                        } else {
+                            button(text("+"))
+                        };
+
+                        container(
+                            row![
+                                decrease_btn,
+                                text(format!("{:.0}%", current_value * 100.0)).size(14),
+                                increase_btn,
+                            ]
+                            .align_y(Alignment::Center)
+                            .spacing(8)
+                            .padding(4),
+                        )
+                        .style(style::modal_container)
+                    };
+
+                    let trade_fetch_checkbox = {
+                        let is_active = dashboard.trade_fetch_enabled;
+
+                        let checkbox = iced::widget::checkbox("Fetch trades (Binance)", is_active)
+                            .on_toggle(|checked| {
+                                if checked {
+                                    Message::ToggleDialogModal(Some((
+                                        "This might be unreliable and take some time to complete"
+                                            .to_string(),
+                                        Box::new(Message::ToggleTradeFetch(true)),
+                                    )))
+                                } else {
+                                    Message::ToggleTradeFetch(false)
+                                }
+                            });
+
+                        tooltip(
+                            checkbox,
+                            Some("Try to fetch trades for footprint charts"),
+                            TooltipPosition::Top,
+                        )
+                    };
+
+                    let open_data_folder = {
+                        let button =
+                            button(text("Open data folder")).on_press(Message::DataFolderRequested);
+
+                        tooltip(
+                            button,
+                            Some("Open the folder where the data & config is stored"),
+                            TooltipPosition::Top,
+                        )
+                    };
+
+                    container(
+                        column![
+                            column![open_data_folder,].spacing(8),
+                            column![text("Sidebar position").size(14), sidebar_pos,].spacing(8),
+                            column![text("Time zone").size(14), timezone_picklist,].spacing(8),
+                            column![text("Theme").size(14), theme_picklist,].spacing(8),
+                            column![text("Interface scale").size(14), scale_factor,].spacing(8),
+                            column![
+                                text("Experimental").size(14),
+                                trade_fetch_checkbox,
+                                toggle_theme_editor
+                            ]
+                            .spacing(8),
+                        ]
+                        .spacing(20),
+                    )
+                    .align_x(Alignment::Start)
+                    .max_width(400)
+                    .padding(24)
+                    .style(style::dashboard_modal)
+                };
+
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                };
+
+                let base_content = dashboard_modal(
+                    base,
+                    settings_modal,
+                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                );
+
+                if let Some((dialog, on_confirm)) = &self.confirm_dialog {
+                    let dialog_content = confirm_dialog_container(
+                        dialog,
+                        *on_confirm.to_owned(),
+                        Message::ToggleDialogModal(None),
+                    );
+
+                    main_dialog_modal(
+                        base_content,
+                        dialog_content,
+                        Message::ToggleDialogModal(None),
+                    )
+                } else {
+                    base_content
+                }
+            }
+            sidebar::Menu::Layout => {
+                let pane = if let Some(focus) = dashboard.focus {
+                    focus.1
+                } else {
+                    *dashboard.panes.iter().next().unwrap().0
+                };
+
+                let reset_pane_button = tooltip(
+                    button(text("Reset").align_x(Alignment::Center))
+                        .width(iced::Length::Fill)
+                        .on_press(Message::Dashboard(
+                            None,
+                            dashboard::Message::Pane(
+                                main_window,
+                                dashboard::pane::Message::ReplacePane(pane),
+                            ),
+                        )),
+                    Some("Reset selected pane"),
+                    TooltipPosition::Top,
+                );
+                let split_pane_button = tooltip(
+                    button(text("Split").align_x(Alignment::Center))
+                        .width(iced::Length::Fill)
+                        .on_press(Message::Dashboard(
+                            None,
+                            dashboard::Message::Pane(
+                                main_window,
+                                dashboard::pane::Message::SplitPane(
+                                    pane_grid::Axis::Horizontal,
+                                    pane,
+                                ),
+                            ),
+                        )),
+                    Some("Split selected pane horizontally"),
+                    TooltipPosition::Top,
+                );
+
+                let manage_layout_modal = {
+                    container(
+                        column![
+                            column![
+                                text("Panes").size(14),
+                                if dashboard.focus.is_some() {
+                                    row![reset_pane_button, split_pane_button,]
+                                        .padding(padding::left(8).right(8))
+                                        .spacing(8)
+                                } else {
+                                    row![text("No pane selected"),]
+                                },
+                            ]
+                            .align_x(Alignment::Center)
+                            .spacing(8),
+                            column![
+                                text("Layouts").size(14),
+                                self.layout_manager.view().map(Message::Layouts),
+                            ]
+                            .align_x(Alignment::Center)
+                            .spacing(8),
+                        ]
+                        .align_x(Alignment::Center)
+                        .spacing(32),
+                    )
+                    .width(280)
+                    .padding(24)
+                    .style(style::dashboard_modal)
+                };
+
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(40)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(40)),
+                };
+
+                dashboard_modal(
+                    base,
+                    manage_layout_modal,
+                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::Audio => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(64)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(64)),
+                };
+
+                let depth_streams_list = dashboard.streams.depth_streams(None);
+
+                dashboard_modal(
+                    base,
+                    self.audio_stream
+                        .view(depth_streams_list)
+                        .map(Message::AudioStream),
+                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::ThemeEditor => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                };
+
+                dashboard_modal(
+                    base,
+                    self.theme_editor
+                        .view(&self.theme.0)
+                        .map(Message::ThemeEditor),
+                    Message::Sidebar(screen::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                )
+            }
+        }
     }
 }

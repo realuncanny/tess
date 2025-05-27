@@ -13,11 +13,11 @@ pub mod bybit;
 
 #[derive(thiserror::Error, Debug)]
 pub enum StreamError {
-    #[error("Fetchrror: {0}")]
+    #[error("{0}")]
     FetchError(#[from] reqwest::Error),
-    #[error("Parsing error: {0}")]
+    #[error("Parsing: {0}")]
     ParseError(String),
-    #[error("Stream error: {0}")]
+    #[error("Stream: {0}")]
     WebsocketError(String),
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
