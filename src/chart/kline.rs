@@ -18,7 +18,7 @@ use super::{
     indicator, scale::PriceInfoLabel,
 };
 
-use crate::{dashboard::panel::study, style};
+use crate::{modal::study, style};
 
 use iced::task::Handle;
 use iced::theme::palette::Extended;

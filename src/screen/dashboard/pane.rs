@@ -1,5 +1,8 @@
 use crate::{
     chart::{self, heatmap::HeatmapChart, kline::KlineChart},
+    modal::{
+        StreamModifier, heatmap_cfg_view, indicators_view, kline_cfg_view, stream_modifier_view,
+    },
     screen::{DashboardError, create_button, dashboard::panel::timeandsales::TimeAndSales},
     style::{self, Icon, icon_text},
     widget::{self, column_drag, pane_modal, toast::Toast},
@@ -25,8 +28,6 @@ use iced::{
 };
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
-
-use super::panel::StreamModifier;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum InfoType {
@@ -72,7 +73,7 @@ pub enum Message {
     DeleteNotification(pane_grid::Pane, usize),
     ReorderIndicator(pane_grid::Pane, column_drag::DragEvent),
     ClusterKindSelected(pane_grid::Pane, data::chart::kline::ClusterKind),
-    StudyConfigurator(pane_grid::Pane, super::panel::study::Message),
+    StudyConfigurator(pane_grid::Pane, crate::modal::study::Message),
 }
 
 pub struct State {
@@ -816,7 +817,7 @@ impl Content {
                 let base = chart::view(chart, indicators, timezone)
                     .map(move |message| Message::ChartUserUpdate(pane, message));
 
-                let settings_view = || super::panel::heatmap_cfg_view(chart.visual_config(), pane);
+                let settings_view = || heatmap_cfg_view(chart.visual_config(), pane);
 
                 let stream_modifier = StreamModifier::Heatmap(
                     state
@@ -841,8 +842,7 @@ impl Content {
 
                 let chart_kind = chart.kind();
 
-                let settings_view =
-                    || super::panel::kline_cfg_view(chart.study_configurator(), chart_kind, pane);
+                let settings_view = || kline_cfg_view(chart.study_configurator(), chart_kind, pane);
 
                 let stream_modifier = match chart_kind {
                     data::chart::KlineChartKind::Footprint { .. } => StreamModifier::Footprint(
@@ -907,14 +907,14 @@ where
     match state.modal {
         Some(Modal::StreamModifier) => pane_modal(
             base,
-            super::panel::stream_modifier_view(pane, stream_modifier, state.stream_pair()),
+            stream_modifier_view(pane, stream_modifier, state.stream_pair()),
             Message::ToggleModal(pane, Modal::StreamModifier),
             padding::left(36),
             Alignment::Start,
         ),
         Some(Modal::Indicators) => pane_modal(
             base,
-            super::panel::indicators_view(pane, state, indicators),
+            indicators_view(pane, state, indicators),
             Message::ToggleModal(pane, Modal::Indicators),
             padding::right(12).left(12),
             Alignment::End,

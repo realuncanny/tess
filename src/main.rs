@@ -1,29 +1,29 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
-mod audio;
 mod chart;
 mod layout;
 mod logger;
+mod modal;
 mod screen;
 mod style;
 mod widget;
 mod window;
 
-use layout::{Layout, LayoutManager};
+use data::config::theme::default_theme;
+use data::{layout::WindowSpec, sidebar};
+use exchange::adapter::StreamKind;
+use layout::Layout;
 use screen::dashboard::{self, Dashboard};
-use screen::theme_editor::{self, ThemeEditor};
-use screen::tickers_table::{self, TickersTable};
 use widget::{
+    confirm_dialog_container, dashboard_modal, main_dialog_modal,
     toast::{self, Toast},
     tooltip,
 };
 
-use data::{InternalError, layout::WindowSpec, sidebar};
-use exchange::adapter::{Exchange, StreamKind, fetch_ticker_info};
 use iced::{
     Alignment, Element, Subscription, Task, padding,
     widget::{
-        button, center, column, container, responsive, row, text,
+        button, column, container, pane_grid, pick_list, row, text,
         tooltip::Position as TooltipPosition,
     },
 };
@@ -58,171 +58,141 @@ fn main() {
 
 struct Flowsurface {
     main_window: window::Window,
-    layout_manager: LayoutManager,
-    tickers_table: TickersTable,
-    sidebar: screen::Sidebar,
+    sidebar: dashboard::Sidebar,
+    layout_manager: modal::LayoutManager,
+    theme_editor: modal::ThemeEditor,
+    audio_stream: modal::audio::AudioStream,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
     theme: data::Theme,
     notifications: Vec<Toast>,
-    audio_stream: audio::AudioStream,
-    theme_editor: ThemeEditor,
 }
 
 #[derive(Debug, Clone)]
 enum Message {
     LoadLayout(Layout),
-    Layouts(layout::Message),
-
+    Sidebar(dashboard::sidebar::Message),
     MarketWsEvent(exchange::Event),
-    AudioStream(audio::Message),
-    FetchTickersInfo,
-    ToggleTradeFetch(bool),
-
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
-    TickersTable(tickers_table::Message),
-
     Tick(Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
-    ErrorOccurred(InternalError),
 
+    DataFolderRequested,
     ThemeSelected(data::Theme),
     ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
-    SetSidebarPosition(sidebar::Position),
-    ToggleSidebarMenu(Option<sidebar::Menu>),
-    ToggleDialogModal(Option<(String, Box<Message>)>),
-    DataFolderRequested,
+    ToggleTradeFetch(bool),
 
+    ToggleDialogModal(Option<(String, Box<Message>)>),
     AddNotification(Toast),
     DeleteNotification(usize),
-
-    ThemeEditor(theme_editor::Message),
+    ThemeEditor(modal::theme_editor::Message),
+    Layouts(modal::layout_manager::Message),
+    AudioStream(modal::audio::Message),
 }
 
 impl Flowsurface {
     fn new() -> (Self, Task<Message>) {
         let saved_state = layout::load_saved_state();
 
-        let main_window_cfg = window::Settings {
-            size: saved_state
-                .main_window
-                .map_or_else(window::default_size, |w| w.size()),
-            position: saved_state.main_window.map(|w| w.position()).map_or(
-                iced::window::Position::Centered,
-                iced::window::Position::Specific,
-            ),
-            exit_on_close_request: false,
-            ..window::settings()
+        let (main_window_id, open_main_window) = {
+            let (position, size) = saved_state.window();
+
+            let config = window::Settings {
+                size,
+                position,
+                exit_on_close_request: false,
+                ..window::settings()
+            };
+
+            window::open(config)
         };
 
-        let active_layout = saved_state.layout_manager.active_layout();
-        let (main_window_id, open_main_window) = window::open(main_window_cfg);
+        let load_layout = Task::done(Message::LoadLayout(
+            saved_state.layout_manager.active_layout(),
+        ));
+        let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state);
 
         (
             Self {
                 main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
-                tickers_table: TickersTable::new(saved_state.favorited_tickers),
+                theme_editor: modal::ThemeEditor::new(saved_state.custom_theme),
+                audio_stream: modal::audio::AudioStream::new(saved_state.audio_cfg),
+                sidebar,
                 confirm_dialog: None,
                 timezone: saved_state.timezone,
                 scale_factor: saved_state.scale_factor,
-                sidebar: screen::Sidebar::new(saved_state.sidebar),
                 theme: saved_state.theme,
                 notifications: vec![],
-                audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
-                theme_editor: theme_editor::ThemeEditor::new(saved_state.custom_theme),
             },
             open_main_window
                 .then(|_| Task::none())
                 .chain(Task::batch(vec![
-                    Task::done(Message::LoadLayout(active_layout)),
+                    load_layout,
+                    launch_sidebar.map(Message::Sidebar),
                     Task::done(Message::SetTimezone(saved_state.timezone)),
-                    Task::done(Message::FetchTickersInfo),
                 ])),
         )
     }
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::FetchTickersInfo => {
-                let fetch_tasks = Exchange::ALL
-                    .iter()
-                    .map(|exchange| {
-                        Task::perform(fetch_ticker_info(*exchange), move |result| match result {
-                            Ok(ticker_info) => Message::TickersTable(
-                                tickers_table::Message::UpdateTickersInfo(*exchange, ticker_info),
-                            ),
-                            Err(err) => {
-                                Message::ErrorOccurred(InternalError::Fetch(err.to_string()))
-                            }
-                        })
-                    })
-                    .collect::<Vec<Task<Message>>>();
-
-                return Task::batch(fetch_tasks);
-            }
             Message::MarketWsEvent(event) => {
                 let main_window_id = self.main_window.id;
+                let dashboard = self.active_dashboard_mut();
 
-                if let Some(dashboard) = self.active_dashboard_mut() {
-                    match event {
-                        exchange::Event::Connected(exchange, _) => {
-                            log::info!("a stream connected to {exchange} WS");
-                        }
-                        exchange::Event::Disconnected(exchange, reason) => {
-                            log::info!("a stream disconnected from {exchange} WS: {reason:?}");
-                        }
-                        exchange::Event::DepthReceived(
-                            stream,
-                            depth_update_t,
-                            depth,
-                            trades_buffer,
-                        ) => {
-                            let task = dashboard
-                                .update_depth_and_trades(
-                                    &stream,
-                                    depth_update_t,
-                                    &depth,
-                                    &trades_buffer,
-                                    main_window_id,
-                                )
-                                .map(move |msg| Message::Dashboard(None, msg));
+                match event {
+                    exchange::Event::Connected(exchange, _) => {
+                        log::info!("a stream connected to {exchange} WS");
+                    }
+                    exchange::Event::Disconnected(exchange, reason) => {
+                        log::info!("a stream disconnected from {exchange} WS: {reason:?}");
+                    }
+                    exchange::Event::DepthReceived(
+                        stream,
+                        depth_update_t,
+                        depth,
+                        trades_buffer,
+                    ) => {
+                        let task = dashboard
+                            .update_depth_and_trades(
+                                &stream,
+                                depth_update_t,
+                                &depth,
+                                &trades_buffer,
+                                main_window_id,
+                            )
+                            .map(move |msg| Message::Dashboard(None, msg));
 
-                            if let Err(err) =
-                                self.audio_stream.try_play_sound(&stream, &trades_buffer)
-                            {
-                                log::error!("Failed to play sound: {err}");
-                            }
+                        if let Err(err) = self.audio_stream.try_play_sound(&stream, &trades_buffer)
+                        {
+                            log::error!("Failed to play sound: {err}");
+                        }
 
-                            return task;
-                        }
-                        exchange::Event::KlineReceived(stream, kline) => {
-                            return dashboard
-                                .update_latest_klines(&stream, &kline, main_window_id)
-                                .map(move |msg| Message::Dashboard(None, msg));
-                        }
+                        return task;
+                    }
+                    exchange::Event::KlineReceived(stream, kline) => {
+                        return dashboard
+                            .update_latest_klines(&stream, &kline, main_window_id)
+                            .map(move |msg| Message::Dashboard(None, msg));
                     }
                 }
             }
             Message::Tick(now) => {
                 let main_window_id = self.main_window.id;
 
-                if let Some(dashboard) = self.active_dashboard_mut() {
-                    return dashboard
-                        .tick(now, main_window_id)
-                        .map(move |msg| Message::Dashboard(None, msg));
-                }
+                return self
+                    .active_dashboard_mut()
+                    .tick(now, main_window_id)
+                    .map(move |msg| Message::Dashboard(None, msg));
             }
             Message::WindowEvent(event) => match event {
                 window::Event::CloseRequested(window) => {
                     let main_window = self.main_window.id;
-
-                    let Some(dashboard) = self.active_dashboard_mut() else {
-                        return iced::exit();
-                    };
+                    let dashboard = self.active_dashboard_mut();
 
                     if window != main_window {
                         dashboard.popout.remove(&window);
@@ -241,9 +211,7 @@ impl Flowsurface {
                 }
             },
             Message::ExitRequested(windows) => {
-                let dashboard = self.active_dashboard_mut().expect("No active dashboard");
-
-                dashboard
+                self.active_dashboard_mut()
                     .popout
                     .iter_mut()
                     .for_each(|(id, (_, window_spec))| {
@@ -252,10 +220,10 @@ impl Flowsurface {
                         }
                     });
 
-                let mut ser_layouts = Vec::new();
+                let mut ser_layouts = vec![];
 
                 for id in &self.layout_manager.layout_order {
-                    if let Some((layout, dashboard)) = self.layout_manager.layouts.get(id) {
+                    if let Some((layout, dashboard)) = self.layout_manager.get_layout(*id) {
                         let serialized_dashboard = data::Dashboard::from(dashboard);
 
                         ser_layouts.push(data::Layout {
@@ -267,7 +235,7 @@ impl Flowsurface {
 
                 let layouts = data::Layouts {
                     layouts: ser_layouts,
-                    active_layout: self.layout_manager.active_layout.name.clone(),
+                    active_layout: self.layout_manager.active_layout().name.clone(),
                 };
 
                 let main_window = windows
@@ -281,10 +249,10 @@ impl Flowsurface {
                     layouts,
                     self.theme.clone(),
                     self.theme_editor.custom_theme.clone().map(data::Theme),
-                    self.tickers_table.favorited_tickers(),
+                    self.sidebar.favorited_tickers(),
                     main_window,
                     self.timezone,
-                    self.sidebar.0,
+                    self.sidebar.state,
                     self.scale_factor,
                     audio_cfg,
                 );
@@ -304,19 +272,12 @@ impl Flowsurface {
 
                 return iced::exit();
             }
-            Message::ErrorOccurred(err) => {
-                return match err {
-                    InternalError::Fetch(err) | InternalError::Layout(err) => {
-                        Task::done(Message::AddNotification(Toast::error(err)))
-                    }
-                };
-            }
             Message::ThemeSelected(theme) => {
                 self.theme = theme.clone();
             }
             Message::Dashboard(id, message) => {
                 let main_window = self.main_window;
-                let layout_id = id.unwrap_or(self.layout_manager.active_layout.id);
+                let layout_id = id.unwrap_or(self.layout_manager.active_layout().id);
 
                 if let Some(dashboard) = self.layout_manager.mut_dashboard(&layout_id) {
                     let (main_task, event) = dashboard.update(message, &main_window, &layout_id);
@@ -341,45 +302,11 @@ impl Flowsurface {
                         .chain(additional_task);
                 }
             }
-            Message::TickersTable(message) => {
-                let action = self.tickers_table.update(message);
-
-                match action {
-                    Some(tickers_table::Action::TickerSelected(ticker_info, exchange, content)) => {
-                        let main_window_id = self.main_window.id;
-
-                        if let Some(dashboard) = self.active_dashboard_mut() {
-                            let task = dashboard.init_pane_task(
-                                main_window_id,
-                                ticker_info,
-                                exchange,
-                                &content,
-                            );
-
-                            return task.map(move |msg| Message::Dashboard(None, msg));
-                        }
-                    }
-                    Some(tickers_table::Action::Fetch(task)) => {
-                        return task.map(Message::TickersTable);
-                    }
-                    Some(tickers_table::Action::ErrorOccurred(err)) => {
-                        return Task::done(Message::ErrorOccurred(err));
-                    }
-                    None => {}
-                }
-            }
             Message::SetTimezone(tz) => {
                 self.timezone = tz;
             }
-            Message::SetSidebarPosition(position) => {
-                self.sidebar.set_position(position);
-            }
             Message::ScaleFactorChanged(value) => {
                 self.scale_factor = value;
-            }
-            Message::ToggleSidebarMenu(menu) => {
-                self.sidebar
-                    .set_menu(menu.filter(|&m| !self.sidebar.is_menu_active(m)));
             }
             Message::ToggleTradeFetch(checked) => {
                 self.layout_manager
@@ -399,44 +326,45 @@ impl Flowsurface {
                 let action = self.layout_manager.update(message);
 
                 match action {
-                    Some(layout::Action::Select(layout)) => {
-                        if let Some(dashboard) = self.active_dashboard() {
-                            let active_popout_keys =
-                                dashboard.popout.keys().copied().collect::<Vec<_>>();
+                    Some(modal::layout_manager::Action::Select(layout)) => {
+                        let active_popout_keys = self
+                            .active_dashboard()
+                            .popout
+                            .keys()
+                            .copied()
+                            .collect::<Vec<_>>();
 
-                            let window_tasks = Task::batch(
-                                active_popout_keys
-                                    .iter()
-                                    .map(|&popout_id| window::close(popout_id))
-                                    .collect::<Vec<_>>(),
-                            )
-                            .then(|_: Task<window::Id>| Task::none());
+                        let window_tasks = Task::batch(
+                            active_popout_keys
+                                .iter()
+                                .map(|&popout_id| window::close(popout_id))
+                                .collect::<Vec<_>>(),
+                        )
+                        .then(|_: Task<window::Id>| Task::none());
 
-                            return window::collect_window_specs(
-                                active_popout_keys,
-                                dashboard::Message::SavePopoutSpecs,
-                            )
-                            .map(move |msg| Message::Dashboard(None, msg))
-                            .chain(window_tasks)
-                            .chain(Task::done(Message::LoadLayout(layout)));
-                        } else {
-                            return Task::done(Message::ErrorOccurred(InternalError::Layout(
-                                "Couldn't get active dashboard".to_string(),
-                            )));
-                        }
+                        return window::collect_window_specs(
+                            active_popout_keys,
+                            dashboard::Message::SavePopoutSpecs,
+                        )
+                        .map(move |msg| Message::Dashboard(None, msg))
+                        .chain(window_tasks)
+                        .chain(Task::done(Message::LoadLayout(layout)));
                     }
                     None => {}
                 }
             }
-            Message::LoadLayout(layout) => {
-                self.layout_manager.active_layout = layout.clone();
-                if let Some(dashboard) = self.active_dashboard_mut() {
-                    dashboard.focus = None;
+            Message::LoadLayout(layout) => match self.layout_manager.set_active_layout(layout) {
+                Ok(dashboard) => {
                     return dashboard
                         .load_layout()
                         .map(move |msg| Message::Dashboard(None, msg));
                 }
-            }
+                Err(err) => {
+                    return Task::done(Message::AddNotification(Toast::error(format!(
+                        "Failed to load layout: {err}"
+                    ))));
+                }
+            },
             Message::AddNotification(toast) => {
                 self.notifications.push(toast);
             }
@@ -457,103 +385,100 @@ impl Flowsurface {
                 let action = self.theme_editor.update(msg, &self.theme.clone().into());
 
                 match action {
-                    Some(theme_editor::Action::Exit) => {
+                    Some(modal::theme_editor::Action::Exit) => {
                         self.sidebar.set_menu(Some(sidebar::Menu::Settings));
                     }
-                    Some(theme_editor::Action::UpdateTheme(theme)) => {
+                    Some(modal::theme_editor::Action::UpdateTheme(theme)) => {
                         self.theme = data::Theme(theme);
 
                         let main_window = self.main_window.id;
 
-                        if let Some(dashboard) = self.active_dashboard_mut() {
-                            dashboard.invalidate_all_panes(main_window);
-                        } else {
-                            return Task::done(Message::ErrorOccurred(InternalError::Layout(
-                                "No active dashboard".to_string(),
-                            )));
-                        }
+                        self.active_dashboard_mut()
+                            .invalidate_all_panes(main_window);
                     }
                     None => {}
                 }
+            }
+            Message::Sidebar(message) => {
+                let (task, action) = self.sidebar.update(message);
+
+                match action {
+                    Some(dashboard::sidebar::Action::TickerSelected(
+                        ticker_info,
+                        exchange,
+                        content,
+                    )) => {
+                        let main_window_id = self.main_window.id;
+
+                        let task = self.active_dashboard_mut().init_pane_task(
+                            main_window_id,
+                            ticker_info,
+                            exchange,
+                            &content,
+                        );
+
+                        return task.map(move |msg| Message::Dashboard(None, msg));
+                    }
+                    Some(dashboard::sidebar::Action::ErrorOccurred(err)) => {
+                        self.notifications.push(Toast::error(err.to_string()));
+                    }
+                    None => {}
+                }
+
+                return task.map(Message::Sidebar);
             }
         }
         Task::none()
     }
 
     fn view(&self, id: window::Id) -> Element<'_, Message> {
-        let Some(dashboard) = self.active_dashboard() else {
-            return center(
-                column![
-                    text("No dashboard available").size(20),
-                    button("Add new dashboard")
-                        .on_press(Message::Layouts(layout::Message::AddLayout))
-                ]
-                .align_x(Alignment::Center)
-                .spacing(8),
-            )
-            .into();
-        };
-
+        let dashboard = self.active_dashboard();
         let sidebar_pos = self.sidebar.position();
 
         let content = if id == self.main_window.id {
-            let sidebar = {
-                let is_table_open = self.tickers_table.is_open();
-
-                let tickers_table_view = if is_table_open {
-                    column![responsive(move |size| self
-                        .tickers_table
-                        .view(size)
-                        .map(Message::TickersTable))]
-                } else {
-                    column![]
-                };
-
-                self.sidebar.view(
-                    is_table_open,
-                    self.audio_stream.volume(),
-                    tickers_table_view.into(),
-                )
-            };
+            let sidebar_view = self
+                .sidebar
+                .view(self.audio_stream.volume())
+                .map(Message::Sidebar);
 
             let dashboard_view = dashboard
                 .view(&self.main_window, self.timezone)
                 .map(move |msg| Message::Dashboard(None, msg));
 
-            let base = column![
+            let header_title = {
+                #[cfg(target_os = "macos")]
                 {
-                    #[cfg(target_os = "macos")]
-                    {
-                        iced::widget::center(
-                            text("FLOWSURFACE")
-                                .font(iced::Font {
-                                    weight: iced::font::Weight::Bold,
-                                    ..Default::default()
-                                })
-                                .size(16)
-                                .style(style::title_text)
-                                .align_x(Alignment::Center),
-                        )
-                        .height(20)
-                        .align_y(Alignment::Center)
-                        .padding(padding::right(8).top(4))
-                    }
-                    #[cfg(not(target_os = "macos"))]
-                    {
-                        column![]
-                    }
-                },
+                    iced::widget::center(
+                        text("FLOWSURFACE")
+                            .font(iced::Font {
+                                weight: iced::font::Weight::Bold,
+                                ..Default::default()
+                            })
+                            .size(16)
+                            .style(style::title_text),
+                    )
+                    .height(20)
+                    .align_y(Alignment::Center)
+                    .padding(padding::top(4))
+                }
+                #[cfg(not(target_os = "macos"))]
+                {
+                    column![]
+                }
+            };
+
+            let base = column![
+                header_title,
                 match sidebar_pos {
-                    sidebar::Position::Left => row![sidebar, dashboard_view,],
-                    sidebar::Position::Right => row![dashboard_view, sidebar],
+                    sidebar::Position::Left => row![sidebar_view, dashboard_view,],
+                    sidebar::Position::Right => row![dashboard_view, sidebar_view],
                 }
                 .spacing(4)
                 .padding(8),
             ];
 
             if let Some(menu) = self.sidebar.active_menu() {
-                self.sidebar
-                    .view_with_modals(menu, dashboard, self, base.into(), id)
+                self.view_with_modal(base.into(), dashboard, menu)
             } else {
                 base.into()
             }
@@ -584,7 +509,7 @@ impl Flowsurface {
     }
 
     fn title(&self, _window: window::Id) -> String {
-        format!("Flowsurface [{}]", self.layout_manager.active_layout.name)
+        format!("Flowsurface [{}]", self.layout_manager.active_layout().name)
     }
 
     fn scale_factor(&self, _window: window::Id) -> f64 {
@@ -593,30 +518,310 @@ impl Flowsurface {
 
     fn subscription(&self) -> Subscription<Message> {
         let window_events = window::events().map(Message::WindowEvent);
+        let sidebar = self.sidebar.subscription().map(Message::Sidebar);
 
-        let Some(dashboard) = self.active_dashboard() else {
-            return window_events;
-        };
-
-        let exchange_streams = dashboard.market_subscriptions().map(Message::MarketWsEvent);
-
-        let tickers_table_fetch = self.tickers_table.subscription().map(Message::TickersTable);
+        let exchange_streams = self
+            .active_dashboard()
+            .market_subscriptions()
+            .map(Message::MarketWsEvent);
 
         let tick = iced::time::every(Duration::from_millis(100)).map(Message::Tick);
 
-        Subscription::batch(vec![
-            exchange_streams,
-            tickers_table_fetch,
-            window_events,
-            tick,
-        ])
+        Subscription::batch(vec![exchange_streams, sidebar, window_events, tick])
     }
 
-    fn active_dashboard(&self) -> Option<&Dashboard> {
-        self.layout_manager.active_dashboard()
+    fn active_dashboard(&self) -> &Dashboard {
+        self.layout_manager
+            .active_dashboard()
+            .expect("No active dashboard")
     }
 
-    fn active_dashboard_mut(&mut self) -> Option<&mut Dashboard> {
-        self.layout_manager.active_dashboard_mut()
+    fn active_dashboard_mut(&mut self) -> &mut Dashboard {
+        self.layout_manager
+            .active_dashboard_mut()
+            .expect("No active dashboard")
+    }
+
+    fn view_with_modal<'a>(
+        &'a self,
+        base: Element<'a, Message>,
+        dashboard: &'a Dashboard,
+        menu: sidebar::Menu,
+    ) -> Element<'a, Message> {
+        let sidebar_pos = self.sidebar.position();
+        let main_window = self.main_window.id;
+
+        match menu {
+            sidebar::Menu::Settings => {
+                let settings_modal = {
+                    let theme_picklist = {
+                        let mut themes: Vec<iced::Theme> = iced_core::Theme::ALL.to_vec();
+
+                        let default_theme = iced_core::Theme::Custom(default_theme().into());
+                        themes.push(default_theme);
+
+                        if let Some(custom_theme) = self.theme_editor.custom_theme.clone() {
+                            themes.push(custom_theme);
+                        }
+
+                        pick_list(themes, Some(self.theme.clone().0), |theme| {
+                            Message::ThemeSelected(data::Theme(theme))
+                        })
+                    };
+
+                    let toggle_theme_editor = button(text("Theme editor")).on_press(
+                        Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(Some(
+                            sidebar::Menu::ThemeEditor,
+                        ))),
+                    );
+
+                    let timezone_picklist = pick_list(
+                        [data::UserTimezone::Utc, data::UserTimezone::Local],
+                        Some(self.timezone),
+                        Message::SetTimezone,
+                    );
+
+                    let sidebar_pos = pick_list(
+                        [sidebar::Position::Left, sidebar::Position::Right],
+                        Some(sidebar_pos),
+                        |pos| {
+                            Message::Sidebar(dashboard::sidebar::Message::SetSidebarPosition(pos))
+                        },
+                    );
+
+                    let scale_factor = {
+                        let current_value: f64 = self.scale_factor.into();
+
+                        let decrease_btn = if current_value > data::config::MIN_SCALE {
+                            button(text("-"))
+                                .on_press(Message::ScaleFactorChanged((current_value - 0.1).into()))
+                        } else {
+                            button(text("-"))
+                        };
+
+                        let increase_btn = if current_value < data::config::MAX_SCALE {
+                            button(text("+"))
+                                .on_press(Message::ScaleFactorChanged((current_value + 0.1).into()))
+                        } else {
+                            button(text("+"))
+                        };
+
+                        container(
+                            row![
+                                decrease_btn,
+                                text(format!("{:.0}%", current_value * 100.0)).size(14),
+                                increase_btn,
+                            ]
+                            .align_y(Alignment::Center)
+                            .spacing(8)
+                            .padding(4),
+                        )
+                        .style(style::modal_container)
+                    };
+
+                    let trade_fetch_checkbox = {
+                        let is_active = dashboard.trade_fetch_enabled;
+
+                        let checkbox = iced::widget::checkbox("Fetch trades (Binance)", is_active)
+                            .on_toggle(|checked| {
+                                if checked {
+                                    Message::ToggleDialogModal(Some((
+                                        "This might be unreliable and take some time to complete"
+                                            .to_string(),
+                                        Box::new(Message::ToggleTradeFetch(true)),
+                                    )))
+                                } else {
+                                    Message::ToggleTradeFetch(false)
+                                }
+                            });
+
+                        tooltip(
+                            checkbox,
+                            Some("Try to fetch trades for footprint charts"),
+                            TooltipPosition::Top,
+                        )
+                    };
+
+                    let open_data_folder = {
+                        let button =
+                            button(text("Open data folder")).on_press(Message::DataFolderRequested);
+
+                        tooltip(
+                            button,
+                            Some("Open the folder where the data & config is stored"),
+                            TooltipPosition::Top,
+                        )
+                    };
+
+                    container(
+                        column![
+                            column![open_data_folder,].spacing(8),
+                            column![text("Sidebar position").size(14), sidebar_pos,].spacing(8),
+                            column![text("Time zone").size(14), timezone_picklist,].spacing(8),
+                            column![text("Theme").size(14), theme_picklist,].spacing(8),
+                            column![text("Interface scale").size(14), scale_factor,].spacing(8),
+                            column![
+                                text("Experimental").size(14),
+                                trade_fetch_checkbox,
+                                toggle_theme_editor
+                            ]
+                            .spacing(8),
+                        ]
+                        .spacing(20),
+                    )
+                    .align_x(Alignment::Start)
+                    .max_width(400)
+                    .padding(24)
+                    .style(style::dashboard_modal)
+                };
+
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                };
+
+                let base_content = dashboard_modal(
+                    base,
+                    settings_modal,
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                );
+
+                if let Some((dialog, on_confirm)) = &self.confirm_dialog {
+                    let dialog_content = confirm_dialog_container(
+                        dialog,
+                        *on_confirm.to_owned(),
+                        Message::ToggleDialogModal(None),
+                    );
+
+                    main_dialog_modal(
+                        base_content,
+                        dialog_content,
+                        Message::ToggleDialogModal(None),
+                    )
+                } else {
+                    base_content
+                }
+            }
+            sidebar::Menu::Layout => {
+                let pane = if let Some(focus) = dashboard.focus {
+                    focus.1
+                } else {
+                    *dashboard.panes.iter().next().unwrap().0
+                };
+
+                let reset_pane_button = tooltip(
+                    button(text("Reset").align_x(Alignment::Center))
+                        .width(iced::Length::Fill)
+                        .on_press(Message::Dashboard(
+                            None,
+                            dashboard::Message::Pane(
+                                main_window,
+                                dashboard::pane::Message::ReplacePane(pane),
+                            ),
+                        )),
+                    Some("Reset selected pane"),
+                    TooltipPosition::Top,
+                );
+                let split_pane_button = tooltip(
+                    button(text("Split").align_x(Alignment::Center))
+                        .width(iced::Length::Fill)
+                        .on_press(Message::Dashboard(
+                            None,
+                            dashboard::Message::Pane(
+                                main_window,
+                                dashboard::pane::Message::SplitPane(
+                                    pane_grid::Axis::Horizontal,
+                                    pane,
+                                ),
+                            ),
+                        )),
+                    Some("Split selected pane horizontally"),
+                    TooltipPosition::Top,
+                );
+
+                let manage_layout_modal = {
+                    container(
+                        column![
+                            column![
+                                text("Panes").size(14),
+                                if dashboard.focus.is_some() {
+                                    row![reset_pane_button, split_pane_button,]
+                                        .padding(padding::left(8).right(8))
+                                        .spacing(8)
+                                } else {
+                                    row![text("No pane selected"),]
+                                },
+                            ]
+                            .align_x(Alignment::Center)
+                            .spacing(8),
+                            column![
+                                text("Layouts").size(14),
+                                self.layout_manager.view().map(Message::Layouts),
+                            ]
+                            .align_x(Alignment::Center)
+                            .spacing(8),
+                        ]
+                        .align_x(Alignment::Center)
+                        .spacing(32),
+                    )
+                    .width(280)
+                    .padding(24)
+                    .style(style::dashboard_modal)
+                };
+
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(40)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(40)),
+                };
+
+                dashboard_modal(
+                    base,
+                    manage_layout_modal,
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::Audio => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(64)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(64)),
+                };
+
+                let depth_streams_list = dashboard.streams.depth_streams(None);
+
+                dashboard_modal(
+                    base,
+                    self.audio_stream
+                        .view(depth_streams_list)
+                        .map(Message::AudioStream),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::Start,
+                    align_x,
+                )
+            }
+            sidebar::Menu::ThemeEditor => {
+                let (align_x, padding) = match sidebar_pos {
+                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                };
+
+                dashboard_modal(
+                    base,
+                    self.theme_editor
+                        .view(&self.theme.0)
+                        .map(Message::ThemeEditor),
+                    Message::Sidebar(dashboard::sidebar::Message::ToggleSidebarMenu(None)),
+                    padding,
+                    Alignment::End,
+                    align_x,
+                )
+            }
+        }
     }
 }

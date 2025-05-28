@@ -4,7 +4,7 @@ use crate::style::{self, ICONS_FONT, Icon, icon_text};
 use data::InternalError;
 use exchange::{
     Ticker, TickerInfo, TickerStats,
-    adapter::{Exchange, MarketKind, fetch_ticker_prices},
+    adapter::{Exchange, MarketKind, fetch_ticker_info, fetch_ticker_prices},
 };
 use iced::{
     Alignment, Element, Length, Renderer, Size, Subscription, Task, Theme,
@@ -23,6 +23,20 @@ const INACTIVE_UPDATE_INTERVAL: u64 = 300;
 
 const TICKER_CARD_HEIGHT: f32 = 64.0;
 const SEARCH_BAR_HEIGHT: f32 = 120.0;
+
+pub fn fetch_tickers_info() -> Task<Message> {
+    let fetch_tasks = Exchange::ALL
+        .iter()
+        .map(|exchange| {
+            Task::perform(fetch_ticker_info(*exchange), move |result| match result {
+                Ok(ticker_info) => Message::UpdateTickersInfo(*exchange, ticker_info),
+                Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
+            })
+        })
+        .collect::<Vec<Task<Message>>>();
+
+    Task::batch(fetch_tasks)
+}
 
 pub enum Action {
     TickerSelected(TickerInfo, Exchange, String),
@@ -90,22 +104,25 @@ pub struct TickersTable {
 }
 
 impl TickersTable {
-    pub fn new(favorited_tickers: Vec<(Exchange, Ticker)>) -> Self {
-        Self {
-            ticker_stats: HashMap::new(),
-            combined_tickers: Vec::new(),
-            display_cache: HashMap::new(),
-            favorited_tickers,
-            selected_tab: TickerTab::All,
-            search_query: String::new(),
-            show_sort_options: false,
-            selected_sort_option: SortOptions::VolumeDesc,
-            expand_ticker_card: None,
-            scroll_offset: AbsoluteOffset::default(),
-            selected_market: None,
-            is_show: false,
-            tickers_info: HashMap::new(),
-        }
+    pub fn new(favorited_tickers: Vec<(Exchange, Ticker)>) -> (Self, Task<Message>) {
+        (
+            Self {
+                ticker_stats: HashMap::new(),
+                combined_tickers: Vec::new(),
+                display_cache: HashMap::new(),
+                favorited_tickers,
+                selected_tab: TickerTab::All,
+                search_query: String::new(),
+                show_sort_options: false,
+                selected_sort_option: SortOptions::VolumeDesc,
+                expand_ticker_card: None,
+                scroll_offset: AbsoluteOffset::default(),
+                selected_market: None,
+                is_show: false,
+                tickers_info: HashMap::new(),
+            },
+            fetch_tickers_info(),
+        )
     }
 
     pub fn update_table(&mut self, exchange: Exchange, ticker_stats: HashMap<Ticker, TickerStats>) {

@@ -1,5 +1,9 @@
 pub mod pane;
 pub mod panel;
+pub mod sidebar;
+pub mod tickers_table;
+
+pub use sidebar::Sidebar;
 
 use crate::{
     StreamKind, chart, style,
