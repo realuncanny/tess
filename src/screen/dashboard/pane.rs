@@ -77,7 +77,7 @@ pub enum Message {
 }
 
 pub struct State {
-    pub id: uuid::Uuid,
+    id: uuid::Uuid,
     pub modal: Option<Modal>,
     pub content: Content,
     pub settings: Settings,
@@ -558,6 +558,10 @@ impl State {
         }
 
         None
+    }
+
+    pub fn unique_id(&self) -> uuid::Uuid {
+        self.id
     }
 }
 

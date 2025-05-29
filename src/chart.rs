@@ -719,7 +719,7 @@ impl CommonChartData {
     ) -> (f32, u64) {
         let region = self.visible_region(bounds);
 
-        let dashed_line = style::get_dashed_line(theme);
+        let dashed_line = style::dashed_line(theme);
 
         // Horizontal price line
         let highest = self.y_to_price(region.y);

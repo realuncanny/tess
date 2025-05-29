@@ -6,7 +6,7 @@ use iced::{Element, Length};
 use iced::{Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
 use crate::chart::{Basis, Caches, CommonChartData, Interaction, Message};
-use crate::style::{self, get_dashed_line};
+use crate::style::{self, dashed_line};
 
 use data::util::{format_with_commas, round_to_tick};
 
@@ -261,7 +261,7 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
 
         if chart_state.crosshair {
             let crosshair = self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
-                let dashed_line = get_dashed_line(theme);
+                let dashed_line = dashed_line(theme);
 
                 if let Some(cursor_position) = cursor.position_in(chart_state.bounds) {
                     let region = self.visible_region(frame.size());

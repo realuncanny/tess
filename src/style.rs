@@ -281,10 +281,10 @@ pub fn pane_grid(theme: &Theme) -> widget::pane_grid::Style {
 
     widget::pane_grid::Style {
         hovered_region: Highlight {
-            background: palette.background.strong.color.into(),
+            background: palette.background.strongest.color.scale_alpha(0.5).into(),
             border: Border {
                 width: 1.0,
-                color: palette.primary.base.color,
+                color: palette.background.strongest.color,
                 radius: 4.0.into(),
             },
         },
@@ -602,7 +602,7 @@ pub fn drag_handle(theme: &Theme) -> iced::widget::text::Style {
 }
 
 // crosshair dashed line for charts
-pub fn get_dashed_line(theme: &Theme) -> Stroke {
+pub fn dashed_line(theme: &Theme) -> Stroke {
     let palette = theme.extended_palette();
 
     Stroke::with_color(

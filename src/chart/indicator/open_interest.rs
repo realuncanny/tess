@@ -5,7 +5,7 @@ use iced::widget::{Canvas, center, container, row, text, vertical_rule};
 use iced::{Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
 use crate::chart::{Basis, Caches, CommonChartData, Interaction, Message};
-use crate::style::{self, get_dashed_line};
+use crate::style::{self, dashed_line};
 use data::util::{format_with_commas, guesstimate_ticks, round_to_tick};
 use exchange::Timeframe;
 
@@ -225,7 +225,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
 
         if chart_state.crosshair {
             let crosshair = self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
-                let dashed_line = get_dashed_line(theme);
+                let dashed_line = dashed_line(theme);
 
                 if let Some(cursor_position) = cursor.position_in(chart_state.bounds) {
                     let region = self.visible_region(frame.size());

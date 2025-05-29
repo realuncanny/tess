@@ -35,13 +35,12 @@ use std::{collections::HashMap, path::PathBuf, time::Instant, vec};
 #[derive(Debug, Clone)]
 pub enum Message {
     Pane(window::Id, pane::Message),
+    ChangePaneStatus(uuid::Uuid, pane::Status),
     SavePopoutSpecs(HashMap<window::Id, WindowSpec>),
     ErrorOccurred(Option<uuid::Uuid>, DashboardError),
     Notification(Toast),
-
     LayoutFetchAll,
     RefreshStreams,
-
     ChartRequestedFetch {
         window: window::Id,
         pane: pane_grid::Pane,
@@ -54,7 +53,6 @@ pub enum Message {
         stream: StreamKind,
         data: FetchedData,
     },
-    ChangePaneStatus(uuid::Uuid, pane::Status),
 }
 
 pub struct Dashboard {
@@ -188,7 +186,7 @@ impl Dashboard {
                     }
                 }
             }
-            Message::ErrorOccurred(pane_uid, err) => match pane_uid {
+            Message::ErrorOccurred(pane_id, err) => match pane_id {
                 Some(id) => {
                     if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, id) {
                         pane_state.notifications.push(Toast::error(err.to_string()));
@@ -309,22 +307,18 @@ impl Dashboard {
                         }
 
                         // set pane's stream and content identifiers
-                        if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
-                            if let Err(err) = pane_state.set_content(ticker_info, &content_str) {
-                                return (err_occurred(Some(pane_state.id), err), None);
+                        if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
+                            let pane_id = state.unique_id();
+
+                            if let Err(err) = state.set_content(ticker_info, &content_str) {
+                                return (err_occurred(Some(pane_id), err), None);
                             }
 
                             // get fetch tasks for pane's content
                             for stream in &pane_stream {
                                 if let StreamKind::Kline { .. } = stream {
                                     return (
-                                        kline_fetch_task(
-                                            *layout_id,
-                                            pane_state.id,
-                                            *stream,
-                                            None,
-                                            None,
-                                        ),
+                                        kline_fetch_task(*layout_id, pane_id, *stream, None, None),
                                         None,
                                     );
                                 }
@@ -507,11 +501,13 @@ impl Dashboard {
                     let kline_stream =
                         self.get_mut_pane(main_window.id, window, pane)
                             .and_then(|state| {
+                                let pane_id = state.unique_id();
+
                                 state
                                     .streams
                                     .iter()
                                     .find(|stream| matches!(stream, StreamKind::Kline { .. }))
-                                    .map(|stream| (*stream, state.id))
+                                    .map(|stream| (*stream, pane_id))
                             });
 
                     if let Some((stream, pane_uid)) = kline_stream {
@@ -531,11 +527,13 @@ impl Dashboard {
                     let kline_stream =
                         self.get_mut_pane(main_window.id, window, pane)
                             .and_then(|state| {
+                                let pane_id = state.unique_id();
+
                                 state
                                     .streams
                                     .iter()
                                     .find(|stream| matches!(stream, StreamKind::Kline { .. }))
-                                    .map(|stream| (*stream, state.id))
+                                    .map(|stream| (*stream, pane_id))
                             });
 
                     if let Some((stream, pane_uid)) = kline_stream {
@@ -559,10 +557,12 @@ impl Dashboard {
                     let trade_info =
                         self.get_pane(main_window.id, window, pane)
                             .and_then(|state| {
+                                let pane_id = state.unique_id();
+
                                 state.streams.iter().find_map(|stream| {
                                     if let StreamKind::DepthAndTrades { exchange, ticker } = stream
                                     {
-                                        Some((*exchange, *ticker, state.id, *stream))
+                                        Some((*exchange, *ticker, pane_id, *stream))
                                     } else {
                                         None
                                     }
@@ -618,9 +618,8 @@ impl Dashboard {
                     }
                 }
             },
-            Message::ChangePaneStatus(pane_uid, status) => {
-                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_uid)
-                {
+            Message::ChangePaneStatus(pane_id, status) => {
+                if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, pane_id) {
                     pane_state.status = status;
                 }
             }
@@ -782,7 +781,7 @@ impl Dashboard {
         uuid: uuid::Uuid,
     ) -> Option<&mut pane::State> {
         self.iter_all_panes_mut(main_window)
-            .find(|(_, _, state)| state.id == uuid)
+            .find(|(_, _, state)| state.unique_id() == uuid)
             .map(|(_, _, state)| state)
     }
 
@@ -880,11 +879,13 @@ impl Dashboard {
         pane: pane_grid::Pane,
         new_tick_multiply: TickMultiplier,
     ) -> Task<Message> {
-        if let Some(pane_state) = self.get_mut_pane(main_window, window, pane) {
-            pane_state.settings.tick_multiply = Some(new_tick_multiply);
+        if let Some(state) = self.get_mut_pane(main_window, window, pane) {
+            state.settings.tick_multiply = Some(new_tick_multiply);
 
-            if let Some(ticker_info) = pane_state.settings.ticker_info {
-                match pane_state.content {
+            let pane_id = state.unique_id();
+
+            if let Some(ticker_info) = state.settings.ticker_info {
+                match state.content {
                     pane::Content::Kline(ref mut chart, _) => {
                         chart.change_tick_size(
                             new_tick_multiply.multiply_with_min_tick_size(ticker_info),
@@ -899,7 +900,7 @@ impl Dashboard {
                     }
                     _ => {
                         return Task::done(Message::ErrorOccurred(
-                            Some(pane_state.id),
+                            Some(pane_id),
                             DashboardError::PaneSet(
                                 "No chart found to change ticksize".to_string(),
                             ),
@@ -908,7 +909,7 @@ impl Dashboard {
                 }
             } else {
                 return Task::done(Message::ErrorOccurred(
-                    Some(pane_state.id),
+                    Some(pane_id),
                     DashboardError::PaneSet("No min ticksize found".to_string()),
                 ));
             }
@@ -929,10 +930,12 @@ impl Dashboard {
         pane: pane_grid::Pane,
         new_timeframe: Timeframe,
     ) -> Result<(&StreamKind, uuid::Uuid), DashboardError> {
-        if let Some(pane_state) = self.get_mut_pane(main_window, window, pane) {
-            pane_state.settings.selected_basis = Some(Basis::Time(new_timeframe.to_milliseconds()));
+        if let Some(state) = self.get_mut_pane(main_window, window, pane) {
+            let pane_id = state.unique_id();
 
-            if let Some(stream_type) = pane_state
+            state.settings.selected_basis = Some(Basis::Time(new_timeframe.to_milliseconds()));
+
+            if let Some(stream_type) = state
                 .streams
                 .iter_mut()
                 .find(|stream_type| matches!(stream_type, StreamKind::Kline { .. }))
@@ -941,8 +944,8 @@ impl Dashboard {
                     *timeframe = new_timeframe;
                 }
 
-                if let pane::Content::Kline(_, _) = &pane_state.content {
-                    return Ok((stream_type, pane_state.id));
+                if let pane::Content::Kline(_, _) = &state.content {
+                    return Ok((stream_type, pane_id));
                 }
             }
         }
@@ -1158,8 +1161,10 @@ impl Dashboard {
         self.iter_all_panes_mut(main_window)
             .for_each(|(window, pane, state)| match state.tick(now) {
                 Some(chart::Action::ErrorOccurred(err)) => {
+                    let pane_id = state.unique_id();
+
                     tasks.push(Task::done(Message::ErrorOccurred(
-                        Some(state.id),
+                        Some(pane_id),
                         DashboardError::Unknown(err.to_string()),
                     )));
                 }
@@ -1231,7 +1236,7 @@ impl Dashboard {
             let matching_panes = self
                 .iter_all_panes(main_window_id)
                 .filter(|(_, _, pane_state)| pane_state.matches_stream(&stream_kind))
-                .map(|(_, _, state)| state.id)
+                .map(|(_, _, state)| state.unique_id())
                 .collect::<Vec<uuid::Uuid>>();
 
             if matching_panes.is_empty() {
