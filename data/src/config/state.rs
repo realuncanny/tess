@@ -25,6 +25,7 @@ pub struct State {
     pub sidebar: Sidebar,
     pub scale_factor: ScaleFactor,
     pub audio_cfg: AudioStream,
+    pub trade_fetch_enabled: bool,
 }
 
 impl State {
@@ -49,6 +50,7 @@ impl State {
             sidebar,
             scale_factor,
             audio_cfg,
+            trade_fetch_enabled: exchange::fetcher::is_trade_fetch_enabled(),
         }
     }
 }

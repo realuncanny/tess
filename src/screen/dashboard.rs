@@ -60,7 +60,6 @@ pub struct Dashboard {
     pub focus: Option<(window::Id, pane_grid::Pane)>,
     pub popout: HashMap<window::Id, (pane_grid::State<pane::State>, WindowSpec)>,
     pub streams: UniqueStreams,
-    pub trade_fetch_enabled: bool,
 }
 
 impl Default for Dashboard {
@@ -70,7 +69,6 @@ impl Default for Dashboard {
             focus: None,
             streams: UniqueStreams::default(),
             popout: HashMap::new(),
-            trade_fetch_enabled: false,
         }
     }
 }
@@ -114,7 +112,6 @@ impl Dashboard {
     pub fn from_config(
         panes: Configuration<pane::State>,
         popout_windows: Vec<(Configuration<pane::State>, WindowSpec)>,
-        trade_fetch_enabled: bool,
     ) -> Self {
         let panes = pane_grid::State::with_configuration(panes);
 
@@ -132,7 +129,6 @@ impl Dashboard {
             focus: None,
             streams: UniqueStreams::default(),
             popout,
-            trade_fetch_enabled,
         }
     }
 
@@ -550,7 +546,7 @@ impl Dashboard {
                     }
                 }
                 FetchRange::Trades(from_time, to_time) => {
-                    if !self.trade_fetch_enabled {
+                    if !exchange::fetcher::is_trade_fetch_enabled() {
                         return (Task::none(), None);
                     }
 
@@ -977,7 +973,7 @@ impl Dashboard {
     }
 
     pub fn toggle_trade_fetch(&mut self, is_enabled: bool, main_window: &Window) {
-        self.trade_fetch_enabled = is_enabled;
+        exchange::fetcher::toggle_trade_fetch(is_enabled);
 
         self.iter_all_panes_mut(main_window.id)
             .for_each(|(_, _, pane_state)| {

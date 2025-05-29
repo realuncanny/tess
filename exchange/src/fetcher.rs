@@ -1,6 +1,17 @@
 use crate::{Kline, OpenInterest, Trade};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use uuid::Uuid;
+
+static TRADE_FETCH_ENABLED: AtomicBool = AtomicBool::new(false);
+
+pub fn toggle_trade_fetch(value: bool) {
+    TRADE_FETCH_ENABLED.store(value, Ordering::Relaxed);
+}
+
+pub fn is_trade_fetch_enabled() -> bool {
+    TRADE_FETCH_ENABLED.load(Ordering::Relaxed)
+}
 
 #[derive(Debug, Clone)]
 pub enum FetchedData {

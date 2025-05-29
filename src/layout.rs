@@ -99,7 +99,6 @@ impl From<&Dashboard> for data::Dashboard {
                     .map(|(pane, window_spec)| (pane.clone(), *window_spec))
                     .collect()
             },
-            trade_fetch_enabled: dashboard.trade_fetch_enabled,
         }
     }
 }
@@ -293,7 +292,6 @@ pub fn load_saved_state() -> SavedState {
                 let dashboard = Dashboard::from_config(
                     configuration(layout.dashboard.pane.clone()),
                     popout_windows,
-                    layout.dashboard.trade_fetch_enabled,
                 );
 
                 de_layouts.push((layout.name.clone(), dashboard));
@@ -327,6 +325,8 @@ pub fn load_saved_state() -> SavedState {
 
                 LayoutManager::from_config(layout_order, layouts, active_layout)
             };
+
+            exchange::fetcher::toggle_trade_fetch(state.trade_fetch_enabled);
 
             SavedState {
                 theme: state.selected_theme,

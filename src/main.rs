@@ -620,7 +620,7 @@ impl Flowsurface {
                     };
 
                     let trade_fetch_checkbox = {
-                        let is_active = dashboard.trade_fetch_enabled;
+                        let is_active = exchange::fetcher::is_trade_fetch_enabled();
 
                         let checkbox = iced::widget::checkbox("Fetch trades (Binance)", is_active)
                             .on_toggle(|checked| {
