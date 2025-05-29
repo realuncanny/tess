@@ -51,6 +51,10 @@ impl Chart for KlineChart {
         let visible_region = chart_state.visible_region(chart_state.bounds.size());
         let (earliest, latest) = chart_state.interval_range(&visible_region);
 
+        if earliest > latest {
+            return vec![];
+        }
+
         let mut indicators = vec![];
 
         let market = match chart_state.ticker_info {

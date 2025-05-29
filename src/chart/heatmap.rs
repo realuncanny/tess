@@ -167,11 +167,13 @@ impl HeatmapChart {
         depth_update_t: u64,
         depth: &Depth,
     ) {
+        let chart = &mut self.chart;
+
+        let mid_price = depth.mid_price().unwrap_or(chart.base_price_y);
+        chart.last_price = Some(PriceInfoLabel::Neutral(mid_price));
+
         // if current orderbook not visible, pause the data insertion and buffer them instead
-        let is_paused = {
-            let chart = &mut self.chart;
-            chart.translation.x * chart.scaling > chart.bounds.width / 2.0
-        };
+        let is_paused = { chart.translation.x * chart.scaling > chart.bounds.width / 2.0 };
 
         if is_paused {
             self.pause_buffer.push((
@@ -303,8 +305,6 @@ impl HeatmapChart {
 
         {
             let mid_price = depth.mid_price().unwrap_or(chart.base_price_y);
-
-            chart.last_price = Some(PriceInfoLabel::Neutral(mid_price));
             chart.base_price_y = (mid_price / (chart.tick_size)).round() * (chart.tick_size);
         }
 
