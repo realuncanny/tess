@@ -353,9 +353,9 @@ pub fn indicators_view<'a, I: Indicator>(
 ) -> Element<'a, Message> {
     let market_type = state.settings.ticker_info.map(|info| info.market_type());
 
-    let build_indicators = |is_draggable: bool| -> Element<'a, Message> {
+    let build_indicators = |allows_drag: bool| -> Element<'a, Message> {
         if let Some(market) = market_type {
-            let indicator_row_elem = |indicator: &I, is_selected_indicator: bool| {
+            let indicator_row_elem_fn = |indicator: &I, is_selected_indicator: bool| {
                 let content = if is_selected_indicator {
                     row![
                         text(indicator.to_string()),
@@ -376,29 +376,35 @@ pub fn indicators_view<'a, I: Indicator>(
                     .into()
             };
 
-            let mut all_indicator_elements: Vec<Element<'a, Message>> = vec![];
+            let mut base_row_elements: Vec<Element<_>> = vec![];
 
             for indicator in selected {
-                let base_row = indicator_row_elem(indicator, true);
-                all_indicator_elements.push(if is_draggable {
-                    dragger_row(base_row)
-                } else {
-                    base_row
-                });
+                base_row_elements.push(indicator_row_elem_fn(indicator, true));
             }
 
             for indicator in I::for_market(market) {
                 if !selected.contains(indicator) {
-                    let base_row = indicator_row_elem(indicator, false);
-                    all_indicator_elements.push(if is_draggable {
-                        dragger_row(base_row)
-                    } else {
-                        base_row
-                    });
+                    base_row_elements.push(indicator_row_elem_fn(indicator, false));
                 }
             }
 
-            let indicators_list_content: Element<'a, Message> = if is_draggable {
+            let reorderable = allows_drag && selected.len() >= 2;
+
+            let all_indicator_elements: Vec<Element<_>> = base_row_elements
+                .into_iter()
+                .map(|base_content| {
+                    if reorderable {
+                        dragger_row(base_content)
+                    } else {
+                        container(base_content)
+                            .padding(2)
+                            .style(style::dragger_row_container)
+                            .into()
+                    }
+                })
+                .collect();
+
+            let indicators_list_content: Element<_> = if reorderable {
                 let mut draggable_column = column_drag::Column::new()
                     .on_drag(move |event| Message::ReorderIndicator(pane, event))
                     .spacing(4);
@@ -423,11 +429,8 @@ pub fn indicators_view<'a, I: Indicator>(
         }
     };
 
-    let content_row = match state.content {
-        pane::Content::Heatmap(_, _) => build_indicators(false),
-        pane::Content::Kline(_, _) => build_indicators(true),
-        pane::Content::TimeAndSales(_) | pane::Content::Starter => unreachable!(),
-    };
+    let content_allows_dragging = matches!(state.content, pane::Content::Kline(_, _));
+    let content_row = build_indicators(content_allows_dragging);
 
     container(content_row)
         .max_width(200)
