@@ -1,8 +1,8 @@
 use crate::{
     TooltipPosition,
     layout::SavedState,
-    screen::create_button,
     style::{Icon, icon_text},
+    widget::button_with_tooltip,
 };
 use data::sidebar;
 use iced::{
@@ -120,7 +120,7 @@ impl Sidebar {
             let is_active = self.is_menu_active(sidebar::Menu::Settings)
                 || self.is_menu_active(sidebar::Menu::ThemeEditor);
 
-            create_button(
+            button_with_tooltip(
                 icon_text(Icon::Cog, 14)
                     .width(24)
                     .align_x(Alignment::Center),
@@ -134,7 +134,7 @@ impl Sidebar {
         let layout_modal_button = {
             let is_active = self.is_menu_active(sidebar::Menu::Layout);
 
-            create_button(
+            button_with_tooltip(
                 icon_text(Icon::Layout, 14)
                     .width(24)
                     .align_x(Alignment::Center),
@@ -146,7 +146,7 @@ impl Sidebar {
         };
 
         let ticker_search_button = {
-            create_button(
+            button_with_tooltip(
                 icon_text(Icon::Search, 14)
                     .width(24)
                     .align_x(Alignment::Center),
@@ -168,7 +168,7 @@ impl Sidebar {
                 _ => Icon::SpeakerOff,
             };
 
-            create_button(
+            button_with_tooltip(
                 icon_text(icon, 14).width(24).align_x(Alignment::Center),
                 Message::ToggleSidebarMenu(Some(sidebar::Menu::Audio)),
                 None,

@@ -113,12 +113,12 @@ impl Chart for KlineChart {
         match &self.kind {
             KlineChartKind::Footprint { .. } => Vector::new(
                 0.5 * (chart.bounds.width / chart.scaling) - (chart.cell_width / chart.scaling),
-                self.data_source.latest_range_y_midpoint(chart),
+                self.data_source.latest_y_midpoint(chart),
             ),
             KlineChartKind::Candles => Vector::new(
                 0.5 * (chart.bounds.width / chart.scaling)
                     - (8.0 * chart.cell_width / chart.scaling),
-                self.data_source.latest_range_y_midpoint(chart),
+                self.data_source.latest_y_midpoint(chart),
             ),
         }
     }
@@ -380,7 +380,7 @@ impl KlineChart {
                     }
                 }
 
-                if !self.fetching_trades.0 {
+                if !self.fetching_trades.0 && exchange::fetcher::is_trade_fetch_enabled() {
                     if let Some(earliest_gap) = timeseries
                         .data_points
                         .range(visible_earliest..=visible_latest)

@@ -565,18 +565,40 @@ enum ChartData {
 }
 
 impl ChartData {
-    pub fn latest_range_y_midpoint(&self, chart_state: &CommonChartData) -> f32 {
+    pub fn latest_y_midpoint(&self, chart: &CommonChartData) -> f32 {
+        let calculate_target_y = |kline: exchange::Kline| -> f32 {
+            let y_low = chart.price_to_y(kline.low);
+            let y_high = chart.price_to_y(kline.high);
+            let y_close = chart.price_to_y(kline.close);
+
+            let mut target_y_translation = -(y_low + y_high) / 2.0;
+
+            if chart.bounds.height > f32::EPSILON && chart.scaling > f32::EPSILON {
+                let visible_half_height = (chart.bounds.height / chart.scaling) / 2.0;
+
+                let view_center_y_centered = -target_y_translation;
+
+                let visible_y_top = view_center_y_centered - visible_half_height;
+                let visible_y_bottom = view_center_y_centered + visible_half_height;
+
+                let padding = chart.cell_height;
+
+                if y_close < visible_y_top {
+                    target_y_translation = -(y_close - padding + visible_half_height);
+                } else if y_close > visible_y_bottom {
+                    target_y_translation = -(y_close + padding - visible_half_height);
+                }
+            }
+            target_y_translation
+        };
+
         match self {
-            ChartData::TimeBased(timeseries) => timeseries.latest_kline().map_or(0.0, |kline| {
-                let y_low = chart_state.price_to_y(kline.low);
-                let y_high = chart_state.price_to_y(kline.high);
-                -(y_low + y_high) / 2.0
-            }),
-            ChartData::TickBased(tick_aggr) => tick_aggr.latest_dp().map_or(0.0, |(dp, _)| {
-                let y_low = chart_state.price_to_y(dp.kline.low);
-                let y_high = chart_state.price_to_y(dp.kline.high);
-                -(y_low + y_high) / 2.0
-            }),
+            ChartData::TimeBased(timeseries) => timeseries
+                .latest_kline()
+                .map_or(0.0, |kline| calculate_target_y(*kline)),
+            ChartData::TickBased(tick_aggr) => tick_aggr
+                .latest_dp()
+                .map_or(0.0, |(dp, _)| calculate_target_y(dp.kline)),
         }
     }
 }

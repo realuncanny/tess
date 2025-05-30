@@ -3,9 +3,9 @@ use crate::{
     modal::{
         StreamModifier, heatmap_cfg_view, indicators_view, kline_cfg_view, stream_modifier_view,
     },
-    screen::{DashboardError, create_button, dashboard::panel::timeandsales::TimeAndSales},
+    screen::{DashboardError, dashboard::panel::timeandsales::TimeAndSales},
     style::{self, Icon, icon_text},
-    widget::{self, column_drag, pane_modal, toast::Toast},
+    widget::{self, button_with_tooltip, column_drag, pane_modal, toast::Toast},
     window::{self, Window},
 };
 use data::{
@@ -448,7 +448,7 @@ impl State {
         let mut buttons = row![];
 
         if !matches!(&self.content, Content::Starter) {
-            buttons = buttons.push(create_button(
+            buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::Cog, 12),
                 Message::ToggleModal(pane, Modal::Settings),
                 None,
@@ -458,7 +458,7 @@ impl State {
         }
 
         if matches!(&self.content, Content::Heatmap(_, _) | Content::Kline(_, _)) {
-            buttons = buttons.push(create_button(
+            buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::ChartOutline, 12),
                 Message::ToggleModal(pane, Modal::Indicators),
                 Some("Indicators"),
@@ -468,7 +468,7 @@ impl State {
         }
 
         if is_popout {
-            buttons = buttons.push(create_button(
+            buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::Popout, 12),
                 Message::Merge,
                 Some("Merge"),
@@ -476,7 +476,7 @@ impl State {
                 control_btn_style(is_popout),
             ));
         } else if total_panes > 1 {
-            buttons = buttons.push(create_button(
+            buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::Popout, 12),
                 Message::Popout,
                 Some("Pop out"),
@@ -492,7 +492,7 @@ impl State {
                 (Icon::ResizeFull, Message::MaximizePane(pane))
             };
 
-            buttons = buttons.push(create_button(
+            buttons = buttons.push(button_with_tooltip(
                 icon_text(resize_icon, 12),
                 message,
                 None,
@@ -500,7 +500,7 @@ impl State {
                 control_btn_style(is_maximized),
             ));
 
-            buttons = buttons.push(create_button(
+            buttons = buttons.push(button_with_tooltip(
                 icon_text(Icon::Close, 12),
                 Message::ClosePane(pane),
                 None,

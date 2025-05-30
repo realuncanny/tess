@@ -11,8 +11,7 @@ mod window;
 
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
-use exchange::adapter::StreamKind;
-use layout::Layout;
+use modal::{LayoutManager, ThemeEditor, audio};
 use screen::dashboard::{self, Dashboard};
 use widget::{
     confirm_dialog_container, dashboard_modal, main_dialog_modal,
@@ -59,9 +58,9 @@ fn main() {
 struct Flowsurface {
     main_window: window::Window,
     sidebar: dashboard::Sidebar,
-    layout_manager: modal::LayoutManager,
-    theme_editor: modal::ThemeEditor,
-    audio_stream: modal::audio::AudioStream,
+    layout_manager: LayoutManager,
+    theme_editor: ThemeEditor,
+    audio_stream: audio::AudioStream,
     confirm_dialog: Option<(String, Box<Message>)>,
     scale_factor: data::ScaleFactor,
     timezone: data::UserTimezone,
@@ -71,7 +70,7 @@ struct Flowsurface {
 
 #[derive(Debug, Clone)]
 enum Message {
-    LoadLayout(Layout),
+    LoadLayout(layout::Layout),
     Sidebar(dashboard::sidebar::Message),
     MarketWsEvent(exchange::Event),
     Dashboard(Option<uuid::Uuid>, dashboard::Message),

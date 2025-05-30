@@ -5,21 +5,21 @@ pub mod tickers_table;
 
 pub use sidebar::Sidebar;
 
+use super::DashboardError;
 use crate::{
-    StreamKind, chart, style,
+    chart, style,
     widget::toast::Toast,
     window::{self, Window},
 };
 use data::{UserTimezone, chart::Basis, layout::WindowSpec};
-
 use exchange::{
     Kline, TickMultiplier, Ticker, TickerInfo, Timeframe, Trade,
-    adapter::{self, Exchange, StreamConfig, StreamError, UniqueStreams, binance, bybit},
+    adapter::{
+        self, Exchange, StreamConfig, StreamError, StreamKind, UniqueStreams, binance, bybit,
+    },
     depth::Depth,
     fetcher::{FetchRange, FetchedData},
 };
-
-use super::DashboardError;
 
 use iced::{
     Element, Length, Subscription, Task, Vector,
@@ -206,7 +206,6 @@ impl Dashboard {
                     pane::Message::PaneDragged(event) => {
                         if let pane_grid::DragEvent::Dropped { pane, target } = event {
                             self.panes.drop(pane, target);
-                            self.focus = None;
                         }
                     }
                     pane::Message::SplitPane(axis, pane) => {
@@ -546,10 +545,6 @@ impl Dashboard {
                     }
                 }
                 FetchRange::Trades(from_time, to_time) => {
-                    if !exchange::fetcher::is_trade_fetch_enabled() {
-                        return (Task::none(), None);
-                    }
-
                     let trade_info =
                         self.get_pane(main_window.id, window, pane)
                             .and_then(|state| {
@@ -976,9 +971,15 @@ impl Dashboard {
         exchange::fetcher::toggle_trade_fetch(is_enabled);
 
         self.iter_all_panes_mut(main_window.id)
-            .for_each(|(_, _, pane_state)| {
-                if let pane::Content::Kline(chart, _) = &mut pane_state.content {
+            .for_each(|(_, _, state)| {
+                if let pane::Content::Kline(chart, _) = &mut state.content {
                     chart.reset_request_handler();
+
+                    state.status = if is_enabled {
+                        pane::Status::Loading(pane::InfoType::FetchingTrades(0))
+                    } else {
+                        pane::Status::Ready
+                    };
                 }
             });
     }
