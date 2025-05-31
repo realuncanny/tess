@@ -549,7 +549,6 @@ impl Flowsurface {
         menu: sidebar::Menu,
     ) -> Element<'a, Message> {
         let sidebar_pos = self.sidebar.position();
-        let main_window = self.main_window.id;
 
         match menu {
             sidebar::Menu::Settings => {
@@ -560,11 +559,11 @@ impl Flowsurface {
                         let default_theme = iced_core::Theme::Custom(default_theme().into());
                         themes.push(default_theme);
 
-                        if let Some(custom_theme) = self.theme_editor.custom_theme.clone() {
-                            themes.push(custom_theme);
+                        if let Some(custom_theme) = &self.theme_editor.custom_theme {
+                            themes.push(custom_theme.clone());
                         }
 
-                        pick_list(themes, Some(self.theme.clone().0), |theme| {
+                        pick_list(themes, Some(self.theme.0.clone()), |theme| {
                             Message::ThemeSelected(data::Theme(theme))
                         })
                     };
@@ -676,8 +675,8 @@ impl Flowsurface {
                 };
 
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
                 };
 
                 let base_content = dashboard_modal(
@@ -706,6 +705,8 @@ impl Flowsurface {
                 }
             }
             sidebar::Menu::Layout => {
+                let main_window = self.main_window.id;
+
                 let pane = if let Some(focus) = dashboard.focus {
                     focus.1
                 } else {
@@ -757,15 +758,11 @@ impl Flowsurface {
                             ]
                             .align_x(Alignment::Center)
                             .spacing(8),
-                            column![
-                                text("Layouts").size(14),
-                                self.layout_manager.view().map(Message::Layouts),
-                            ]
-                            .align_x(Alignment::Center)
-                            .spacing(8),
+                            iced::widget::horizontal_rule(1.0).style(style::split_ruler),
+                            self.layout_manager.view().map(Message::Layouts),
                         ]
                         .align_x(Alignment::Center)
-                        .spacing(32),
+                        .spacing(20),
                     )
                     .width(280)
                     .padding(24)
@@ -773,8 +770,8 @@ impl Flowsurface {
                 };
 
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(40)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(40)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).top(40)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).top(40)),
                 };
 
                 dashboard_modal(
@@ -788,8 +785,8 @@ impl Flowsurface {
             }
             sidebar::Menu::Audio => {
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(64)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(64)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).top(76)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).top(76)),
                 };
 
                 let depth_streams_list = dashboard.streams.depth_streams(None);
@@ -807,8 +804,8 @@ impl Flowsurface {
             }
             sidebar::Menu::ThemeEditor => {
                 let (align_x, padding) = match sidebar_pos {
-                    sidebar::Position::Left => (Alignment::Start, padding::left(48).top(8)),
-                    sidebar::Position::Right => (Alignment::End, padding::right(48).top(8)),
+                    sidebar::Position::Left => (Alignment::Start, padding::left(44).bottom(4)),
+                    sidebar::Position::Right => (Alignment::End, padding::right(44).bottom(4)),
                 };
 
                 dashboard_modal(

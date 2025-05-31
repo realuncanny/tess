@@ -321,7 +321,7 @@ impl LayoutManager {
                             .push(tooltip(
                                 button(icon_text(style::Icon::Clone, 12))
                                     .on_press(Message::CloneLayout(layout.id))
-                                    .style(move |t, s| style::button::transparent(t, s, true)),
+                                    .style(move |t, s| style::button::modifier(t, s, false)),
                                 Some("Clone layout"),
                                 TooltipPosition::Top,
                             ))
@@ -345,7 +345,18 @@ impl LayoutManager {
 
                 layouts_column = layouts_column.push(dragger_row(
                     container(layout_row.align_y(iced::Alignment::Center))
-                        .style(style::dragger_row_container)
+                        .style(|theme| {
+                            let palette = theme.extended_palette();
+                            iced::widget::container::Style {
+                                background: Some(palette.background.weak.color.into()),
+                                border: iced::Border {
+                                    color: palette.background.strong.color,
+                                    width: 1.0,
+                                    radius: 4.0.into(),
+                                },
+                                ..Default::default()
+                            }
+                        })
                         .into(),
                 ));
             }
@@ -355,13 +366,10 @@ impl LayoutManager {
 
         if self.edit_mode != Editing::None {
             content = content.push(
-                container(
-                    button(text("Add layout"))
-                        .style(move |t, s| style::button::transparent(t, s, false))
-                        .width(iced::Length::Fill)
-                        .on_press(Message::AddLayout),
-                )
-                .style(style::chart_modal),
+                button(text("Add layout"))
+                    .style(move |t, s| style::button::modifier(t, s, true))
+                    .width(iced::Length::Fill)
+                    .on_press(Message::AddLayout),
             );
         };
 

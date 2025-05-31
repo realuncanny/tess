@@ -132,9 +132,7 @@ impl ThemeEditor {
     pub fn view(&self, theme: &iced_core::Theme) -> Element<'_, Message> {
         let color = self.focused_color(theme);
 
-        let close_editor = button(icon_text(Icon::Return, 11))
-            .on_press(Message::CloseRequested)
-            .style(move |theme, status| style::button::transparent(theme, status, false));
+        let close_editor = button(icon_text(Icon::Return, 11)).on_press(Message::CloseRequested);
 
         let is_input_valid = self.hex_input.is_none()
             || self

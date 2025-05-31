@@ -1,3 +1,4 @@
+use super::tickers_table::{self, TickersTable};
 use crate::{
     TooltipPosition,
     layout::SavedState,
@@ -5,13 +6,12 @@ use crate::{
     widget::button_with_tooltip,
 };
 use data::sidebar;
+
 use iced::{
-    Alignment, Element, Length, Task,
+    Alignment, Element, Length, Subscription, Task,
+    widget::responsive,
     widget::{Space, column, row},
 };
-use iced::{Subscription, widget::responsive};
-
-use super::tickers_table::{self, TickersTable};
 
 #[derive(Debug, Clone)]
 pub enum Message {

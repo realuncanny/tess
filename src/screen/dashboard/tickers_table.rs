@@ -11,8 +11,7 @@ use iced::{
     alignment::{self, Horizontal, Vertical},
     padding,
     widget::{
-        Button, Container, Space, Text, button, column, container, horizontal_rule,
-        horizontal_space, row,
+        Button, Space, Text, button, column, container, horizontal_rule, horizontal_space, row,
         scrollable::{self, AbsoluteOffset},
         text, text_input,
     },
@@ -273,25 +272,32 @@ impl TickersTable {
         exchange: Exchange,
         ticker: &'a Ticker,
         is_fav: bool,
-    ) -> Container<'a, Message> {
+    ) -> Element<'a, Message> {
         if !is_visible {
-            return container(column![].width(Length::Fill).height(Length::Fixed(60.0)));
+            return column![]
+                .width(Length::Fill)
+                .height(Length::Fixed(60.0))
+                .into();
         }
 
         let display_data = &self.display_cache[&(exchange, *ticker)];
 
-        container(
-            if let Some((selected_ticker, selected_exchange)) = &self.expand_ticker_card {
-                if ticker == selected_ticker && exchange == *selected_exchange {
-                    create_expanded_ticker_card(exchange, ticker, display_data, is_fav)
-                } else {
-                    create_ticker_card(exchange, ticker, display_data)
-                }
+        if let Some((selected_ticker, selected_exchange)) = &self.expand_ticker_card {
+            if ticker == selected_ticker && exchange == *selected_exchange {
+                container(create_expanded_ticker_card(
+                    exchange,
+                    ticker,
+                    display_data,
+                    is_fav,
+                ))
+                .style(style::ticker_card)
+                .into()
             } else {
                 create_ticker_card(exchange, ticker, display_data)
-            },
-        )
-        .style(style::ticker_card)
+            }
+        } else {
+            create_ticker_card(exchange, ticker, display_data)
+        }
     }
 
     fn is_container_visible(&self, index: usize, bounds: Size) -> bool {
@@ -801,24 +807,33 @@ fn create_expanded_ticker_card<'a>(
             ),
         ]
         .spacing(2),
-        column![
-            row![
-                text("Last Updated Price: ").size(11),
-                Space::new(Length::Fill, Length::Shrink),
-                text(&display_data.mark_price_display)
-            ],
-            row![
-                text("Daily Change: ").size(11),
-                Space::new(Length::Fill, Length::Shrink),
-                text(&display_data.price_change_display),
-            ],
-            row![
-                text("Daily Volume: ").size(11),
-                Space::new(Length::Fill, Length::Shrink),
-                text(&display_data.volume_display),
-            ],
-        ]
-        .spacing(4),
+        container(
+            column![
+                row![
+                    text("Last Updated Price: ").size(11),
+                    Space::new(Length::Fill, Length::Shrink),
+                    text(&display_data.mark_price_display)
+                ],
+                row![
+                    text("Daily Change: ").size(11),
+                    Space::new(Length::Fill, Length::Shrink),
+                    text(&display_data.price_change_display),
+                ],
+                row![
+                    text("Daily Volume: ").size(11),
+                    Space::new(Length::Fill, Length::Shrink),
+                    text(&display_data.volume_display),
+                ],
+            ]
+            .spacing(2)
+        )
+        .style(|theme: &Theme| {
+            let palette = theme.extended_palette();
+            iced::widget::container::Style {
+                text_color: Some(palette.background.base.text.scale_alpha(0.9)),
+                ..Default::default()
+            }
+        }),
         column![
             button(text("Heatmap Chart").align_x(Horizontal::Center))
                 .on_press(Message::TickerSelected(

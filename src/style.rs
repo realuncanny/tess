@@ -250,24 +250,30 @@ pub mod button {
     pub fn ticker_card(theme: &Theme, status: Status) -> Style {
         let palette = theme.extended_palette();
 
+        let color = if palette.is_dark {
+            palette.background.weak.color.scale_alpha(0.4)
+        } else {
+            palette.background.strong.color.scale_alpha(0.4)
+        };
+
         match status {
             Status::Hovered => Style {
                 text_color: palette.background.base.text,
                 background: Some(palette.background.weak.color.into()),
                 border: Border {
-                    radius: 4.0.into(),
                     width: 1.0,
-                    color: palette.background.weak.color,
+                    radius: 4.0.into(),
+                    color,
                 },
                 ..Default::default()
             },
             _ => Style {
+                background: Some(color.into()),
                 text_color: palette.background.base.text,
-                background: Some(palette.background.weakest.color.into()),
                 border: Border {
-                    radius: 2.0.into(),
                     width: 1.0,
-                    color: palette.background.weak.color,
+                    radius: 2.0.into(),
+                    color,
                 },
                 ..Default::default()
             },
@@ -378,13 +384,13 @@ pub fn dashboard_modal(theme: &Theme) -> Style {
         ),
         border: Border {
             width: 1.0,
-            color: palette.secondary.weak.color,
-            radius: 6.0.into(),
+            color: palette.background.weak.color,
+            radius: 4.0.into(),
         },
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
             blur_radius: 20.0,
-            color: Color::BLACK.scale_alpha(if palette.is_dark { 0.4 } else { 0.2 }),
+            color: Color::BLACK.scale_alpha(if palette.is_dark { 0.8 } else { 0.4 }),
         },
         ..Default::default()
     }
@@ -414,15 +420,15 @@ pub fn dragger_row_container(theme: &Theme) -> Style {
 
     Style {
         text_color: Some(palette.background.base.text),
-        background: Some(palette.background.weakest.color.into()),
+        background: Some(palette.background.strongest.color.into()),
         border: Border {
             width: 1.0,
-            color: palette.background.weak.color,
+            color: palette.background.base.color,
             radius: 4.0.into(),
         },
         shadow: Shadow {
             offset: iced::Vector { x: 0.0, y: 0.0 },
-            blur_radius: 2.0,
+            blur_radius: 4.0,
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.8 } else { 0.2 }),
         },
     }
@@ -432,7 +438,7 @@ pub fn layout_card_bar(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: Some(palette.secondary.weak.color.into()),
+        background: Some(palette.primary.strong.color.into()),
         ..Default::default()
     }
 }
@@ -502,7 +508,13 @@ pub fn ticker_card(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
     Style {
-        background: Some(palette.background.weakest.color.into()),
+        background: {
+            if palette.is_dark {
+                Some(palette.background.weak.color.scale_alpha(0.4).into())
+            } else {
+                Some(palette.background.strong.color.scale_alpha(0.4).into())
+            }
+        },
         border: Border {
             radius: 4.0.into(),
             width: 1.0,
@@ -597,7 +609,7 @@ pub fn drag_handle(theme: &Theme) -> iced::widget::text::Style {
     let palette = theme.extended_palette();
 
     iced::widget::text::Style {
-        color: Some(palette.background.strong.color),
+        color: Some(palette.background.weakest.color),
     }
 }
 

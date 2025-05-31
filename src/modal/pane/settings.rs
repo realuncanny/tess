@@ -175,7 +175,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
             .spacing(20)
             .padding(16)
             .align_x(Alignment::Start),
-            horizontal_rule(1),
+            horizontal_rule(1).style(style::split_ruler),
             column![
                 text("Noise filters").size(14),
                 iced::widget::checkbox(
@@ -200,7 +200,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
             .spacing(20)
             .padding(16)
             .align_x(Alignment::Start),
-            horizontal_rule(1),
+            horizontal_rule(1).style(style::split_ruler),
             column![
                 text("Trade visualization").size(14),
                 iced::widget::checkbox("Dynamic circle radius", cfg.trade_size_scale.is_some(),)
@@ -219,7 +219,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
             .padding(16)
             .width(Length::Fill)
             .align_x(Alignment::Start),
-            horizontal_rule(1),
+            horizontal_rule(1).style(style::split_ruler),
             row![
                 horizontal_space(),
                 sync_all_button(VisualConfig::Heatmap(cfg))
@@ -552,9 +552,9 @@ pub mod study {
                         column = column.push(
                             column![
                                 qty_threshold,
-                                horizontal_rule(1),
+                                horizontal_rule(1).style(style::split_ruler),
                                 color_scaling,
-                                horizontal_rule(1),
+                                horizontal_rule(1).style(style::split_ruler),
                                 ignore_zeros_checkbox,
                             ]
                             .padding(8)
