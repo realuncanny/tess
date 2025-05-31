@@ -1,7 +1,6 @@
-use crate::modal::timesales_cfg_view;
+use crate::modal::{self, pane::settings::timesales_cfg_view};
 use crate::screen::dashboard::pane::{self, Message};
 use crate::style::{self, ts_table_container};
-use crate::widget::pane_modal;
 use data::UserTimezone;
 pub use data::chart::timeandsales::Config;
 use exchange::adapter::MarketKind;
@@ -35,7 +34,7 @@ impl PanelView for TimeAndSales {
         let settings_view = timesales_cfg_view(self.get_config(), pane);
 
         match state.modal {
-            Some(pane::Modal::Settings) => pane_modal(
+            Some(pane::Modal::Settings) => modal::pane::stack(
                 underlay,
                 settings_view,
                 Message::ToggleModal(pane, pane::Modal::Settings),

@@ -1,3 +1,8 @@
+use super::{
+    Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
+    indicator, request_fetch, scale::PriceInfoLabel,
+};
+use crate::{modal::pane::settings::study, style};
 use data::aggr::ticks::TickAggr;
 use data::aggr::time::TimeSeries;
 use data::chart::{
@@ -11,14 +16,6 @@ use exchange::{
     Kline, OpenInterest as OIData, TickerInfo, Timeframe, Trade,
     fetcher::{FetchRange, RequestHandler},
 };
-
-use super::request_fetch;
-use super::{
-    Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
-    indicator, scale::PriceInfoLabel,
-};
-
-use crate::{modal::study, style};
 
 use iced::task::Handle;
 use iced::theme::palette::Extended;

@@ -12,9 +12,10 @@ mod window;
 use data::config::theme::default_theme;
 use data::{layout::WindowSpec, sidebar};
 use modal::{LayoutManager, ThemeEditor, audio};
+use modal::{dashboard_modal, main_dialog_modal};
 use screen::dashboard::{self, Dashboard};
 use widget::{
-    confirm_dialog_container, dashboard_modal, main_dialog_modal,
+    confirm_dialog_container,
     toast::{self, Toast},
     tooltip,
 };
@@ -118,8 +119,8 @@ impl Flowsurface {
             Self {
                 main_window: window::Window::new(main_window_id),
                 layout_manager: saved_state.layout_manager,
-                theme_editor: modal::ThemeEditor::new(saved_state.custom_theme),
-                audio_stream: modal::audio::AudioStream::new(saved_state.audio_cfg),
+                theme_editor: ThemeEditor::new(saved_state.custom_theme),
+                audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
                 sidebar,
                 confirm_dialog: None,
                 timezone: saved_state.timezone,

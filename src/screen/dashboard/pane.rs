@@ -1,11 +1,13 @@
 use crate::{
     chart::{self, heatmap::HeatmapChart, kline::KlineChart},
     modal::{
-        StreamModifier, heatmap_cfg_view, indicators_view, kline_cfg_view, stream_modifier_view,
+        self, StreamModifier,
+        pane::settings::{heatmap_cfg_view, kline_cfg_view},
+        pane::stack,
     },
     screen::{DashboardError, dashboard::panel::timeandsales::TimeAndSales},
     style::{self, Icon, icon_text},
-    widget::{self, button_with_tooltip, column_drag, pane_modal, toast::Toast},
+    widget::{self, button_with_tooltip, column_drag, toast::Toast},
     window::{self, Window},
 };
 use data::{
@@ -73,7 +75,10 @@ pub enum Message {
     DeleteNotification(pane_grid::Pane, usize),
     ReorderIndicator(pane_grid::Pane, column_drag::DragEvent),
     ClusterKindSelected(pane_grid::Pane, data::chart::kline::ClusterKind),
-    StudyConfigurator(pane_grid::Pane, crate::modal::study::Message),
+    StudyConfigurator(
+        pane_grid::Pane,
+        crate::modal::pane::settings::study::Message,
+    ),
 }
 
 pub struct State {
@@ -909,21 +914,21 @@ where
         .into();
 
     match state.modal {
-        Some(Modal::StreamModifier) => pane_modal(
+        Some(Modal::StreamModifier) => stack(
             base,
-            stream_modifier_view(pane, stream_modifier, state.stream_pair()),
+            modal::stream::view(pane, stream_modifier, state.stream_pair()),
             Message::ToggleModal(pane, Modal::StreamModifier),
             padding::left(36),
             Alignment::Start,
         ),
-        Some(Modal::Indicators) => pane_modal(
+        Some(Modal::Indicators) => stack(
             base,
-            indicators_view(pane, state, indicators),
+            modal::indicators::view(pane, state, indicators),
             Message::ToggleModal(pane, Modal::Indicators),
             padding::right(12).left(12),
             Alignment::End,
         ),
-        Some(Modal::Settings) => pane_modal(
+        Some(Modal::Settings) => stack(
             base,
             settings_view(),
             Message::ToggleModal(pane, Modal::Settings),
