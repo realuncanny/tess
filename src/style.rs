@@ -251,9 +251,9 @@ pub mod button {
         let palette = theme.extended_palette();
 
         let color = if palette.is_dark {
-            palette.background.weak.color.scale_alpha(0.4)
+            palette.background.weak.color
         } else {
-            palette.background.strong.color.scale_alpha(0.4)
+            palette.background.strong.color
         };
 
         match status {
@@ -262,18 +262,18 @@ pub mod button {
                 background: Some(palette.background.weak.color.into()),
                 border: Border {
                     width: 1.0,
-                    radius: 4.0.into(),
+                    radius: 2.0.into(),
                     color,
                 },
                 ..Default::default()
             },
             _ => Style {
-                background: Some(color.into()),
+                background: Some(color.scale_alpha(0.4).into()),
                 text_color: palette.background.base.text,
                 border: Border {
                     width: 1.0,
                     radius: 2.0.into(),
-                    color,
+                    color: color.scale_alpha(0.8),
                 },
                 ..Default::default()
             },
@@ -323,6 +323,12 @@ pub fn pane_title_bar(theme: &Theme) -> Style {
 pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
     let palette = theme.extended_palette();
 
+    let color = if palette.is_dark {
+        palette.background.weak.color
+    } else {
+        palette.background.strong.color
+    };
+
     Style {
         text_color: Some(palette.background.base.text),
         background: Some(palette.background.weakest.color.into()),
@@ -336,7 +342,7 @@ pub fn pane_background(theme: &Theme, is_focused: bool) -> Style {
             } else {
                 Border {
                     width: 1.0,
-                    color: palette.background.base.color,
+                    color: color.scale_alpha(0.5),
                     radius: 2.0.into(),
                 }
             }

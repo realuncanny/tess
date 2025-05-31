@@ -5,7 +5,7 @@ use data::UserTimezone;
 pub use data::chart::timeandsales::Config;
 use exchange::adapter::MarketKind;
 use exchange::{TickerInfo, Trade};
-use iced::widget::{center, column, container, responsive, row, text};
+use iced::widget::{center, column, container, row, text};
 use iced::{Alignment, Element, Length, padding};
 
 use super::PanelView;
@@ -29,9 +29,9 @@ impl PanelView for TimeAndSales {
         state: &pane::State,
         timezone: data::UserTimezone,
     ) -> Element<Message> {
-        let underlay = self.view(timezone);
+        let underlay = iced::widget::responsive(move |size| self.view(timezone, size));
 
-        let settings_view = timesales_cfg_view(self.get_config(), pane);
+        let settings_view = timesales_cfg_view(self.config, pane);
 
         match state.modal {
             Some(pane::Modal::Settings) => modal::pane::stack(
@@ -41,16 +41,16 @@ impl PanelView for TimeAndSales {
                 padding::right(12).left(12),
                 Alignment::End,
             ),
-            _ => underlay,
+            _ => underlay.into(),
         }
     }
 }
 
 pub struct TimeAndSales {
     recent_trades: Vec<TradeDisplay>,
-    config: Config,
     max_filtered_qty: f32,
     ticker_info: Option<TickerInfo>,
+    pub config: Config,
 }
 
 impl TimeAndSales {
@@ -63,15 +63,7 @@ impl TimeAndSales {
         }
     }
 
-    pub fn get_config(&self) -> Config {
-        self.config
-    }
-
-    pub fn set_config(&mut self, cfg: Config) {
-        self.config = cfg;
-    }
-
-    pub fn update(&mut self, trades_buffer: &[Trade]) {
+    pub fn insert_buffer(&mut self, trades_buffer: &[Trade]) {
         let size_filter = self.config.trade_size_filter;
 
         let market_type = match self.ticker_info {
@@ -117,62 +109,59 @@ impl TimeAndSales {
         }
     }
 
-    pub fn view(&self, _timezone: UserTimezone) -> Element<'_, Message> {
-        responsive(move |size| {
-            let market_type = match self.ticker_info {
-                Some(ref ticker_info) => ticker_info.market_type(),
-                None => {
-                    return center(container(
-                        text("No ticker info. Resetting this pane should fix").size(14),
-                    ))
-                    .into();
-                }
-            };
-
-            let mut content = column![].padding(4);
-
-            let rows_can_fit = ((size.height / TRADE_ROW_HEIGHT).floor()) as usize;
-
-            let filtered_trades_iter = self.recent_trades.iter().filter(|t| {
-                let trade_size = match market_type {
-                    MarketKind::InversePerps => t.qty,
-                    _ => t.qty * t.price,
-                };
-                trade_size >= self.config.trade_size_filter
-            });
-
-            for trade in filtered_trades_iter.rev().take(rows_can_fit) {
-                let trade_row = row![
-                    container(
-                        text(&trade.time_str)
-                            .font(style::AZERET_MONO)
-                            .size(iced::Pixels(11.0))
-                    )
-                    .width(Length::FillPortion(8))
-                    .align_x(Alignment::Center),
-                    container(
-                        text(trade.price)
-                            .font(style::AZERET_MONO)
-                            .size(iced::Pixels(11.0))
-                    )
-                    .width(Length::FillPortion(6)),
-                    container(
-                        text(data::util::abbr_large_numbers(trade.qty))
-                            .font(style::AZERET_MONO)
-                            .size(iced::Pixels(11.0))
-                    )
-                    .width(Length::FillPortion(4))
-                ]
-                .align_y(Alignment::Center)
-                .height(Length::Fixed(TRADE_ROW_HEIGHT));
-
-                content = content.push(container(trade_row).padding(1).style(move |theme| {
-                    ts_table_container(theme, trade.is_sell, trade.qty / self.max_filtered_qty)
-                }));
+    pub fn view(&self, _timezone: UserTimezone, size: iced::Size) -> Element<'_, Message> {
+        let market_type = match self.ticker_info {
+            Some(ref ticker_info) => ticker_info.market_type(),
+            None => {
+                return center(container(
+                    text("No ticker info. Resetting this pane should fix").size(14),
+                ))
+                .into();
             }
+        };
 
-            content.into()
-        })
-        .into()
+        let mut content = column![].padding(4);
+
+        let filtered_trades_iter = self.recent_trades.iter().filter(|t| {
+            let trade_size = match market_type {
+                MarketKind::InversePerps => t.qty,
+                _ => t.qty * t.price,
+            };
+            trade_size >= self.config.trade_size_filter
+        });
+
+        let rows_can_fit = ((size.height / TRADE_ROW_HEIGHT).floor()) as usize;
+
+        for trade in filtered_trades_iter.rev().take(rows_can_fit) {
+            let trade_row = row![
+                container(
+                    text(&trade.time_str)
+                        .font(style::AZERET_MONO)
+                        .size(iced::Pixels(11.0))
+                )
+                .width(Length::FillPortion(8))
+                .align_x(Alignment::Center),
+                container(
+                    text(trade.price)
+                        .font(style::AZERET_MONO)
+                        .size(iced::Pixels(11.0))
+                )
+                .width(Length::FillPortion(6)),
+                container(
+                    text(data::util::abbr_large_numbers(trade.qty))
+                        .font(style::AZERET_MONO)
+                        .size(iced::Pixels(11.0))
+                )
+                .width(Length::FillPortion(4))
+            ]
+            .align_y(Alignment::Center)
+            .height(Length::Fixed(TRADE_ROW_HEIGHT));
+
+            content = content.push(container(trade_row).padding(1).style(move |theme| {
+                ts_table_container(theme, trade.is_sell, trade.qty / self.max_filtered_qty)
+            }));
+        }
+
+        content.into()
     }
 }

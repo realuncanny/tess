@@ -1126,8 +1126,8 @@ impl Dashboard {
                         pane::Content::Kline(chart, _) => {
                             chart.insert_trades_buffer(trades_buffer, depth_update_t);
                         }
-                        pane::Content::TimeAndSales(chart) => {
-                            chart.update(trades_buffer);
+                        pane::Content::TimeAndSales(panel) => {
+                            panel.insert_buffer(trades_buffer);
                         }
                         _ => {
                             log::error!("No chart found for the stream: {stream:?}");

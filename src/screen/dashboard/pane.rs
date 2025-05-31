@@ -807,7 +807,7 @@ impl Content {
                 chart.set_visual_config(cfg);
             }
             (Content::TimeAndSales(panel), VisualConfig::TimeAndSales(cfg)) => {
-                panel.set_config(cfg);
+                panel.config = cfg;
             }
             _ => {}
         }
