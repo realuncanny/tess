@@ -1,6 +1,6 @@
 use crate::layout::{Layout, configuration};
 use crate::screen::dashboard::{Dashboard, pane};
-use crate::style::icon_text;
+use crate::style::{Icon, icon_text};
 use crate::widget::column_drag::{self, DragEvent};
 use crate::widget::dragger_row;
 use crate::{style, tooltip};
@@ -242,14 +242,13 @@ impl LayoutManager {
     pub fn view(&self) -> Element<'_, Message> {
         let mut content = column![].spacing(8);
 
-        let edit_btn = {
-            match &self.edit_mode {
-                Editing::None => {
-                    button(text("Edit")).on_press(Message::ToggleEditMode(Editing::Preview))
-                }
-                _ => button(icon_text(style::Icon::Return, 12))
-                    .on_press(Message::ToggleEditMode(Editing::Preview)),
-            }
+        let is_edit_mode = self.edit_mode != Editing::None;
+
+        let edit_btn = if is_edit_mode {
+            button(icon_text(style::Icon::Return, 12))
+                .on_press(Message::ToggleEditMode(Editing::Preview))
+        } else {
+            button(text("Edit")).on_press(Message::ToggleEditMode(Editing::Preview))
         };
 
         content = content.push(row![
@@ -269,23 +268,15 @@ impl LayoutManager {
         let layout_btn =
             |layout: &Layout, on_press: Option<Message>| create_layout_button(layout, on_press);
 
-        let mut layouts_column = column_drag::Column::new()
-            .on_drag(Message::Reorder)
-            .spacing(4);
+        let mut layout_widgets: Vec<Element<'_, Message>> = vec![];
 
-        for id in &self.layout_order {
-            if let Some((layout, _)) = self.layouts.get(id) {
-                let mut layout_row = row![].height(iced::Length::Fixed(32.0));
+        for id_loop in &self.layout_order {
+            if let Some((layout, _)) = self.layouts.get(id_loop) {
+                let mut layout_row = row![]
+                    .height(iced::Length::Fixed(32.0))
+                    .padding(padding::left(8));
 
-                if self.active_layout.id == layout.id {
-                    let color_column = container(column![])
-                        .height(iced::Length::Fill)
-                        .width(iced::Length::Fixed(2.0))
-                        .style(style::layout_card_bar);
-
-                    layout_row = layout_row
-                        .push(container(color_column).padding(padding::left(8).bottom(4).top(4)));
-                }
+                let is_active = self.active_layout.id == layout.id;
 
                 match &self.edit_mode {
                     Editing::ConfirmingDelete(delete_id) => {
@@ -300,11 +291,11 @@ impl LayoutManager {
                             layout_row = layout_row.push(layout_btn(layout, None));
                         }
                     }
-                    Editing::Renaming(id, name) => {
-                        if *id == layout.id {
+                    Editing::Renaming(renaming_id, name) => {
+                        if *renaming_id == layout.id {
                             let input_box = text_input("New layout name", name)
                                 .on_input(|new_name| Message::Renaming(new_name.clone()))
-                                .on_submit(Message::SetLayoutName(*id, name.clone()));
+                                .on_submit(Message::SetLayoutName(*renaming_id, name.clone()));
 
                             let (_, cancel_btn) = create_confirm_delete_buttons(layout);
 
@@ -327,14 +318,14 @@ impl LayoutManager {
                             ))
                             .push(create_rename_button(layout));
 
-                        if self.active_layout.id != layout.id {
+                        if !is_active {
                             layout_row = layout_row.push(self.create_delete_button(layout.id));
                         }
                     }
                     Editing::None => {
                         layout_row = layout_row.push(layout_btn(
                             layout,
-                            if self.active_layout.id == layout.id {
+                            if is_active {
                                 None
                             } else {
                                 Some(Message::SelectActive(layout.clone()))
@@ -343,31 +334,50 @@ impl LayoutManager {
                     }
                 }
 
-                layouts_column = layouts_column.push(dragger_row(
-                    container(layout_row.align_y(iced::Alignment::Center))
-                        .style(|theme| {
-                            let palette = theme.extended_palette();
-                            iced::widget::container::Style {
-                                background: Some(palette.background.weak.color.into()),
-                                border: iced::Border {
-                                    color: palette.background.strong.color,
-                                    width: 1.0,
-                                    radius: 4.0.into(),
-                                },
-                                ..Default::default()
-                            }
-                        })
-                        .into(),
-                ));
+                if is_active && !is_edit_mode {
+                    layout_row = layout_row.push(
+                        container(icon_text(Icon::Checkmark, 12)).padding(padding::right(16)),
+                    );
+                }
+
+                let styled_container = container(layout_row.align_y(iced::Alignment::Center))
+                    .style(move |theme| {
+                        let palette = theme.extended_palette();
+
+                        let color = if is_active {
+                            palette.background.weak.color
+                        } else {
+                            palette.background.weakest.color
+                        };
+
+                        iced::widget::container::Style {
+                            background: Some(color.into()),
+                            ..Default::default()
+                        }
+                    })
+                    .into();
+
+                layout_widgets.push(dragger_row(styled_container, is_edit_mode));
             }
         }
 
-        content = content.push(layouts_column);
+        let layouts_list: Element<'_, Message> = if is_edit_mode {
+            column_drag::Column::with_children(layout_widgets)
+                .on_drag(Message::Reorder)
+                .spacing(4)
+                .into()
+        } else {
+            iced::widget::Column::with_children(layout_widgets)
+                .spacing(4)
+                .into()
+        };
+
+        content = content.push(layouts_list);
 
         if self.edit_mode != Editing::None {
             content = content.push(
                 button(text("Add layout"))
-                    .style(move |t, s| style::button::modifier(t, s, true))
+                    .style(move |t, s| style::button::transparent(t, s, true))
                     .width(iced::Length::Fill)
                     .on_press(Message::AddLayout),
             );

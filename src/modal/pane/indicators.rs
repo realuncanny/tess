@@ -54,16 +54,7 @@ pub fn view<'a, I: Indicator>(
 
             let all_indicator_elements: Vec<Element<_>> = base_row_elements
                 .into_iter()
-                .map(|base_content| {
-                    if reorderable {
-                        dragger_row(base_content)
-                    } else {
-                        container(base_content)
-                            .padding(2)
-                            .style(style::dragger_row_container)
-                            .into()
-                    }
-                })
+                .map(|base_content| dragger_row(base_content, reorderable))
                 .collect();
 
             let indicators_list_content: Element<_> = if reorderable {

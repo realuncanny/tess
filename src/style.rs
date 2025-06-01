@@ -424,12 +424,14 @@ pub fn modal_container(theme: &Theme) -> Style {
 pub fn dragger_row_container(theme: &Theme) -> Style {
     let palette = theme.extended_palette();
 
+    let bg_color = palette.background.strong.color;
+
     Style {
         text_color: Some(palette.background.base.text),
-        background: Some(palette.background.strongest.color.into()),
+        background: Some(bg_color.into()),
         border: Border {
             width: 1.0,
-            color: palette.background.base.color,
+            color: bg_color,
             radius: 4.0.into(),
         },
         shadow: Shadow {
@@ -437,15 +439,6 @@ pub fn dragger_row_container(theme: &Theme) -> Style {
             blur_radius: 4.0,
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.8 } else { 0.2 }),
         },
-    }
-}
-
-pub fn layout_card_bar(theme: &Theme) -> Style {
-    let palette = theme.extended_palette();
-
-    Style {
-        background: Some(palette.primary.strong.color.into()),
-        ..Default::default()
     }
 }
 
@@ -608,14 +601,6 @@ pub fn split_ruler(theme: &Theme) -> iced::widget::rule::Style {
         width: crate::widget::multi_split::DRAG_SIZE as u16,
         radius: iced::border::Radius::default(),
         fill_mode: iced::widget::rule::FillMode::Full,
-    }
-}
-
-pub fn drag_handle(theme: &Theme) -> iced::widget::text::Style {
-    let palette = theme.extended_palette();
-
-    iced::widget::text::Style {
-        color: Some(palette.background.weakest.color),
     }
 }
 

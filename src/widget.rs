@@ -109,16 +109,31 @@ pub fn button_with_tooltip<'a, M: Clone + 'a>(
     }
 }
 
-pub fn dragger_row<'a, Message>(content: Element<'a, Message>) -> Element<'a, Message>
+pub fn dragger_row<'a, Message>(
+    content: Element<'a, Message>,
+    is_enabled: bool,
+) -> Element<'a, Message>
 where
     Message: Clone + 'a,
 {
-    let icon = text(char::from(Icon::DragHandle).to_string())
-        .font(ICONS_FONT)
-        .style(style::drag_handle)
-        .size(10);
+    let content = if is_enabled {
+        let icon = text(char::from(Icon::DragHandle).to_string())
+            .align_y(Alignment::Center)
+            .font(ICONS_FONT)
+            .style(|theme: &Theme| iced::widget::text::Style {
+                color: Some(theme.extended_palette().background.weakest.color),
+            })
+            .size(11);
 
-    container(row![icon, content,].align_y(Alignment::Center).spacing(2))
+        row![icon, content,]
+            .align_y(Alignment::Center)
+            .spacing(2)
+            .into()
+    } else {
+        content
+    };
+
+    container(content)
         .padding(2)
         .style(style::dragger_row_container)
         .into()
