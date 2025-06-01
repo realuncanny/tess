@@ -374,6 +374,7 @@ pub fn chart_modal(theme: &Theme) -> Style {
             blur_radius: 12.0,
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.4 } else { 0.2 }),
         },
+        snap: true,
     }
 }
 
@@ -418,6 +419,7 @@ pub fn modal_container(theme: &Theme) -> Style {
             blur_radius: 2.0,
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.8 } else { 0.2 }),
         },
+        snap: true,
     }
 }
 
@@ -439,6 +441,7 @@ pub fn dragger_row_container(theme: &Theme) -> Style {
             blur_radius: 4.0,
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.8 } else { 0.2 }),
         },
+        snap: true,
     }
 }
 
@@ -479,13 +482,13 @@ pub fn search_input(
         widget::text_input::Status::Hovered => (
             palette.background.weak.color,
             palette.background.strong.color,
-            palette.background.base.text,
+            palette.background.weak.text,
         ),
         widget::text_input::Status::Focused { .. }
         | widget::text_input::Status::Disabled { .. } => (
             palette.background.base.color,
             palette.background.strong.color,
-            palette.background.base.text,
+            palette.background.strong.color,
         ),
     };
 
@@ -601,6 +604,7 @@ pub fn split_ruler(theme: &Theme) -> iced::widget::rule::Style {
         width: crate::widget::multi_split::DRAG_SIZE as u16,
         radius: iced::border::Radius::default(),
         fill_mode: iced::widget::rule::FillMode::Full,
+        snap: true,
     }
 }
 

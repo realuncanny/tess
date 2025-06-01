@@ -55,6 +55,7 @@ fn bordered<'a, Message: 'a>(element: impl Into<Element<'a, Message>>) -> Contai
                 .width(1)
                 .color(theme.extended_palette().background.strong.color),
             shadow: iced::Shadow::default(),
+            snap: true,
         })
 }
 
@@ -75,6 +76,7 @@ fn preview<'a, Message: 'a>(color: Color) -> Element<'a, Message> {
                         bounds: layout.bounds(),
                         border: iced::Border::default(),
                         shadow: iced::Shadow::default(),
+                        snap: true,
                     },
                     color,
                 );
@@ -391,6 +393,7 @@ fn picker<'a, Message: 'a>(
                             },
                             border: iced::Border::default(),
                             shadow: iced::Shadow::default(),
+                            snap: true,
                         },
                         data::config::theme::from_hsva(color),
                     );
@@ -404,6 +407,7 @@ fn picker<'a, Message: 'a>(
                                 .color(Color::BLACK)
                                 .width(1.0),
                             shadow: iced::Shadow::default(),
+                            snap: true,
                         },
                         Color::WHITE,
                     );
