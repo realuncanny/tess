@@ -52,7 +52,7 @@ pub fn view<'a>(
 
     if let Some(basis) = selected_basis {
         match basis {
-            Basis::Time(selected_timeframe) => {
+            Basis::Time(selected_tf) => {
                 timeframes_column = timeframes_column.push(if is_kline_chart {
                     row![
                         create_button("Timeframe".to_string(), None, false,),
@@ -72,14 +72,11 @@ pub fn view<'a>(
 
                 if is_kline_chart {
                     for timeframe in &Timeframe::KLINE {
-                        let msg = if *timeframe == selected_timeframe.into() {
-                            None
-                        } else {
-                            Some(Message::BasisSelected(
-                                Basis::Time(u64::from(*timeframe)),
-                                pane,
-                            ))
+                        let msg = match exchange::Timeframe::try_from(selected_tf) {
+                            Ok(tf) if *timeframe == tf => None,
+                            _ => Some(Message::BasisSelected(Basis::Time(*timeframe), pane)),
                         };
+
                         timeframes_column = timeframes_column.push(create_button(
                             timeframe.to_string(),
                             msg,
@@ -92,14 +89,11 @@ pub fn view<'a>(
                             continue;
                         }
 
-                        let msg = if *timeframe == selected_timeframe.into() {
-                            None
-                        } else {
-                            Some(Message::BasisSelected(
-                                Basis::Time(u64::from(*timeframe)),
-                                pane,
-                            ))
+                        let msg = match exchange::Timeframe::try_from(selected_tf) {
+                            Ok(tf) if *timeframe == tf => None,
+                            _ => Some(Message::BasisSelected(Basis::Time(*timeframe), pane)),
                         };
+
                         timeframes_column = timeframes_column.push(create_button(
                             timeframe.to_string(),
                             msg,

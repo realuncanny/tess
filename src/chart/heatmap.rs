@@ -219,7 +219,7 @@ impl HeatmapChart {
         let chart = &mut self.chart;
 
         let aggregate_time: u64 = match chart.basis {
-            Basis::Time(interval) => interval,
+            Basis::Time(interval) => interval.into(),
             Basis::Tick(_) => todo!(),
         };
 
@@ -341,7 +341,7 @@ impl HeatmapChart {
 
     pub fn basis_interval(&self) -> Option<u64> {
         match self.chart.basis {
-            Basis::Time(interval) => Some(interval),
+            Basis::Time(interval) => Some(interval.into()),
             Basis::Tick(_) => None,
         }
     }

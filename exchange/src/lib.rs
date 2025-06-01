@@ -34,12 +34,15 @@ impl std::fmt::Display for Timeframe {
                 Timeframe::H1 => "1h",
                 Timeframe::H2 => "2h",
                 Timeframe::H4 => "4h",
+                Timeframe::H6 => "6h",
+                Timeframe::H12 => "12h",
+                Timeframe::D1 => "1d",
             }
         )
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize, PartialOrd, Ord)]
 pub enum Timeframe {
     MS100,
     MS200,
@@ -53,10 +56,13 @@ pub enum Timeframe {
     H1,
     H2,
     H4,
+    H6,
+    H12,
+    D1,
 }
 
 impl Timeframe {
-    pub const KLINE: [Timeframe; 8] = [
+    pub const KLINE: [Timeframe; 11] = [
         Timeframe::M1,
         Timeframe::M3,
         Timeframe::M5,
@@ -65,6 +71,9 @@ impl Timeframe {
         Timeframe::H1,
         Timeframe::H2,
         Timeframe::H4,
+        Timeframe::H6,
+        Timeframe::H12,
+        Timeframe::D1,
     ];
 
     pub const HEATMAP: [Timeframe; 4] = [
@@ -84,6 +93,9 @@ impl Timeframe {
             Timeframe::H1 => 60,
             Timeframe::H2 => 120,
             Timeframe::H4 => 240,
+            Timeframe::H6 => 360,
+            Timeframe::H12 => 720,
+            Timeframe::D1 => 1440,
             _ => panic!("Invalid timeframe: {:?}", self),
         }
     }
@@ -114,25 +126,41 @@ impl From<Timeframe> for u64 {
     }
 }
 
-impl From<u64> for Timeframe {
-    fn from(milliseconds: u64) -> Timeframe {
+impl TryFrom<u64> for Timeframe {
+    type Error = InvalidTimeframe;
+
+    fn try_from(milliseconds: u64) -> Result<Self, Self::Error> {
         match milliseconds {
-            100 => Timeframe::MS100,
-            200 => Timeframe::MS200,
-            500 => Timeframe::MS500,
-            1_000 => Timeframe::MS1000,
-            60_000 => Timeframe::M1,
-            180_000 => Timeframe::M3,
-            300_000 => Timeframe::M5,
-            900_000 => Timeframe::M15,
-            1_800_000 => Timeframe::M30,
-            3_600_000 => Timeframe::H1,
-            7_200_000 => Timeframe::H2,
-            14_400_000 => Timeframe::H4,
-            _ => panic!("Invalid timeframe: {milliseconds}"),
+            100 => Ok(Timeframe::MS100),
+            200 => Ok(Timeframe::MS200),
+            500 => Ok(Timeframe::MS500),
+            1_000 => Ok(Timeframe::MS1000),
+            60_000 => Ok(Timeframe::M1),
+            180_000 => Ok(Timeframe::M3),
+            300_000 => Ok(Timeframe::M5),
+            900_000 => Ok(Timeframe::M15),
+            1_800_000 => Ok(Timeframe::M30),
+            3_600_000 => Ok(Timeframe::H1),
+            7_200_000 => Ok(Timeframe::H2),
+            14_400_000 => Ok(Timeframe::H4),
+            21_600_000 => Ok(Timeframe::H6),
+            43_200_000 => Ok(Timeframe::H12),
+            86_400_000 => Ok(Timeframe::D1),
+            _ => Err(InvalidTimeframe(milliseconds)),
         }
     }
 }
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct InvalidTimeframe(pub u64);
+
+impl fmt::Display for InvalidTimeframe {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Invalid milliseconds value for Timeframe: {}", self.0)
+    }
+}
+
+impl std::error::Error for InvalidTimeframe {}
 
 /// Serializable version of `(Exchange, Ticker)` tuples that is used for keys in maps
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]

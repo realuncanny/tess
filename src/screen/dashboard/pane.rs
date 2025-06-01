@@ -138,10 +138,12 @@ impl State {
                 }]
             }
             "footprint" => {
+                let default_timeframe = Timeframe::M5;
+
                 let basis = self
                     .settings
                     .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M5.into()));
+                    .unwrap_or(Basis::Time(default_timeframe.into()));
 
                 match basis {
                     Basis::Time(interval) => {
@@ -153,7 +155,8 @@ impl State {
                             StreamKind::Kline {
                                 exchange,
                                 ticker: ticker_info.ticker,
-                                timeframe: interval.into(),
+                                timeframe: Timeframe::try_from(interval)
+                                    .unwrap_or(default_timeframe),
                             },
                         ]
                     }
@@ -166,17 +169,19 @@ impl State {
                 }
             }
             "candlestick" => {
+                let default_timeframe = Timeframe::M15;
+
                 let basis = self
                     .settings
                     .selected_basis
-                    .unwrap_or(Basis::Time(Timeframe::M15.into()));
+                    .unwrap_or(Basis::Time(default_timeframe.into()));
 
                 match basis {
                     Basis::Time(interval) => {
                         vec![StreamKind::Kline {
                             exchange,
                             ticker: ticker_info.ticker,
-                            timeframe: interval.into(),
+                            timeframe: Timeframe::try_from(interval).unwrap_or(default_timeframe),
                         }]
                     }
                     Basis::Tick(_) => {
@@ -356,7 +361,7 @@ impl State {
                         "{} - {}",
                         self.settings
                             .selected_basis
-                            .unwrap_or(Basis::default_time(self.settings.ticker_info)),
+                            .unwrap_or(Basis::default_heatmap_time(self.settings.ticker_info)),
                         self.settings.tick_multiply.unwrap_or(TickMultiplier(5)),
                     )))
                     .style(move |theme, status| {
@@ -614,7 +619,7 @@ impl Content {
 
         let basis = settings
             .selected_basis
-            .unwrap_or_else(|| Basis::default_time(Some(ticker_info)));
+            .unwrap_or_else(|| Basis::default_heatmap_time(Some(ticker_info)));
         let config = settings.visual_config.and_then(|cfg| cfg.heatmap());
 
         Content::Heatmap(
@@ -832,7 +837,7 @@ impl Content {
                     state
                         .settings
                         .selected_basis
-                        .unwrap_or(Basis::default_time(state.settings.ticker_info)),
+                        .unwrap_or(Basis::default_heatmap_time(state.settings.ticker_info)),
                     state.settings.tick_multiply.unwrap_or(TickMultiplier(5)),
                 );
 

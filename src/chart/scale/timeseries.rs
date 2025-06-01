@@ -62,9 +62,9 @@ pub fn calc_time_step(
     earliest: u64,
     latest: u64,
     labels_can_fit: i32,
-    timeframe: u64,
+    timeframe: exchange::Timeframe,
 ) -> (u64, u64) {
-    let timeframe_in_min = timeframe / 60000;
+    let timeframe_in_min = timeframe.to_milliseconds() / 60_000;
 
     let time_steps: &[u64] = match timeframe_in_min {
         0_u64..1_u64 => &MS_TIME_STEPS,

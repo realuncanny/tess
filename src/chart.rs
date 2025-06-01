@@ -676,11 +676,14 @@ impl CommonChartData {
                 self.x_to_interval(region.x + region.width),
                 self.x_to_interval(region.x),
             ),
-            Basis::Time(interval) => (
-                self.x_to_interval(region.x).saturating_sub(interval / 2),
-                self.x_to_interval(region.x + region.width)
-                    .saturating_add(interval / 2),
-            ),
+            Basis::Time(timeframe) => {
+                let interval = timeframe.to_milliseconds();
+                (
+                    self.x_to_interval(region.x).saturating_sub(interval / 2),
+                    self.x_to_interval(region.x + region.width)
+                        .saturating_add(interval / 2),
+                )
+            }
         }
     }
 
@@ -694,13 +697,11 @@ impl CommonChartData {
     fn interval_to_x(&self, value: u64) -> f32 {
         match self.basis {
             Basis::Time(timeframe) => {
-                if value <= self.latest_x {
-                    let diff = self.latest_x - value;
-                    -(diff as f32 / timeframe as f32) * self.cell_width
-                } else {
-                    let diff = value - self.latest_x;
-                    (diff as f32 / timeframe as f32) * self.cell_width
-                }
+                let interval = timeframe.to_milliseconds() as f64;
+                let cell_width = self.cell_width as f64;
+
+                let diff = value as f64 - self.latest_x as f64;
+                (diff / interval * cell_width) as f32
             }
             Basis::Tick(_) => -((value as f32) * self.cell_width),
         }
@@ -708,7 +709,9 @@ impl CommonChartData {
 
     fn x_to_interval(&self, x: f32) -> u64 {
         match self.basis {
-            Basis::Time(interval) => {
+            Basis::Time(timeframe) => {
+                let interval = timeframe.to_milliseconds();
+
                 if x <= 0.0 {
                     let diff = (-x / self.cell_width * interval as f32) as u64;
                     self.latest_x.saturating_sub(diff)
@@ -764,6 +767,8 @@ impl CommonChartData {
         // Vertical time/tick line
         match self.basis {
             Basis::Time(timeframe) => {
+                let interval = timeframe.to_milliseconds();
+
                 let earliest = self.x_to_interval(region.x) as f64;
                 let latest = self.x_to_interval(region.x + region.width) as f64;
 
@@ -771,7 +776,7 @@ impl CommonChartData {
                 let crosshair_millis = earliest + crosshair_ratio * (latest - earliest);
 
                 let rounded_timestamp =
-                    (crosshair_millis / (timeframe as f64)).round() as u64 * timeframe;
+                    (crosshair_millis / (interval as f64)).round() as u64 * interval;
                 let snap_ratio =
                     ((rounded_timestamp as f64 - earliest) / (latest - earliest)) as f32;
 

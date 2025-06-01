@@ -77,7 +77,9 @@ impl Chart for KlineChart {
         let region = chart.visible_region(chart.bounds.size());
 
         match &chart.basis {
-            Basis::Time(interval) => {
+            Basis::Time(timeframe) => {
+                let interval = timeframe.to_milliseconds();
+
                 let (earliest, latest) = (
                     chart.x_to_interval(region.x) - (interval / 2),
                     chart.x_to_interval(region.x + region.width) + (interval / 2),
@@ -214,8 +216,7 @@ impl KlineChart {
     ) -> Self {
         match basis {
             Basis::Time(interval) => {
-                let timeseries =
-                    TimeSeries::new(interval.into(), tick_size, &raw_trades, klines_raw);
+                let timeseries = TimeSeries::new(interval, tick_size, &raw_trades, klines_raw);
 
                 let base_price_y = timeseries.base_price();
                 let latest_x = timeseries.latest_timestamp().unwrap_or(0);

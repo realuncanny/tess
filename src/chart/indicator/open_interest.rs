@@ -18,11 +18,14 @@ pub fn indicator_elem<'a>(
 ) -> Element<'a, Message> {
     let (mut max_value, mut min_value) = {
         match chart_state.basis {
-            Basis::Time(interval) => {
-                if interval < Timeframe::M5.to_milliseconds() {
-                    return center(text(
-                        "WIP: Open Interest is not available with intervals less than 5 minutes.",
-                    ))
+            Basis::Time(timeframe) => {
+                if timeframe < Timeframe::M5
+                    || timeframe == Timeframe::H2
+                    || timeframe > Timeframe::H4
+                {
+                    return center(text(format!(
+                        "WIP: Open Interest is not available on {timeframe} timeframe",
+                    )))
                     .into();
                 } else {
                     data_points
@@ -144,7 +147,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
         }
 
         let timeframe: u64 = match chart_state.basis {
-            Basis::Time(interval) => interval,
+            Basis::Time(interval) => interval.into(),
             Basis::Tick(_) => {
                 // TODO: implement
                 return vec![];

@@ -1,4 +1,4 @@
-use exchange::adapter::Exchange;
+use exchange::{Timeframe, adapter::Exchange};
 use serde::{Deserialize, Serialize};
 
 pub mod heatmap;
@@ -48,12 +48,7 @@ impl VisualConfig {
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
 pub enum Basis {
     /// Time-based aggregation where each datapoint represents a fixed time interval.
-    ///
-    /// The u64 value represents milliseconds. Common values include:
-    /// - `60_000` (1 minute)
-    /// - `300_000` (5 minutes)
-    /// - `3_600_000` (1 hour)
-    Time(u64),
+    Time(exchange::Timeframe),
 
     /// Trade-based aggregation where each datapoint represents a fixed number of trades.
     ///
@@ -67,34 +62,26 @@ impl Basis {
         matches!(self, Basis::Time(_))
     }
 
-    pub fn default_time(ticker_info: Option<exchange::TickerInfo>) -> Self {
-        let interval = ticker_info.map_or(100, |info| {
+    pub fn default_heatmap_time(ticker_info: Option<exchange::TickerInfo>) -> Self {
+        let interval = ticker_info.map_or(Timeframe::MS100, |info| {
             if info.exchange() == Exchange::BybitSpot {
-                200
+                Timeframe::MS200
             } else {
-                100
+                Timeframe::MS100
             }
         });
-        Basis::Time(interval)
+        Basis::Time(Timeframe::try_from(interval).unwrap_or(Timeframe::MS100))
     }
 }
 
 impl std::fmt::Display for Basis {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Basis::Time(millis) => match *millis {
-                1_000 => write!(f, "1s"),
-                60_000 => write!(f, "1m"),
-                180_000 => write!(f, "3m"),
-                300_000 => write!(f, "5m"),
-                900_000 => write!(f, "15m"),
-                1_800_000 => write!(f, "30m"),
-                3_600_000 => write!(f, "1h"),
-                7_200_000 => write!(f, "2h"),
-                14_400_000 => write!(f, "4h"),
-                _ => write!(f, "{millis}ms"),
+            Basis::Time(millis) => match exchange::Timeframe::try_from(*millis) {
+                Ok(timeframe) => write!(f, "{}", timeframe),
+                Err(_) => write!(f, "{}ms", millis),
             },
-            Basis::Tick(count) => write!(f, "{count}T"),
+            Basis::Tick(count) => write!(f, "{}T", count),
         }
     }
 }

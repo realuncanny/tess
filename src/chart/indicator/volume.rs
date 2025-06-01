@@ -274,10 +274,12 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
 
                     let (rounded_interval, snap_ratio) = match chart_state.basis {
                         Basis::Time(timeframe) => {
+                            let interval = timeframe.to_milliseconds();
+
                             let crosshair_millis = earliest + crosshair_ratio * (latest - earliest);
 
                             let rounded_timestamp =
-                                (crosshair_millis / (timeframe as f64)).round() as u64 * timeframe;
+                                (crosshair_millis / (interval as f64)).round() as u64 * interval;
                             let snap_ratio = ((rounded_timestamp as f64 - earliest)
                                 / (latest - earliest))
                                 as f32;

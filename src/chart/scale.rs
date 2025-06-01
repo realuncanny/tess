@@ -245,7 +245,7 @@ impl AxisLabelsX<'_> {
             if let Some(timestamp) = interval_keys.get(array_index) {
                 let label_text = self
                     .timezone
-                    .format_timestamp((*timestamp / 1000) as i64, 100);
+                    .format_timestamp((*timestamp / 1000) as i64, exchange::Timeframe::MS100);
 
                 labels.push(AxisLabelsX::create_label(
                     snap_x, label_text, bounds, false, palette,
@@ -370,10 +370,12 @@ impl AxisLabelsX<'_> {
                 let crosshair_millis =
                     x_min as f64 + f64::from(crosshair_ratio) * (x_max as f64 - x_min as f64);
 
+                let interval = timeframe.to_milliseconds();
+
                 let crosshair_time = DateTime::from_timestamp_millis(crosshair_millis as i64)?;
                 let rounded_timestamp =
-                    (crosshair_time.timestamp_millis() as f64 / (timeframe as f64)).round() as u64
-                        * timeframe;
+                    (crosshair_time.timestamp_millis() as f64 / (interval as f64)).round() as u64
+                        * interval;
 
                 let snap_ratio =
                     (rounded_timestamp as f64 - x_min as f64) / (x_max as f64 - x_min as f64);
@@ -385,7 +387,7 @@ impl AxisLabelsX<'_> {
 
                 let text_content = self
                     .timezone
-                    .format_crosshair_timestamp(rounded_timestamp as i64, timeframe);
+                    .format_crosshair_timestamp(rounded_timestamp as i64, interval);
 
                 return Some(AxisLabelsX::create_label(
                     snap_x as f32,
@@ -414,12 +416,14 @@ impl AxisLabelsX<'_> {
 
     fn x_to_interval(&self, x: f32) -> u64 {
         match self.basis {
-            Basis::Time(interval) => {
+            Basis::Time(timeframe) => {
+                let interval = timeframe.to_milliseconds() as f64;
+
                 if x <= 0.0 {
-                    let diff = (-x / self.cell_width * interval as f32) as u64;
+                    let diff = ((-x / self.cell_width) as f64 * interval) as u64;
                     self.max.saturating_sub(diff)
                 } else {
-                    let diff = (x / self.cell_width * interval as f32) as u64;
+                    let diff = ((x / self.cell_width) as f64 * interval) as u64;
                     self.max.saturating_add(diff)
                 }
             }
@@ -692,8 +696,10 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
             if let Some(label) = self.last_price {
                 let candle_close_label = match self.basis {
                     Basis::Time(timeframe) => {
+                        let interval = timeframe.to_milliseconds();
+
                         let current_time = chrono::Utc::now().timestamp_millis() as u64;
-                        let next_kline_open = (current_time / timeframe + 1) * timeframe;
+                        let next_kline_open = (current_time / interval + 1) * interval;
 
                         let remaining_seconds = (next_kline_open - current_time) / 1000;
 

@@ -157,7 +157,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                 let config = settings.visual_config.and_then(|cfg| cfg.heatmap());
                 let basis = settings
                     .selected_basis
-                    .unwrap_or(Basis::default_time(Some(ticker_info)));
+                    .unwrap_or(Basis::default_heatmap_time(Some(ticker_info)));
 
                 Configuration::Pane(pane::State::from_config(
                     pane::Content::Heatmap(

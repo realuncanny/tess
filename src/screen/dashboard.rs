@@ -338,6 +338,7 @@ impl Dashboard {
                         if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                             state.settings.selected_basis = Some(new_basis);
 
+                            // Special case for heatmap
                             if let pane::Content::Heatmap(ref mut chart, _) = state.content {
                                 chart.set_basis(new_basis);
                                 return (Task::none(), None);
@@ -345,82 +346,77 @@ impl Dashboard {
 
                             if let Some((exchange, ticker)) = state.stream_pair() {
                                 let chart_kind = state.content.chart_kind().unwrap_or_default();
+                                let is_footprint = matches!(
+                                    chart_kind,
+                                    data::chart::KlineChartKind::Footprint { .. }
+                                );
 
-                                match &chart_kind {
-                                    data::chart::KlineChartKind::Candles => match new_basis {
-                                        Basis::Time(interval) => {
-                                            state.streams = vec![StreamKind::Kline {
-                                                exchange,
-                                                ticker,
-                                                timeframe: interval.into(),
-                                            }];
-                                        }
-                                        Basis::Tick(_) => {
-                                            state.streams = vec![StreamKind::DepthAndTrades {
-                                                exchange,
-                                                ticker,
-                                            }];
-                                        }
-                                    },
-                                    data::chart::KlineChartKind::Footprint { .. } => {
-                                        match new_basis {
-                                            Basis::Time(interval) => {
-                                                state.streams = vec![
-                                                    StreamKind::Kline {
-                                                        exchange,
-                                                        ticker,
-                                                        timeframe: interval.into(),
-                                                    },
-                                                    StreamKind::DepthAndTrades { exchange, ticker },
-                                                ];
-                                            }
-                                            Basis::Tick(_) => {
-                                                state.streams = vec![StreamKind::DepthAndTrades {
-                                                    exchange,
-                                                    ticker,
-                                                }];
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        match new_basis {
-                            Basis::Time(timeframe) => {
-                                match self.set_pane_timeframe(
-                                    main_window.id,
-                                    window,
-                                    pane,
-                                    timeframe.into(),
-                                ) {
-                                    Ok((stream, pane_uid)) => {
-                                        if let StreamKind::Kline { .. } = stream {
-                                            let task = kline_fetch_task(
-                                                *layout_id, pane_uid, *stream, None, None,
-                                            );
-
-                                            return (
-                                                Task::done(Message::RefreshStreams).chain(task),
-                                                None,
-                                            );
-                                        }
-                                    }
-                                    Err(err) => {
-                                        return (
-                                            Task::done(Message::ErrorOccurred(None, err)),
-                                            None,
+                                match new_basis {
+                                    Basis::Time(interval) => {
+                                        let timeframe = Timeframe::try_from(interval).unwrap_or(
+                                            if is_footprint {
+                                                Timeframe::M5
+                                            } else {
+                                                Timeframe::M15
+                                            },
                                         );
+
+                                        // Set appropriate streams based on chart type
+                                        let mut streams = vec![StreamKind::Kline {
+                                            exchange,
+                                            ticker,
+                                            timeframe,
+                                        }];
+
+                                        // Footprint charts need depth and trades too
+                                        if is_footprint {
+                                            streams.push(StreamKind::DepthAndTrades {
+                                                exchange,
+                                                ticker,
+                                            });
+                                        }
+
+                                        state.streams = streams;
+
+                                        match self.set_pane_timeframe(
+                                            main_window.id,
+                                            window,
+                                            pane,
+                                            timeframe,
+                                        ) {
+                                            Ok((stream, pane_uid)) => {
+                                                if let StreamKind::Kline { .. } = stream {
+                                                    let task = kline_fetch_task(
+                                                        *layout_id, pane_uid, *stream, None, None,
+                                                    );
+                                                    return (
+                                                        Task::done(Message::RefreshStreams)
+                                                            .chain(task),
+                                                        None,
+                                                    );
+                                                }
+                                            }
+                                            Err(err) => {
+                                                return (
+                                                    Task::done(Message::ErrorOccurred(None, err)),
+                                                    None,
+                                                );
+                                            }
+                                        }
                                     }
-                                }
-                            }
-                            Basis::Tick(size) => {
-                                if let Some(pane_state) =
-                                    self.get_mut_pane(main_window.id, window, pane)
-                                {
-                                    if let pane::Content::Kline(chart, _) = &mut pane_state.content
-                                    {
-                                        chart.set_tick_basis(size);
+                                    Basis::Tick(interval) => {
+                                        state.streams =
+                                            vec![StreamKind::DepthAndTrades { exchange, ticker }];
+
+                                        if let Some(pane_state) =
+                                            self.get_mut_pane(main_window.id, window, pane)
+                                        {
+                                            if let pane::Content::Kline(chart, _) =
+                                                &mut pane_state.content
+                                            {
+                                                chart.set_tick_basis(interval);
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -924,7 +920,7 @@ impl Dashboard {
         if let Some(state) = self.get_mut_pane(main_window, window, pane) {
             let pane_id = state.unique_id();
 
-            state.settings.selected_basis = Some(Basis::Time(new_timeframe.to_milliseconds()));
+            state.settings.selected_basis = Some(Basis::Time(new_timeframe));
 
             if let Some(stream_type) = state
                 .streams

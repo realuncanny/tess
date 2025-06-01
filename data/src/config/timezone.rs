@@ -12,7 +12,7 @@ pub enum UserTimezone {
 
 impl UserTimezone {
     /// Converts UTC timestamp to the appropriate timezone and formats it according to timeframe
-    pub fn format_timestamp(&self, timestamp: i64, timeframe: u64) -> String {
+    pub fn format_timestamp(&self, timestamp: i64, timeframe: exchange::Timeframe) -> String {
         if let Some(datetime) = DateTime::from_timestamp(timestamp, 0) {
             match self {
                 UserTimezone::Local => {
@@ -30,11 +30,16 @@ impl UserTimezone {
     }
 
     /// Formats a `DateTime` with appropriate format based on timeframe
-    fn format_by_timeframe<Tz: chrono::TimeZone>(datetime: &DateTime<Tz>, timeframe: u64) -> String
+    fn format_by_timeframe<Tz: chrono::TimeZone>(
+        datetime: &DateTime<Tz>,
+        timeframe: exchange::Timeframe,
+    ) -> String
     where
         Tz::Offset: std::fmt::Display,
     {
-        if timeframe < 10000 {
+        let interval = timeframe.to_milliseconds();
+
+        if interval < 10000 {
             datetime.format("%M:%S").to_string()
         } else if datetime.format("%H:%M").to_string() == "00:00" {
             datetime.format("%-d").to_string()
@@ -44,9 +49,9 @@ impl UserTimezone {
     }
 
     /// Formats a `DateTime` with detailed format for crosshair display
-    pub fn format_crosshair_timestamp(&self, timestamp_millis: i64, timeframe: u64) -> String {
+    pub fn format_crosshair_timestamp(&self, timestamp_millis: i64, interval: u64) -> String {
         if let Some(datetime) = DateTime::from_timestamp_millis(timestamp_millis) {
-            if timeframe < 10000 {
+            if interval < 10000 {
                 return datetime.format("%M:%S.%3f").to_string();
             }
 
