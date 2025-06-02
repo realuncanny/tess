@@ -1,4 +1,4 @@
-use super::{AxisLabel, AxisLabelsX};
+use super::{AxisLabel, create_label};
 use chrono::{DateTime, Datelike, Duration, Months};
 use data::{
     UserTimezone,
@@ -7,6 +7,8 @@ use data::{
 use iced::theme::palette::Extended;
 
 pub const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
+
+const TEXT_SIZE: f32 = 12.0;
 
 const M1_TIME_STEPS: [u64; 9] = [
     1000 * 60 * 720, // 12 hour
@@ -74,7 +76,7 @@ const MS_TIME_STEPS: [u64; 10] = [
     100,
 ];
 
-pub fn calc_time_step(
+fn calc_time_step(
     earliest: u64,
     latest: u64,
     labels_can_fit: i32,
@@ -114,7 +116,90 @@ pub fn calc_time_step(
     (selected_step, rounded_earliest)
 }
 
-pub fn sub_daily_labels_gen(
+pub fn generate_time_labels(
+    timeframe: exchange::Timeframe,
+    timezone: data::UserTimezone,
+    bounds: iced::Rectangle,
+    x_min: u64,
+    x_max: u64,
+    palette: &Extended,
+    x_labels_can_fit: i32,
+) -> Vec<AxisLabel> {
+    let (time_step, initial_rounded_earliest) =
+        calc_time_step(x_min, x_max, x_labels_can_fit, timeframe);
+
+    if time_step == 0 {
+        return Vec::new();
+    }
+
+    let calculate_x_pos = |time_millis: u64, min_millis: u64, max_millis: u64, width: f32| -> f64 {
+        if max_millis > min_millis {
+            ((time_millis - min_millis) as f64 / (max_millis - min_millis) as f64)
+                * f64::from(width)
+        } else {
+            0.0
+        }
+    };
+
+    let is_drawable = |x_pos: f64, width: f32| -> bool {
+        x_pos >= (-TEXT_SIZE * 5.0).into() && x_pos <= f64::from(width) + (TEXT_SIZE * 5.0) as f64
+    };
+
+    let mut all_labels = Vec::with_capacity(x_labels_can_fit as usize * 3);
+
+    if time_step >= ONE_DAY_MS {
+        daily_labels_gen(
+            timezone,
+            &mut all_labels,
+            bounds,
+            x_min,
+            x_max,
+            palette,
+            time_step,
+            &calculate_x_pos,
+            &is_drawable,
+        );
+
+        monthly_labels_gen(
+            timezone,
+            &mut all_labels,
+            bounds,
+            x_min,
+            x_max,
+            palette,
+            &calculate_x_pos,
+            &is_drawable,
+        );
+
+        yearly_labels_gen(
+            &mut all_labels,
+            bounds,
+            x_min,
+            x_max,
+            palette,
+            &calculate_x_pos,
+            &is_drawable,
+        );
+    } else {
+        sub_daily_labels_gen(
+            timezone,
+            &mut all_labels,
+            bounds,
+            x_min,
+            x_max,
+            palette,
+            time_step,
+            initial_rounded_earliest,
+            timeframe,
+            &calculate_x_pos,
+            &is_drawable,
+        );
+    }
+
+    all_labels
+}
+
+fn sub_daily_labels_gen(
     timezone: data::UserTimezone,
     all_labels: &mut Vec<AxisLabel>,
     bounds: iced::Rectangle,
@@ -124,8 +209,8 @@ pub fn sub_daily_labels_gen(
     time_step: u64,
     initial_rounded_earliest: u64,
     timeframe: exchange::Timeframe,
-    calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
-    is_drawable: &dyn Fn(f64, f32) -> bool,
+    calculate_x_pos: impl Fn(u64, u64, u64, f32) -> f64,
+    is_drawable: impl Fn(f64, f32) -> bool,
 ) {
     let mut current_time = initial_rounded_earliest;
     while current_time <= x_max {
@@ -134,7 +219,7 @@ pub fn sub_daily_labels_gen(
 
             if is_drawable(x_position, bounds.width) {
                 let label_text = timezone.format_timestamp((current_time / 1000) as i64, timeframe);
-                all_labels.push(AxisLabelsX::create_label(
+                all_labels.push(create_label(
                     x_position as f32,
                     label_text,
                     bounds,
@@ -155,7 +240,7 @@ pub fn sub_daily_labels_gen(
     }
 }
 
-pub fn daily_labels_gen(
+fn daily_labels_gen(
     timezone: UserTimezone,
     all_labels: &mut Vec<AxisLabel>,
     bounds: iced::Rectangle,
@@ -163,8 +248,8 @@ pub fn daily_labels_gen(
     x_max: u64,
     palette: &Extended,
     time_step: u64,
-    calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
-    is_drawable: &dyn Fn(f64, f32) -> bool,
+    calculate_x_pos: impl Fn(u64, u64, u64, f32) -> f64,
+    is_drawable: impl Fn(f64, f32) -> bool,
 ) {
     if let Some(view_start_dt_utc) = DateTime::from_timestamp_millis(x_min as i64) {
         let mut current_month_loop_iter_utc = reset_to_start_of_month_utc(view_start_dt_utc);
@@ -218,7 +303,7 @@ pub fn daily_labels_gen(
                                 calculate_x_pos(day_candidate_ts, x_min, x_max, bounds.width);
                             if is_drawable(x_pos, bounds.width) {
                                 let day_text = dt_in_timezone.format("%d").to_string();
-                                all_labels.push(AxisLabelsX::create_label(
+                                all_labels.push(create_label(
                                     x_pos as f32,
                                     day_text,
                                     bounds,
@@ -267,15 +352,15 @@ pub fn daily_labels_gen(
     }
 }
 
-pub fn monthly_labels_gen(
+fn monthly_labels_gen(
     timezone: data::UserTimezone,
     all_labels: &mut Vec<AxisLabel>,
     bounds: iced::Rectangle,
     x_min: u64,
     x_max: u64,
     palette: &Extended,
-    calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
-    is_drawable: &dyn Fn(f64, f32) -> bool,
+    calculate_x_pos: impl Fn(u64, u64, u64, f32) -> f64,
+    is_drawable: impl Fn(f64, f32) -> bool,
 ) {
     if let Some(start_utc_dt) = DateTime::from_timestamp_millis(x_min as i64) {
         if let Some(end_utc_dt) = DateTime::from_timestamp_millis(x_max as i64) {
@@ -307,7 +392,7 @@ pub fn monthly_labels_gen(
                             calculate_x_pos(month_ts_millis, x_min, x_max, bounds.width);
                         if is_drawable(x_position_month, bounds.width) {
                             let month_label_text = dt_in_timezone.format("%b").to_string();
-                            all_labels.push(AxisLabelsX::create_label(
+                            all_labels.push(create_label(
                                 x_position_month as f32,
                                 month_label_text,
                                 bounds,
@@ -336,14 +421,14 @@ pub fn monthly_labels_gen(
     }
 }
 
-pub fn yearly_labels_gen(
+fn yearly_labels_gen(
     all_labels: &mut Vec<AxisLabel>,
     bounds: iced::Rectangle,
     x_min: u64,
     x_max: u64,
     palette: &Extended,
-    calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
-    is_drawable: &dyn Fn(f64, f32) -> bool,
+    calculate_x_pos: impl Fn(u64, u64, u64, f32) -> f64,
+    is_drawable: impl Fn(f64, f32) -> bool,
 ) {
     if let Some(view_start_dt_utc) = DateTime::from_timestamp_millis(x_min as i64) {
         if let Some(view_end_dt_utc) = DateTime::from_timestamp_millis(x_max as i64) {
@@ -369,7 +454,7 @@ pub fn yearly_labels_gen(
 
                     if is_drawable(x_position_year, bounds.width) {
                         let year_label_text = current_year_iter_utc.format("%Y").to_string();
-                        all_labels.push(AxisLabelsX::create_label(
+                        all_labels.push(create_label(
                             x_position_year as f32,
                             year_label_text,
                             bounds,

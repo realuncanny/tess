@@ -52,11 +52,11 @@ pub fn generate_labels(
             text_size,
         };
 
-        return vec![AxisLabel::Y(
-            calc_label_rect(0.0, 1, text_size, bounds),
-            label,
-            None,
-        )];
+        return vec![AxisLabel::Y {
+            bounds: calc_label_rect(0.0, 1, text_size, bounds),
+            value_label: label,
+            timer_label: None,
+        }];
     }
 
     let (step, max) = calc_optimal_ticks(highest, lowest, labels_can_fit);
@@ -88,11 +88,11 @@ pub fn generate_labels(
             let label_pos =
                 bounds.height - ((clamped_value - lowest) / (highest - lowest) * bounds.height);
 
-            labels.push(AxisLabel::Y(
-                calc_label_rect(label_pos, 1, text_size, bounds),
-                label,
-                None,
-            ));
+            labels.push(AxisLabel::Y {
+                bounds: calc_label_rect(label_pos, 1, text_size, bounds),
+                value_label: label,
+                timer_label: None,
+            });
         }
 
         value -= step;
@@ -100,4 +100,30 @@ pub fn generate_labels(
     }
 
     labels
+}
+
+// other helpers
+#[derive(Debug, Clone, Copy)]
+pub enum PriceInfoLabel {
+    Up(f32),
+    Down(f32),
+    Neutral(f32),
+}
+
+impl PriceInfoLabel {
+    pub fn new(close_price: f32, open_price: f32) -> Self {
+        if close_price >= open_price {
+            PriceInfoLabel::Up(close_price)
+        } else {
+            PriceInfoLabel::Down(close_price)
+        }
+    }
+
+    pub fn get_with_color(self, palette: &iced::theme::palette::Extended) -> (f32, iced::Color) {
+        match self {
+            PriceInfoLabel::Up(p) => (p, palette.success.base.color),
+            PriceInfoLabel::Down(p) => (p, palette.danger.base.color),
+            PriceInfoLabel::Neutral(p) => (p, palette.secondary.strong.color),
+        }
+    }
 }

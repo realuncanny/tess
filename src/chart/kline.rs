@@ -1,6 +1,6 @@
 use super::{
     Action, Basis, Caches, Chart, ChartConstants, ChartData, CommonChartData, Interaction, Message,
-    indicator, request_fetch, scale::PriceInfoLabel,
+    indicator, request_fetch, scale::linear::PriceInfoLabel,
 };
 use crate::{modal::pane::settings::study, style};
 use data::aggr::ticks::TickAggr;

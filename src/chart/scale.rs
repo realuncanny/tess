@@ -10,7 +10,8 @@ use iced::{
     theme::palette::Extended,
     widget::canvas::{self, Cache, Frame, Geometry},
 };
-use timeseries::ONE_DAY_MS;
+
+const TEXT_SIZE: f32 = 12.0;
 
 /// calculates `Rectangle` from given content, clamps it within bounds if needed
 pub fn calc_label_rect(
@@ -48,19 +49,75 @@ pub struct Label {
     pub text_size: f32,
 }
 
+fn create_label(
+    position: f32,
+    text: String,
+    bounds: Rectangle,
+    is_crosshair: bool,
+    palette: &Extended,
+) -> AxisLabel {
+    let content_width = text.len() as f32 * (TEXT_SIZE / 2.6);
+
+    let rect = Rectangle {
+        x: position - content_width,
+        y: 4.0,
+        width: 2.0 * content_width,
+        height: bounds.height - 8.0,
+    };
+
+    let label = Label {
+        content: text,
+        background_color: if is_crosshair {
+            Some(palette.secondary.base.color)
+        } else {
+            None
+        },
+        text_color: if is_crosshair {
+            palette.secondary.base.text
+        } else {
+            palette.background.base.text
+        },
+        text_size: TEXT_SIZE,
+    };
+
+    AxisLabel::X {
+        bounds: rect,
+        label,
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum AxisLabel {
-    X(Rectangle, Label),
-    Y(Rectangle, Label, Option<Label>),
+    X {
+        bounds: Rectangle,
+        label: Label,
+    },
+    Y {
+        bounds: Rectangle,
+        value_label: Label,
+        timer_label: Option<Label>,
+    },
 }
 
 impl AxisLabel {
     fn intersects(&self, other: &AxisLabel) -> bool {
         match (self, other) {
-            (AxisLabel::Y(self_rect, ..), AxisLabel::Y(other_rect, ..))
-            | (AxisLabel::X(self_rect, ..), AxisLabel::X(other_rect, ..)) => {
-                self_rect.intersects(other_rect)
-            }
+            (
+                AxisLabel::Y {
+                    bounds: self_rect, ..
+                },
+                AxisLabel::Y {
+                    bounds: other_rect, ..
+                },
+            )
+            | (
+                AxisLabel::X {
+                    bounds: self_rect, ..
+                },
+                AxisLabel::X {
+                    bounds: other_rect, ..
+                },
+            ) => self_rect.intersects(other_rect),
             _ => false,
         }
     }
@@ -79,18 +136,18 @@ impl AxisLabel {
 
     fn draw(&self, frame: &mut Frame) {
         match self {
-            AxisLabel::X(rect, label) => {
+            AxisLabel::X { bounds, label } => {
                 if let Some(background_color) = label.background_color {
                     frame.fill_rectangle(
-                        Point::new(rect.x, rect.y),
-                        Size::new(rect.width, rect.height),
+                        Point::new(bounds.x, bounds.y),
+                        Size::new(bounds.width, bounds.height),
                         background_color,
                     );
                 }
 
                 let label = canvas::Text {
                     content: label.content.clone(),
-                    position: rect.center(),
+                    position: bounds.center(),
                     size: label.text_size.into(),
                     color: label.text_color,
                     align_y: Alignment::Center.into(),
@@ -101,11 +158,15 @@ impl AxisLabel {
 
                 frame.fill_text(label);
             }
-            AxisLabel::Y(rect, value_label, timer_label) => {
+            AxisLabel::Y {
+                bounds,
+                value_label,
+                timer_label,
+            } => {
                 if let Some(background_color) = value_label.background_color {
                     frame.fill_rectangle(
-                        Point::new(rect.x, rect.y),
-                        Size::new(rect.width, rect.height),
+                        Point::new(bounds.x, bounds.y),
+                        Size::new(bounds.width, bounds.height),
                         background_color,
                     );
                 }
@@ -113,7 +174,7 @@ impl AxisLabel {
                 if let Some(timer_label) = timer_label {
                     let value_label = canvas::Text {
                         content: value_label.content.clone(),
-                        position: Point::new(rect.x + 4.0, rect.y + 2.0),
+                        position: Point::new(bounds.x + 4.0, bounds.y + 2.0),
                         color: value_label.text_color,
                         size: value_label.text_size.into(),
                         font: AZERET_MONO,
@@ -124,7 +185,7 @@ impl AxisLabel {
 
                     let timer_label = canvas::Text {
                         content: timer_label.content.clone(),
-                        position: Point::new(rect.x + 4.0, rect.y + 15.0),
+                        position: Point::new(bounds.x + 4.0, bounds.y + 15.0),
                         color: timer_label.text_color,
                         size: timer_label.text_size.into(),
                         font: AZERET_MONO,
@@ -135,7 +196,7 @@ impl AxisLabel {
                 } else {
                     let value_label = canvas::Text {
                         content: value_label.content.clone(),
-                        position: Point::new(rect.x + 4.0, rect.y + 4.0),
+                        position: Point::new(bounds.x + 4.0, bounds.y + 4.0),
                         color: value_label.text_color,
                         size: value_label.text_size.into(),
                         font: AZERET_MONO,
@@ -150,8 +211,6 @@ impl AxisLabel {
 }
 
 // X-AXIS LABELS
-const TEXT_SIZE: f32 = 12.0;
-
 pub struct AxisLabelsX<'a> {
     pub labels_cache: &'a Cache,
     pub crosshair: bool,
@@ -166,183 +225,6 @@ pub struct AxisLabelsX<'a> {
 }
 
 impl AxisLabelsX<'_> {
-    fn create_label(
-        position: f32,
-        text: String,
-        bounds: Rectangle,
-        is_crosshair: bool,
-        palette: &Extended,
-    ) -> AxisLabel {
-        let content_width = text.len() as f32 * (TEXT_SIZE / 2.6);
-
-        let rect = Rectangle {
-            x: position - content_width,
-            y: 4.0,
-            width: 2.0 * content_width,
-            height: bounds.height - 8.0,
-        };
-
-        let label = Label {
-            content: text,
-            background_color: if is_crosshair {
-                Some(palette.secondary.base.color)
-            } else {
-                None
-            },
-            text_color: if is_crosshair {
-                palette.secondary.base.text
-            } else {
-                palette.background.base.text
-            },
-            text_size: 12.0,
-        };
-
-        AxisLabel::X(rect, label)
-    }
-
-    fn generate_tick_labels(
-        &self,
-        region: Rectangle,
-        bounds: Rectangle,
-        palette: &Extended,
-        x_labels_can_fit: i32,
-    ) -> Vec<AxisLabel> {
-        let Some(interval_keys) = &self.interval_keys else {
-            return Vec::new();
-        };
-
-        let chart_x_min = region.x;
-        let chart_x_max = region.x + region.width;
-
-        let last_index = interval_keys.len() - 1;
-
-        let min_cell = (chart_x_min / self.cell_width).floor() as i32;
-        let max_cell = ((chart_x_max) / self.cell_width).ceil() as i32;
-
-        let min_cell = min_cell.max(-((last_index + 1) as i32));
-
-        let visible_cell_count = (max_cell - min_cell + 1).max(1) as f32;
-        let step_size = (visible_cell_count / x_labels_can_fit as f32).ceil() as usize;
-
-        let mut labels = Vec::with_capacity(interval_keys.len().min(x_labels_can_fit as usize));
-        for cell_index in (min_cell..=max_cell).step_by(step_size.max(1)) {
-            if cell_index > 0 {
-                continue;
-            }
-
-            let offset = i64::from(-cell_index) as usize;
-            if offset > last_index {
-                continue;
-            }
-
-            let array_index = last_index - offset;
-            let snapped_position = cell_index as f32 * self.cell_width;
-
-            let snap_ratio = (snapped_position - chart_x_min) / (chart_x_max - chart_x_min);
-            let snap_x = snap_ratio * bounds.width;
-
-            if let Some(timestamp) = interval_keys.get(array_index) {
-                let label_text = self
-                    .timezone
-                    .format_timestamp((*timestamp / 1000) as i64, exchange::Timeframe::MS100);
-
-                labels.push(AxisLabelsX::create_label(
-                    snap_x, label_text, bounds, false, palette,
-                ));
-            }
-        }
-
-        labels
-    }
-
-    fn generate_time_labels(
-        &self,
-        bounds: Rectangle,
-        x_min: u64,
-        x_max: u64,
-        palette: &Extended,
-        x_labels_can_fit: i32,
-    ) -> Vec<AxisLabel> {
-        let Basis::Time(timeframe) = self.basis else {
-            return Vec::new();
-        };
-
-        let (time_step, initial_rounded_earliest) =
-            timeseries::calc_time_step(x_min, x_max, x_labels_can_fit, timeframe);
-
-        if time_step == 0 {
-            return Vec::new();
-        }
-
-        let calculate_x_pos =
-            |time_millis: u64, min_millis: u64, max_millis: u64, width: f32| -> f64 {
-                if max_millis > min_millis {
-                    ((time_millis - min_millis) as f64 / (max_millis - min_millis) as f64)
-                        * f64::from(width)
-                } else {
-                    0.0
-                }
-            };
-
-        let is_drawable = |x_pos: f64, width: f32| -> bool {
-            x_pos >= (-TEXT_SIZE * 5.0).into()
-                && x_pos <= f64::from(width) + (TEXT_SIZE * 5.0) as f64
-        };
-
-        let mut all_labels = Vec::with_capacity(x_labels_can_fit as usize * 3);
-
-        if time_step >= ONE_DAY_MS {
-            timeseries::daily_labels_gen(
-                self.timezone,
-                &mut all_labels,
-                bounds,
-                x_min,
-                x_max,
-                palette,
-                time_step,
-                &calculate_x_pos,
-                &is_drawable,
-            );
-
-            timeseries::monthly_labels_gen(
-                self.timezone,
-                &mut all_labels,
-                bounds,
-                x_min,
-                x_max,
-                palette,
-                &calculate_x_pos,
-                &is_drawable,
-            );
-
-            timeseries::yearly_labels_gen(
-                &mut all_labels,
-                bounds,
-                x_min,
-                x_max,
-                palette,
-                &calculate_x_pos,
-                &is_drawable,
-            );
-        } else {
-            timeseries::sub_daily_labels_gen(
-                self.timezone,
-                &mut all_labels,
-                bounds,
-                x_min,
-                x_max,
-                palette,
-                time_step,
-                initial_rounded_earliest,
-                timeframe,
-                &calculate_x_pos,
-                &is_drawable,
-            );
-        }
-
-        all_labels
-    }
-
     fn calc_crosshair_pos(&self, cursor_pos: Point, region: Rectangle) -> (f32, f32, i32) {
         let crosshair_ratio = f64::from(cursor_pos.x) / f64::from(self.chart_bounds.width);
         let chart_x_min = region.x;
@@ -395,13 +277,7 @@ impl AxisLabelsX<'_> {
                         .timezone
                         .format_crosshair_timestamp(*timestamp as i64, interval);
 
-                    return Some(AxisLabelsX::create_label(
-                        snap_x,
-                        text_content,
-                        bounds,
-                        true,
-                        palette,
-                    ));
+                    return Some(create_label(snap_x, text_content, bounds, true, palette));
                 }
             }
             Basis::Time(timeframe) => {
@@ -433,7 +309,7 @@ impl AxisLabelsX<'_> {
                     .timezone
                     .format_crosshair_timestamp(rounded_timestamp as i64, interval);
 
-                return Some(AxisLabelsX::create_label(
+                return Some(create_label(
                     snap_x as f32,
                     text_content,
                     bounds,
@@ -558,38 +434,99 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
             let region = self.visible_region(frame.size());
 
             let x_labels_can_fit = (bounds.width / (TEXT_SIZE * 16.0)) as i32;
-            let mut all_labels: Vec<AxisLabel> = Vec::with_capacity(x_labels_can_fit as usize + 1);
-
-            let x_min = self.x_to_interval(region.x);
-            let x_max = self.x_to_interval(region.x + region.width);
+            let mut labels: Vec<AxisLabel> = Vec::with_capacity(x_labels_can_fit as usize + 1);
 
             match self.basis {
                 Basis::Tick(_) => {
-                    all_labels.extend(self.generate_tick_labels(
-                        region,
-                        bounds,
-                        palette,
-                        x_labels_can_fit,
-                    ));
+                    if let Some(interval_keys) = &self.interval_keys {
+                        if !interval_keys.is_empty() {
+                            let x_min_region = region.x;
+                            let x_max_region = region.x + region.width;
+
+                            let last_idx = interval_keys.len() - 1;
+
+                            let first_cell_idx = -(last_idx as i32);
+                            let last_cell_idx = 0;
+
+                            let min_cell_idx = (x_min_region / self.cell_width).floor() as i32;
+                            let max_cell_idx = (x_max_region / self.cell_width).ceil() as i32;
+
+                            let iter_start_cell_idx = min_cell_idx.max(first_cell_idx);
+                            let iter_end_cell_idx = max_cell_idx.min(last_cell_idx);
+
+                            if iter_start_cell_idx <= iter_end_cell_idx {
+                                let num_potential_labels =
+                                    (iter_end_cell_idx - iter_start_cell_idx + 1) as f32;
+
+                                let num_labels_to_fit = x_labels_can_fit.max(1) as f32;
+                                let step_size =
+                                    (num_potential_labels / num_labels_to_fit).ceil().max(1.0)
+                                        as usize;
+
+                                let mut generated_labels = Vec::with_capacity(
+                                    (num_potential_labels / step_size as f32).ceil() as usize,
+                                );
+
+                                for cell_index in
+                                    (iter_start_cell_idx..=iter_end_cell_idx).step_by(step_size)
+                                {
+                                    let x_position = cell_index as f32 * self.cell_width;
+
+                                    let snap_ratio = if (x_max_region - x_min_region).abs()
+                                        < f32::EPSILON
+                                    {
+                                        0.5
+                                    } else {
+                                        (x_position - x_min_region) / (x_max_region - x_min_region)
+                                    };
+
+                                    let key_idx = last_idx - i64::from(-cell_index) as usize;
+
+                                    if let Some(timestamp) = interval_keys.get(key_idx) {
+                                        let label_text = self.timezone.format_timestamp(
+                                            (*timestamp / 1000) as i64,
+                                            exchange::Timeframe::MS100,
+                                        );
+
+                                        let snap_x = snap_ratio * bounds.width;
+
+                                        let label = create_label(
+                                            snap_x, label_text, bounds, false, palette,
+                                        );
+                                        generated_labels.push(label);
+                                    }
+                                }
+
+                                labels.extend(generated_labels);
+                            }
+                        }
+                    }
                 }
-                Basis::Time(_) => {
-                    all_labels.extend(self.generate_time_labels(
+                Basis::Time(timeframe) => {
+                    let x_min_region = self.x_to_interval(region.x);
+                    let x_max_region = self.x_to_interval(region.x + region.width);
+
+                    let generated_labels = timeseries::generate_time_labels(
+                        timeframe,
+                        self.timezone,
                         bounds,
-                        x_min,
-                        x_max,
+                        x_min_region,
+                        x_max_region,
                         palette,
                         x_labels_can_fit,
-                    ));
+                    );
+
+                    labels.extend(generated_labels);
                 }
             }
 
             if let Some(cursor_pos) = cursor.position_in(self.chart_bounds) {
                 if let Some(label) = self.generate_crosshair(cursor_pos, region, bounds, palette) {
-                    all_labels.push(label);
+                    labels.push(label);
                 }
             }
 
-            AxisLabel::filter_and_draw(&all_labels, frame);
+            AxisLabel::filter_and_draw(&labels, frame);
         });
 
         vec![labels]
@@ -617,7 +554,7 @@ pub struct AxisLabelsY<'a> {
     pub translation_y: f32,
     pub scaling: f32,
     pub min: f32,
-    pub last_price: Option<PriceInfoLabel>,
+    pub last_price: Option<linear::PriceInfoLabel>,
     pub tick_size: f32,
     pub decimals: usize,
     pub cell_height: f32,
@@ -797,11 +734,11 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                 let y_pos = bounds.height - ((price - lowest) / range * bounds.height);
                 let content_amt = if candle_close_label.is_some() { 2 } else { 1 };
 
-                all_labels.push(AxisLabel::Y(
-                    calc_label_rect(y_pos, content_amt, text_size, bounds),
-                    price_label,
-                    candle_close_label,
-                ));
+                all_labels.push(AxisLabel::Y {
+                    bounds: calc_label_rect(y_pos, content_amt, text_size, bounds),
+                    value_label: price_label,
+                    timer_label: candle_close_label,
+                });
             }
 
             // Crosshair price (priority 3)
@@ -821,11 +758,11 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                         text_size: 12.0,
                     };
 
-                    all_labels.push(AxisLabel::Y(
-                        calc_label_rect(y_position, 1, text_size, bounds),
-                        label,
-                        None,
-                    ));
+                    all_labels.push(AxisLabel::Y {
+                        bounds: calc_label_rect(y_position, 1, text_size, bounds),
+                        value_label: label,
+                        timer_label: None,
+                    });
                 }
             }
 
@@ -846,32 +783,6 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
             Interaction::Panning { .. } => mouse::Interaction::None,
             Interaction::None if cursor.is_over(bounds) => mouse::Interaction::ResizingVertically,
             _ => mouse::Interaction::default(),
-        }
-    }
-}
-
-// other helpers
-#[derive(Debug, Clone, Copy)]
-pub enum PriceInfoLabel {
-    Up(f32),
-    Down(f32),
-    Neutral(f32),
-}
-
-impl PriceInfoLabel {
-    pub fn new(close_price: f32, open_price: f32) -> Self {
-        if close_price >= open_price {
-            PriceInfoLabel::Up(close_price)
-        } else {
-            PriceInfoLabel::Down(close_price)
-        }
-    }
-
-    pub fn get_with_color(self, palette: &Extended) -> (f32, iced::Color) {
-        match self {
-            PriceInfoLabel::Up(p) => (p, palette.success.base.color),
-            PriceInfoLabel::Down(p) => (p, palette.danger.base.color),
-            PriceInfoLabel::Neutral(p) => (p, palette.secondary.strong.color),
         }
     }
 }

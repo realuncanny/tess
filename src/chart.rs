@@ -3,6 +3,16 @@ pub mod indicator;
 pub mod kline;
 mod scale;
 
+use crate::style;
+use crate::widget::multi_split::{DRAG_SIZE, MultiSplit};
+use crate::widget::tooltip;
+use data::aggr::{ticks::TickAggr, time::TimeSeries};
+use data::chart::{Basis, ChartLayout, indicator::Indicator};
+use exchange::fetcher::{FetchRange, RequestHandler};
+use exchange::{TickerInfo, Timeframe};
+use scale::linear::PriceInfoLabel;
+use scale::{AxisLabelsX, AxisLabelsY};
+
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Cache, Canvas, Event, Frame, LineDash, Stroke};
 use iced::widget::{center, horizontal_rule, mouse_area, vertical_rule};
@@ -15,14 +25,6 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use scale::{AxisLabelsX, AxisLabelsY, PriceInfoLabel};
-
-use crate::widget::multi_split::{DRAG_SIZE, MultiSplit};
-use crate::{style, widget::tooltip};
-use data::aggr::{ticks::TickAggr, time::TimeSeries};
-use data::chart::{Basis, ChartLayout, indicator::Indicator};
-use exchange::fetcher::{FetchRange, RequestHandler};
-use exchange::{TickerInfo, Timeframe};
 
 const DEFAULT_CELL_WIDTH: f32 = 4.0;
 const DEFAULT_CELL_HEIGHT: f32 = 3.0;

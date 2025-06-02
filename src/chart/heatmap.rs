@@ -1,3 +1,6 @@
+use super::{
+    Chart, ChartConstants, CommonChartData, Interaction, Message, scale::linear::PriceInfoLabel,
+};
 use crate::style;
 use data::chart::{
     Basis, ChartLayout,
@@ -6,8 +9,6 @@ use data::chart::{
 };
 use data::util::{abbr_large_numbers, count_decimals};
 use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};
-
-use super::{Chart, ChartConstants, CommonChartData, Interaction, Message, scale::PriceInfoLabel};
 
 use iced::widget::canvas::{self, Event, Geometry, Path};
 use iced::{

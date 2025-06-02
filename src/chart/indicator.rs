@@ -84,11 +84,11 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
                     let y_position =
                         bounds.height - ((rounded_value - lowest) / range * bounds.height);
 
-                    all_labels.push(AxisLabel::Y(
-                        calc_label_rect(y_position, 1, text_size, bounds),
-                        label,
-                        None,
-                    ));
+                    all_labels.push(AxisLabel::Y {
+                        bounds: calc_label_rect(y_position, 1, text_size, bounds),
+                        value_label: label,
+                        timer_label: None,
+                    });
                 }
             }
 
