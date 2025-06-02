@@ -338,7 +338,6 @@ impl Dashboard {
                         if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
                             state.settings.selected_basis = Some(new_basis);
 
-                            // Special case for heatmap
                             if let pane::Content::Heatmap(ref mut chart, _) = state.content {
                                 chart.set_basis(new_basis);
                                 return (Task::none(), None);
@@ -352,23 +351,13 @@ impl Dashboard {
                                 );
 
                                 match new_basis {
-                                    Basis::Time(interval) => {
-                                        let timeframe = Timeframe::try_from(interval).unwrap_or(
-                                            if is_footprint {
-                                                Timeframe::M5
-                                            } else {
-                                                Timeframe::M15
-                                            },
-                                        );
-
-                                        // Set appropriate streams based on chart type
+                                    Basis::Time(timeframe) => {
                                         let mut streams = vec![StreamKind::Kline {
                                             exchange,
                                             ticker,
                                             timeframe,
                                         }];
 
-                                        // Footprint charts need depth and trades too
                                         if is_footprint {
                                             streams.push(StreamKind::DepthAndTrades {
                                                 exchange,

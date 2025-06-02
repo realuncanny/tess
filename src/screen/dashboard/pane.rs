@@ -138,15 +138,10 @@ impl State {
                 }]
             }
             "footprint" => {
-                let default_timeframe = Timeframe::M5;
-
-                let basis = self
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Basis::Time(default_timeframe.into()));
+                let basis = self.settings.selected_basis.unwrap_or(Timeframe::M5.into());
 
                 match basis {
-                    Basis::Time(interval) => {
+                    Basis::Time(timeframe) => {
                         vec![
                             StreamKind::DepthAndTrades {
                                 exchange,
@@ -155,8 +150,7 @@ impl State {
                             StreamKind::Kline {
                                 exchange,
                                 ticker: ticker_info.ticker,
-                                timeframe: Timeframe::try_from(interval)
-                                    .unwrap_or(default_timeframe),
+                                timeframe,
                             },
                         ]
                     }
@@ -169,19 +163,17 @@ impl State {
                 }
             }
             "candlestick" => {
-                let default_timeframe = Timeframe::M15;
-
                 let basis = self
                     .settings
                     .selected_basis
-                    .unwrap_or(Basis::Time(default_timeframe.into()));
+                    .unwrap_or(Timeframe::M15.into());
 
                 match basis {
-                    Basis::Time(interval) => {
+                    Basis::Time(timeframe) => {
                         vec![StreamKind::Kline {
                             exchange,
                             ticker: ticker_info.ticker,
-                            timeframe: Timeframe::try_from(interval).unwrap_or(default_timeframe),
+                            timeframe,
                         }]
                     }
                     Basis::Tick(_) => {
@@ -292,7 +284,7 @@ impl State {
 
                     *chart = KlineChart::new(
                         layout,
-                        Basis::Time(timeframe.into()),
+                        Basis::Time(timeframe),
                         tick_size,
                         klines,
                         raw_trades,
@@ -375,9 +367,7 @@ impl State {
                     stream_info_element = stream_info_element.push(
                         button(text(format!(
                             "{} - {}",
-                            self.settings
-                                .selected_basis
-                                .unwrap_or(Basis::Time(Timeframe::M5.into())),
+                            self.settings.selected_basis.unwrap_or(Timeframe::M5.into()),
                             self.settings.tick_multiply.unwrap_or(TickMultiplier(10)),
                         )))
                         .style(move |theme, status| {
@@ -391,7 +381,7 @@ impl State {
                         button(text(
                             self.settings
                                 .selected_basis
-                                .unwrap_or(Basis::Time(Timeframe::M15.into()))
+                                .unwrap_or(Timeframe::M15.into())
                                 .to_string(),
                         ))
                         .style(move |theme, status| {
@@ -670,9 +660,7 @@ impl Content {
             ),
         };
 
-        let basis = settings
-            .selected_basis
-            .unwrap_or(Basis::Time(default_tf.into()));
+        let basis = settings.selected_basis.unwrap_or(Basis::Time(default_tf));
 
         let enabled_indicators = {
             let available = KlineIndicator::for_market(ticker_info.market_type());
@@ -863,14 +851,14 @@ impl Content {
                         state
                             .settings
                             .selected_basis
-                            .unwrap_or(Basis::Time(Timeframe::M5.into())),
+                            .unwrap_or(Timeframe::M5.into()),
                         state.settings.tick_multiply.unwrap_or(TickMultiplier(50)),
                     ),
                     data::chart::KlineChartKind::Candles => StreamModifier::Candlestick(
                         state
                             .settings
                             .selected_basis
-                            .unwrap_or(Basis::Time(Timeframe::M15.into())),
+                            .unwrap_or(Timeframe::M15.into()),
                     ),
                 };
 

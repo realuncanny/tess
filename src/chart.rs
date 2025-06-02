@@ -635,7 +635,7 @@ impl Default for CommonChartData {
             crosshair: true,
             translation: Vector::default(),
             bounds: Rectangle::default(),
-            basis: Basis::Time(Timeframe::M5.into()),
+            basis: Timeframe::M5.into(),
             last_price: None,
             scaling: 1.0,
             autoscale: true,

@@ -192,9 +192,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                         .tick_multiply
                         .unwrap_or(TickMultiplier(50))
                         .multiply_with_min_tick_size(ticker_info);
-                    let basis = settings
-                        .selected_basis
-                        .unwrap_or(Basis::Time(Timeframe::M5.into()));
+                    let basis = settings.selected_basis.unwrap_or(Timeframe::M5.into());
 
                     Configuration::Pane(pane::State::from_config(
                         pane::Content::Kline(
@@ -222,9 +220,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
             }
             data::chart::KlineChartKind::Candles => {
                 if let Some(ticker_info) = settings.ticker_info {
-                    let basis = settings
-                        .selected_basis
-                        .unwrap_or(Basis::Time(Timeframe::M15.into()));
+                    let basis = settings.selected_basis.unwrap_or(Timeframe::M15.into());
 
                     let tick_size = settings
                         .tick_multiply

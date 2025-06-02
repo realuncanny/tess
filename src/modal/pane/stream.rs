@@ -72,9 +72,10 @@ pub fn view<'a>(
 
                 if is_kline_chart {
                     for timeframe in &Timeframe::KLINE {
-                        let msg = match exchange::Timeframe::try_from(selected_tf) {
-                            Ok(tf) if *timeframe == tf => None,
-                            _ => Some(Message::BasisSelected(Basis::Time(*timeframe), pane)),
+                        let msg = if *timeframe == (selected_tf) {
+                            None
+                        } else {
+                            Some(Message::BasisSelected((*timeframe).into(), pane))
                         };
 
                         timeframes_column = timeframes_column.push(create_button(
@@ -89,9 +90,10 @@ pub fn view<'a>(
                             continue;
                         }
 
-                        let msg = match exchange::Timeframe::try_from(selected_tf) {
-                            Ok(tf) if *timeframe == tf => None,
-                            _ => Some(Message::BasisSelected(Basis::Time(*timeframe), pane)),
+                        let msg = if *timeframe == (selected_tf) {
+                            None
+                        } else {
+                            Some(Message::BasisSelected((*timeframe).into(), pane))
                         };
 
                         timeframes_column = timeframes_column.push(create_button(
@@ -110,10 +112,7 @@ pub fn view<'a>(
                     row![
                         create_button(
                             "Timeframe".to_string(),
-                            Some(Message::BasisSelected(
-                                Basis::Time(Timeframe::M5.into()),
-                                pane
-                            )),
+                            Some(Message::BasisSelected(Timeframe::M5.into(), pane)),
                             true,
                         ),
                         create_button("Ticks".to_string(), None, false,),

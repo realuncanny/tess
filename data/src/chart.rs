@@ -70,18 +70,22 @@ impl Basis {
                 Timeframe::MS100
             }
         });
-        Basis::Time(Timeframe::try_from(interval).unwrap_or(Timeframe::MS100))
+
+        interval.into()
     }
 }
 
 impl std::fmt::Display for Basis {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Basis::Time(millis) => match exchange::Timeframe::try_from(*millis) {
-                Ok(timeframe) => write!(f, "{}", timeframe),
-                Err(_) => write!(f, "{}ms", millis),
-            },
-            Basis::Tick(count) => write!(f, "{}T", count),
+            Basis::Time(timeframe) => write!(f, "{timeframe}"),
+            Basis::Tick(count) => write!(f, "{count}T"),
         }
+    }
+}
+
+impl From<exchange::Timeframe> for Basis {
+    fn from(timeframe: exchange::Timeframe) -> Self {
+        Self::Time(timeframe)
     }
 }

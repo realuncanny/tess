@@ -490,7 +490,7 @@ impl AxisLabelsX<'_> {
                             UserTimezone::Local => {
                                 current_month_iter_utc.with_timezone(&chrono::Local)
                             }
-                            UserTimezone::Utc => current_month_iter_utc.clone().into(),
+                            UserTimezone::Utc => current_month_iter_utc.into(),
                         };
                         let is_january = dt_in_timezone.month() == 1;
 
