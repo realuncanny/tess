@@ -45,6 +45,12 @@ const HOURLY_TIME_STEPS: [u64; 8] = [
     1000 * 60 * 60,   // 1 hour
 ];
 
+const DAILY_TIME_STEPS: [u64; 3] = [
+    1000 * 60 * 21600, // 360 hour
+    1000 * 60 * 14400, // 240 hour
+    1000 * 60 * 7200,  // 120 hour
+];
+
 const MS_TIME_STEPS: [u64; 10] = [
     1000 * 120,
     1000 * 60,
@@ -76,7 +82,8 @@ pub fn calc_time_step(
             30 => &M5_TIME_STEPS[..6],
             _ => &HOURLY_TIME_STEPS,
         },
-        31.. => &HOURLY_TIME_STEPS,
+        31..=240 => &HOURLY_TIME_STEPS,
+        241.. => &DAILY_TIME_STEPS,
     };
 
     let duration = latest - earliest;

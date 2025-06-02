@@ -4,14 +4,16 @@ pub mod timeseries;
 use crate::style::AZERET_MONO;
 
 use super::{Basis, Interaction, Message};
-use chrono::DateTime;
-use data::UserTimezone;
-use data::util::round_to_tick;
+use chrono::{DateTime, Datelike, Duration, Months};
+use data::util::{reset_to_start_of_year_utc, round_to_tick};
+use data::{UserTimezone, util::reset_to_start_of_month_utc};
 use iced::{
     Alignment, Color, Event, Point, Rectangle, Renderer, Size, Theme, mouse,
     theme::palette::Extended,
     widget::canvas::{self, Cache, Frame, Geometry},
 };
+
+const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
 
 /// calculates `Rectangle` from given content, clamps it within bounds if needed
 pub fn calc_label_rect(
@@ -268,36 +270,361 @@ impl AxisLabelsX<'_> {
             return Vec::new();
         };
 
-        let (time_step, rounded_earliest) =
+        let (time_step, initial_rounded_earliest) =
             timeseries::calc_time_step(x_min, x_max, x_labels_can_fit, timeframe);
 
-        let mut labels = Vec::with_capacity(x_labels_can_fit as usize);
-        let mut time = rounded_earliest;
-
-        while time <= x_max {
-            let x_position = if time >= x_min {
-                ((time - x_min) as f64 / (x_max - x_min) as f64) * f64::from(bounds.width)
-            } else {
-                0.0
-            };
-
-            if x_position > 0.0 && x_position <= f64::from(bounds.width) {
-                let text_content = self
-                    .timezone
-                    .format_timestamp((time / 1000) as i64, timeframe);
-
-                labels.push(AxisLabelsX::create_label(
-                    x_position as f32,
-                    text_content,
-                    bounds,
-                    false,
-                    palette,
-                ));
-            }
-            time += time_step;
+        if time_step == 0 {
+            return Vec::new();
         }
 
-        labels
+        let calculate_x_pos =
+            |time_millis: u64, min_millis: u64, max_millis: u64, width: f32| -> f64 {
+                if max_millis > min_millis {
+                    ((time_millis - min_millis) as f64 / (max_millis - min_millis) as f64)
+                        * f64::from(width)
+                } else {
+                    0.0
+                }
+            };
+
+        let is_drawable = |x_pos: f64, width: f32| -> bool {
+            x_pos >= (-TEXT_SIZE * 5.0).into()
+                && x_pos <= f64::from(width) + (TEXT_SIZE * 5.0) as f64
+        };
+
+        let mut all_labels = Vec::with_capacity(x_labels_can_fit as usize * 3);
+
+        if time_step >= ONE_DAY_MS {
+            self.generate_daily_view_labels(
+                &mut all_labels,
+                bounds,
+                x_min,
+                x_max,
+                palette,
+                time_step,
+                &calculate_x_pos,
+                &is_drawable,
+            );
+
+            self.generate_monthly_view_labels(
+                &mut all_labels,
+                bounds,
+                x_min,
+                x_max,
+                palette,
+                &calculate_x_pos,
+                &is_drawable,
+            );
+
+            self.generate_yearly_view_labels(
+                &mut all_labels,
+                bounds,
+                x_min,
+                x_max,
+                palette,
+                &calculate_x_pos,
+                &is_drawable,
+            );
+        } else {
+            self.generate_sub_daily_view_labels(
+                &mut all_labels,
+                bounds,
+                x_min,
+                x_max,
+                palette,
+                time_step,
+                initial_rounded_earliest,
+                timeframe,
+                &calculate_x_pos,
+                &is_drawable,
+            );
+        }
+
+        all_labels
+    }
+
+    fn generate_daily_view_labels(
+        &self,
+        all_labels: &mut Vec<AxisLabel>,
+        bounds: Rectangle,
+        x_min: u64,
+        x_max: u64,
+        palette: &Extended,
+        time_step: u64,
+        calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
+        is_drawable: &dyn Fn(f64, f32) -> bool,
+    ) {
+        if let Some(view_start_dt_utc) = DateTime::from_timestamp_millis(x_min as i64) {
+            let mut current_month_loop_iter_utc = reset_to_start_of_month_utc(view_start_dt_utc);
+
+            if current_month_loop_iter_utc.timestamp_millis() as u64 > x_min
+                && current_month_loop_iter_utc.month() == view_start_dt_utc.month()
+                && view_start_dt_utc.day() > 1
+            {
+                if let Some(prev_month_dt) =
+                    current_month_loop_iter_utc.checked_sub_months(chrono::Months::new(1))
+                {
+                    current_month_loop_iter_utc = reset_to_start_of_month_utc(prev_month_dt);
+                }
+            }
+
+            while current_month_loop_iter_utc.timestamp_millis() as u64 <= x_max {
+                let month_actual_start_ts = current_month_loop_iter_utc.timestamp_millis() as u64;
+
+                let next_month_boundary_utc = current_month_loop_iter_utc
+                    .checked_add_months(chrono::Months::new(1))
+                    .map(reset_to_start_of_month_utc)
+                    .unwrap_or_else(|| {
+                        DateTime::from_timestamp_millis(x_max as i64 + ONE_DAY_MS as i64)
+                            .unwrap_or(current_month_loop_iter_utc)
+                    });
+                let next_month_boundary_ts = next_month_boundary_utc.timestamp_millis() as u64;
+
+                if let Some(mut current_day_iter_utc) =
+                    DateTime::from_timestamp_millis(month_actual_start_ts as i64)
+                {
+                    let mut iterations = 0;
+                    loop {
+                        let day_candidate_ts = current_day_iter_utc.timestamp_millis() as u64;
+
+                        if day_candidate_ts >= next_month_boundary_ts || day_candidate_ts > x_max {
+                            break;
+                        }
+
+                        if day_candidate_ts >= x_min {
+                            let dt_in_timezone = match self.timezone {
+                                UserTimezone::Local => {
+                                    current_day_iter_utc.with_timezone(&chrono::Local)
+                                }
+                                UserTimezone::Utc => current_day_iter_utc.into(),
+                            };
+
+                            let is_jan_1st =
+                                dt_in_timezone.month() == 1 && dt_in_timezone.day() == 1;
+
+                            if !is_jan_1st {
+                                let x_pos =
+                                    calculate_x_pos(day_candidate_ts, x_min, x_max, bounds.width);
+                                if is_drawable(x_pos, bounds.width) {
+                                    let day_text = dt_in_timezone.format("%d").to_string();
+                                    all_labels.push(AxisLabelsX::create_label(
+                                        x_pos as f32,
+                                        day_text,
+                                        bounds,
+                                        false,
+                                        palette,
+                                    ));
+                                }
+                            }
+                        }
+
+                        if let Some(next_dt) = current_day_iter_utc
+                            .checked_add_signed(chrono::Duration::milliseconds(time_step as i64))
+                        {
+                            if next_dt.timestamp_millis() <= current_day_iter_utc.timestamp_millis()
+                                && time_step > 0
+                            {
+                                break;
+                            }
+                            current_day_iter_utc = next_dt;
+                        } else {
+                            break;
+                        }
+
+                        iterations += 1;
+                        if iterations > 60 {
+                            break;
+                        }
+                    }
+                }
+
+                if let Some(next_m_start) =
+                    current_month_loop_iter_utc.checked_add_months(chrono::Months::new(1))
+                {
+                    current_month_loop_iter_utc = reset_to_start_of_month_utc(next_m_start);
+
+                    if current_month_loop_iter_utc.timestamp_millis() as u64 > x_max
+                        && current_month_loop_iter_utc.month()
+                            != DateTime::from_timestamp_millis(x_max as i64)
+                                .map_or(0, |dt| dt.month())
+                    {
+                        break;
+                    }
+                } else {
+                    break;
+                }
+            }
+        }
+    }
+
+    fn generate_monthly_view_labels(
+        &self,
+        all_labels: &mut Vec<AxisLabel>,
+        bounds: Rectangle,
+        x_min: u64,
+        x_max: u64,
+        palette: &Extended,
+        calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
+        is_drawable: &dyn Fn(f64, f32) -> bool,
+    ) {
+        if let Some(start_utc_dt) = DateTime::from_timestamp_millis(x_min as i64) {
+            if let Some(end_utc_dt) = DateTime::from_timestamp_millis(x_max as i64) {
+                let mut current_month_iter_utc = reset_to_start_of_month_utc(start_utc_dt);
+
+                if current_month_iter_utc.timestamp_millis() < x_min as i64 {
+                    if let Some(next_month_dt) =
+                        current_month_iter_utc.checked_add_months(Months::new(1))
+                    {
+                        current_month_iter_utc = reset_to_start_of_month_utc(next_month_dt);
+                    } else {
+                        current_month_iter_utc = end_utc_dt
+                            .checked_add_signed(Duration::days(1))
+                            .unwrap_or(end_utc_dt);
+                    }
+                }
+
+                while current_month_iter_utc.timestamp_millis() as u64 <= x_max {
+                    let month_ts_millis = current_month_iter_utc.timestamp_millis() as u64;
+                    if month_ts_millis >= x_min {
+                        let dt_in_timezone = match self.timezone {
+                            UserTimezone::Local => {
+                                current_month_iter_utc.with_timezone(&chrono::Local)
+                            }
+                            UserTimezone::Utc => current_month_iter_utc.clone().into(),
+                        };
+                        let is_january = dt_in_timezone.month() == 1;
+
+                        if !is_january {
+                            let x_position_month =
+                                calculate_x_pos(month_ts_millis, x_min, x_max, bounds.width);
+                            if is_drawable(x_position_month, bounds.width) {
+                                let month_label_text = dt_in_timezone.format("%b").to_string();
+                                all_labels.push(AxisLabelsX::create_label(
+                                    x_position_month as f32,
+                                    month_label_text,
+                                    bounds,
+                                    false,
+                                    palette,
+                                ));
+                            }
+                        }
+                    }
+
+                    if let Some(next_month_dt) =
+                        current_month_iter_utc.checked_add_months(Months::new(1))
+                    {
+                        current_month_iter_utc = reset_to_start_of_month_utc(next_month_dt);
+
+                        if current_month_iter_utc.timestamp_millis() > x_max as i64
+                            && current_month_iter_utc.month() != end_utc_dt.month()
+                        {
+                            break;
+                        }
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn generate_yearly_view_labels(
+        &self,
+        all_labels: &mut Vec<AxisLabel>,
+        bounds: Rectangle,
+        x_min: u64,
+        x_max: u64,
+        palette: &Extended,
+        calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
+        is_drawable: &dyn Fn(f64, f32) -> bool,
+    ) {
+        if let Some(view_start_dt_utc) = DateTime::from_timestamp_millis(x_min as i64) {
+            if let Some(view_end_dt_utc) = DateTime::from_timestamp_millis(x_max as i64) {
+                let mut current_year_iter_utc = reset_to_start_of_year_utc(view_start_dt_utc);
+
+                if current_year_iter_utc.timestamp_millis() < x_min as i64 {
+                    if let Some(next_year_candidate) =
+                        current_year_iter_utc.checked_add_months(Months::new(12))
+                    {
+                        current_year_iter_utc = reset_to_start_of_year_utc(next_year_candidate);
+                    } else {
+                        current_year_iter_utc = view_end_dt_utc
+                            .checked_add_signed(Duration::days(365 * 2))
+                            .unwrap_or(view_end_dt_utc);
+                    }
+                }
+
+                while current_year_iter_utc.timestamp_millis() as u64 <= x_max {
+                    let year_ts_millis = current_year_iter_utc.timestamp_millis() as u64;
+                    if year_ts_millis >= x_min {
+                        let x_position_year =
+                            calculate_x_pos(year_ts_millis, x_min, x_max, bounds.width);
+
+                        if is_drawable(x_position_year, bounds.width) {
+                            let year_label_text = current_year_iter_utc.format("%Y").to_string();
+                            all_labels.push(AxisLabelsX::create_label(
+                                x_position_year as f32,
+                                year_label_text,
+                                bounds,
+                                false,
+                                palette,
+                            ));
+                        }
+                    }
+
+                    if let Some(next_year_dt) =
+                        current_year_iter_utc.checked_add_months(Months::new(12))
+                    {
+                        current_year_iter_utc = reset_to_start_of_year_utc(next_year_dt);
+                    } else {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn generate_sub_daily_view_labels(
+        &self,
+        all_labels: &mut Vec<AxisLabel>,
+        bounds: Rectangle,
+        x_min: u64,
+        x_max: u64,
+        palette: &Extended,
+        time_step: u64,
+        initial_rounded_earliest: u64,
+        timeframe: exchange::Timeframe,
+        calculate_x_pos: &dyn Fn(u64, u64, u64, f32) -> f64,
+        is_drawable: &dyn Fn(f64, f32) -> bool,
+    ) {
+        let mut current_time = initial_rounded_earliest;
+        while current_time <= x_max {
+            if current_time >= x_min {
+                let x_position = calculate_x_pos(current_time, x_min, x_max, bounds.width);
+
+                if is_drawable(x_position, bounds.width) {
+                    let label_text = self
+                        .timezone
+                        .format_timestamp((current_time / 1000) as i64, timeframe);
+                    all_labels.push(AxisLabelsX::create_label(
+                        x_position as f32,
+                        label_text,
+                        bounds,
+                        false,
+                        palette,
+                    ));
+                }
+            }
+            let prev_current_time = current_time;
+            current_time = current_time.saturating_add(time_step);
+            if current_time <= prev_current_time && time_step > 0 {
+                break;
+            }
+
+            if current_time > x_max && prev_current_time < x_min {
+                break;
+            }
+        }
     }
 
     fn calc_crosshair_pos(&self, cursor_pos: Point, region: Rectangle) -> (f32, f32, i32) {
