@@ -7,7 +7,7 @@ use iced::{
 };
 
 use super::scale::linear;
-use crate::chart::scale::{AxisLabel, Label, calc_label_rect};
+use crate::chart::scale::{AxisLabel, LabelContent, calc_label_rect};
 use data::util::{abbr_large_numbers, round_to_tick};
 
 use super::{Interaction, Message};
@@ -74,7 +74,7 @@ impl canvas::Program<Message> for IndicatorLabel<'_> {
                         tick_size,
                     );
 
-                    let label = Label {
+                    let label = LabelContent {
                         content: abbr_large_numbers(rounded_value),
                         background_color: Some(palette.secondary.base.color),
                         text_color: palette.secondary.base.text,

@@ -42,64 +42,64 @@ pub fn calc_label_rect(
 }
 
 #[derive(Debug, Clone)]
-pub struct Label {
+pub struct LabelContent {
     pub content: String,
     pub background_color: Option<Color>,
     pub text_color: Color,
     pub text_size: f32,
 }
 
-fn create_label(
-    position: f32,
-    text: String,
-    bounds: Rectangle,
-    is_crosshair: bool,
-    palette: &Extended,
-) -> AxisLabel {
-    let content_width = text.len() as f32 * (TEXT_SIZE / 2.6);
-
-    let rect = Rectangle {
-        x: position - content_width,
-        y: 4.0,
-        width: 2.0 * content_width,
-        height: bounds.height - 8.0,
-    };
-
-    let label = Label {
-        content: text,
-        background_color: if is_crosshair {
-            Some(palette.secondary.base.color)
-        } else {
-            None
-        },
-        text_color: if is_crosshair {
-            palette.secondary.base.text
-        } else {
-            palette.background.base.text
-        },
-        text_size: TEXT_SIZE,
-    };
-
-    AxisLabel::X {
-        bounds: rect,
-        label,
-    }
-}
-
 #[derive(Debug, Clone)]
 pub enum AxisLabel {
     X {
         bounds: Rectangle,
-        label: Label,
+        label: LabelContent,
     },
     Y {
         bounds: Rectangle,
-        value_label: Label,
-        timer_label: Option<Label>,
+        value_label: LabelContent,
+        timer_label: Option<LabelContent>,
     },
 }
 
 impl AxisLabel {
+    pub fn new_x(
+        center_x_position: f32,
+        text_content: String,
+        axis_bounds: Rectangle,
+        is_crosshair: bool,
+        palette: &Extended,
+    ) -> Self {
+        let content_width = text_content.len() as f32 * (TEXT_SIZE / 2.6);
+
+        let rect = Rectangle {
+            x: center_x_position - content_width,
+            y: 4.0,
+            width: 2.0 * content_width,
+            height: axis_bounds.height - 8.0,
+        };
+
+        let label = LabelContent {
+            content: text_content,
+            background_color: if is_crosshair {
+                Some(palette.secondary.base.color)
+            } else {
+                None
+            },
+            text_color: if is_crosshair {
+                palette.secondary.base.text
+            } else {
+                palette.background.base.text
+            },
+            text_size: TEXT_SIZE,
+        };
+
+        AxisLabel::X {
+            bounds: rect,
+            label,
+        }
+    }
+
     fn intersects(&self, other: &AxisLabel) -> bool {
         match (self, other) {
             (
@@ -277,7 +277,13 @@ impl AxisLabelsX<'_> {
                         .timezone
                         .format_crosshair_timestamp(*timestamp as i64, interval);
 
-                    return Some(create_label(snap_x, text_content, bounds, true, palette));
+                    return Some(AxisLabel::new_x(
+                        snap_x,
+                        text_content,
+                        bounds,
+                        true,
+                        palette,
+                    ));
                 }
             }
             Basis::Time(timeframe) => {
@@ -309,7 +315,7 @@ impl AxisLabelsX<'_> {
                     .timezone
                     .format_crosshair_timestamp(rounded_timestamp as i64, interval);
 
-                return Some(create_label(
+                return Some(AxisLabel::new_x(
                     snap_x as f32,
                     text_content,
                     bounds,
@@ -490,7 +496,7 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
 
                                         let snap_x = snap_ratio * bounds.width;
 
-                                        let label = create_label(
+                                        let label = AxisLabel::new_x(
                                             snap_x, label_text, bounds, false, palette,
                                         );
                                         generated_labels.push(label);
@@ -695,7 +701,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                                 format!("{minutes:02}:{seconds:02}")
                             };
 
-                            Some(Label {
+                            Some(LabelContent {
                                 content: time_format,
                                 background_color: Some(palette.background.strong.color),
                                 text_color: if palette.is_dark {
@@ -714,7 +720,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
 
                 let (price, color) = label.get_with_color(palette);
 
-                let price_label = Label {
+                let price_label = LabelContent {
                     content: format!("{:.*}", self.decimals, price),
                     background_color: Some(color),
                     text_color: {
@@ -751,7 +757,7 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
                     let y_position =
                         bounds.height - ((rounded_price - lowest) / range * bounds.height);
 
-                    let label = Label {
+                    let label = LabelContent {
                         content: format!("{:.*}", self.decimals, rounded_price),
                         background_color: Some(palette.secondary.base.color),
                         text_color: palette.secondary.base.text,

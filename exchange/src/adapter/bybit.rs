@@ -401,7 +401,13 @@ pub fn connect_kline_stream(
         let stream_str = streams
             .iter()
             .map(|(ticker, timeframe)| {
-                let timeframe_str = timeframe.to_minutes().to_string();
+                let timeframe_str = {
+                    if Timeframe::D1 == *timeframe {
+                        "D".to_string()
+                    } else {
+                        timeframe.to_minutes().to_string()
+                    }
+                };
                 format!(
                     "kline.{timeframe_str}.{}",
                     ticker.to_full_symbol_and_type().0
@@ -486,7 +492,15 @@ pub fn connect_kline_stream(
 fn string_to_timeframe(interval: &str) -> Option<Timeframe> {
     Timeframe::KLINE
         .iter()
-        .find(|&tf| tf.to_minutes().to_string() == interval)
+        .find(|&tf| {
+            tf.to_minutes().to_string() == interval || {
+                if tf == &Timeframe::D1 {
+                    interval == "D"
+                } else {
+                    false
+                }
+            }
+        })
         .copied()
 }
 
@@ -617,7 +631,13 @@ pub async fn fetch_klines(
     range: Option<(u64, u64)>,
 ) -> Result<Vec<Kline>, StreamError> {
     let (symbol_str, market_type) = &ticker.to_full_symbol_and_type();
-    let timeframe_str = timeframe.to_minutes().to_string();
+    let timeframe_str = {
+        if Timeframe::D1 == timeframe {
+            "D".to_string()
+        } else {
+            timeframe.to_minutes().to_string()
+        }
+    };
 
     let market = match market_type {
         MarketKind::Spot => "spot",

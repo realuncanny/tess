@@ -1,4 +1,4 @@
-use super::{AxisLabel, Label, calc_label_rect};
+use super::{AxisLabel, LabelContent, calc_label_rect};
 use data::util::abbr_large_numbers;
 
 const MAX_ITERATIONS: usize = 1000;
@@ -41,7 +41,7 @@ pub fn generate_labels(
     let labels_can_fit = (bounds.height / (text_size * 3.0)) as i32;
 
     if labels_can_fit <= 1 {
-        let label = Label {
+        let label = LabelContent {
             content: if let Some(decimals) = decimals {
                 format!("{highest:.decimals$}")
             } else {
@@ -77,7 +77,7 @@ pub fn generate_labels(
                 abbr_large_numbers(value)
             };
 
-            let label = Label {
+            let label = LabelContent {
                 content,
                 background_color: None,
                 text_color,
