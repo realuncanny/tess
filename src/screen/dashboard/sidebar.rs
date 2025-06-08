@@ -84,7 +84,7 @@ impl Sidebar {
             TooltipPosition::Left
         };
 
-        let is_table_open = self.tickers_table.is_open();
+        let is_table_open = self.tickers_table.is_shown;
 
         let nav_buttons = self.nav_buttons(is_table_open, audio_volume, tooltip_position);
 
@@ -186,6 +186,20 @@ impl Sidebar {
         ]
         .width(32)
         .spacing(8)
+    }
+
+    pub fn hide_tickers_table(&mut self) -> bool {
+        let table = &mut self.tickers_table;
+
+        if table.expand_ticker_card.is_some() {
+            table.expand_ticker_card = None;
+            return true;
+        } else if table.is_shown {
+            table.is_shown = false;
+            return true;
+        }
+
+        false
     }
 
     pub fn is_menu_active(&self, menu: sidebar::Menu) -> bool {

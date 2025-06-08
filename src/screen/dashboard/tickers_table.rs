@@ -96,9 +96,9 @@ pub struct TickersTable {
     show_sort_options: bool,
     selected_sort_option: SortOptions,
     selected_market: Option<MarketKind>,
-    expand_ticker_card: Option<(Ticker, Exchange)>,
+    pub expand_ticker_card: Option<(Ticker, Exchange)>,
     scroll_offset: AbsoluteOffset,
-    is_show: bool,
+    pub is_shown: bool,
     tickers_info: HashMap<Exchange, HashMap<Ticker, Option<TickerInfo>>>,
 }
 
@@ -117,7 +117,7 @@ impl TickersTable {
                 expand_ticker_card: None,
                 scroll_offset: AbsoluteOffset::default(),
                 selected_market: None,
-                is_show: false,
+                is_shown: false,
                 tickers_info: HashMap::new(),
             },
             fetch_tickers_info(),
@@ -308,10 +308,6 @@ impl TickersTable {
             && (item_top <= (self.scroll_offset.y + bounds.height + (2.0 * TICKER_CARD_HEIGHT)))
     }
 
-    pub fn is_open(&self) -> bool {
-        self.is_show
-    }
-
     pub fn update_ticker_info(
         &mut self,
         exchange: Exchange,
@@ -398,7 +394,7 @@ impl TickersTable {
                 }
             }
             Message::ToggleTable => {
-                self.is_show = !self.is_show;
+                self.is_shown = !self.is_shown;
             }
             Message::FetchForTickerStats(exchange) => {
                 let task = if let Some(exchange) = exchange {
@@ -705,7 +701,7 @@ impl TickersTable {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        iced::time::every(std::time::Duration::from_secs(if self.is_open() {
+        iced::time::every(std::time::Duration::from_secs(if self.is_shown {
             ACTIVE_UPDATE_INTERVAL
         } else {
             INACTIVE_UPDATE_INTERVAL

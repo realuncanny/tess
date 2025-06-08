@@ -21,7 +21,7 @@ use widget::{
 };
 
 use iced::{
-    Alignment, Element, Subscription, Task, padding,
+    Alignment, Element, Subscription, Task, keyboard, padding,
     widget::{
         button, column, container, pane_grid, pick_list, row, text,
         tooltip::Position as TooltipPosition,
@@ -78,6 +78,7 @@ enum Message {
     Tick(Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
+    GoBack,
 
     DataFolderRequested,
     ThemeSelected(data::Theme),
@@ -271,6 +272,25 @@ impl Flowsurface {
                 }
 
                 return iced::exit();
+            }
+            Message::GoBack => {
+                let main_window = self.main_window.id;
+
+                if self.confirm_dialog.is_some() {
+                    self.confirm_dialog = None;
+                } else if self.sidebar.active_menu().is_some() {
+                    self.sidebar.set_menu(None);
+                } else {
+                    let dashboard = self.active_dashboard_mut();
+
+                    if dashboard.go_back(main_window) {
+                        return Task::none();
+                    } else if dashboard.focus.is_some() {
+                        dashboard.focus = None;
+                    } else {
+                        self.sidebar.hide_tickers_table();
+                    }
+                }
             }
             Message::ThemeSelected(theme) => {
                 self.theme = theme.clone();
@@ -527,7 +547,18 @@ impl Flowsurface {
 
         let tick = iced::time::every(Duration::from_millis(100)).map(Message::Tick);
 
-        Subscription::batch(vec![exchange_streams, sidebar, window_events, tick])
+        let hotkeys = keyboard::on_key_press(|key, _| match key.as_ref() {
+            keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::GoBack),
+            _ => None,
+        });
+
+        Subscription::batch(vec![
+            exchange_streams,
+            sidebar,
+            window_events,
+            tick,
+            hotkeys,
+        ])
     }
 
     fn active_dashboard(&self) -> &Dashboard {
