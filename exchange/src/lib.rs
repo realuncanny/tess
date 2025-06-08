@@ -178,7 +178,7 @@ impl SerTicker {
     pub fn from_parts(exchange: Exchange, ticker: Ticker) -> Self {
         assert_eq!(
             ticker.market_type(),
-            exchange.get_market_type(),
+            exchange.market_type(),
             "Ticker market type must match Exchange market type"
         );
 
@@ -262,8 +262,7 @@ pub struct Ticker {
 }
 
 impl Ticker {
-    pub fn new<S: AsRef<str>>(ticker: S, exchange: Exchange) -> Self {
-        let ticker = ticker.as_ref();
+    pub fn new(ticker: &str, exchange: Exchange) -> Self {
         let base_len = ticker.len();
 
         assert!(base_len <= 20, "Ticker too long");
@@ -334,7 +333,7 @@ impl Ticker {
     }
 
     pub fn market_type(&self) -> MarketKind {
-        self.exchange.get_market_type()
+        self.exchange.market_type()
     }
 }
 
@@ -402,6 +401,19 @@ pub struct TickerStats {
     pub mark_price: f32,
     pub daily_price_chg: f32,
     pub daily_volume: f32,
+}
+
+pub fn is_symbol_supported(symbol: &str, exchange: Exchange, log: bool) -> bool {
+    let valid_symbol = symbol
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '_');
+
+    if valid_symbol {
+        return true;
+    } else if log {
+        log::warn!("Unsupported ticker: '{}': {:?}", exchange, symbol,);
+    }
+    false
 }
 
 fn bool_from_int<'de, D>(deserializer: D) -> Result<bool, D::Error>

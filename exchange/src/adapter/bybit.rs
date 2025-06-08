@@ -19,6 +19,7 @@ use super::{
         connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
         de_string_to_f32, de_string_to_u64,
         depth::{DepthPayload, DepthUpdate, LocalDepthCache, Order},
+        is_symbol_supported,
     },
     Connection, Event, StreamError,
 };
@@ -724,13 +725,17 @@ pub async fn fetch_ticksize(
             .as_str()
             .ok_or_else(|| StreamError::ParseError("Symbol not found".to_string()))?;
 
+        if !is_symbol_supported(symbol, exchange, true) {
+            continue;
+        }
+
         if let Some(contract_type) = item["contractType"].as_str() {
             if contract_type != "LinearPerpetual" && contract_type != "InversePerpetual" {
                 continue;
             }
         }
 
-        if let Some(quote_asset) = item["quoteAsset"].as_str() {
+        if let Some(quote_asset) = item["quoteCoin"].as_str() {
             if quote_asset != "USDT" && quote_asset != "USD" {
                 continue;
             }
@@ -771,19 +776,15 @@ pub async fn fetch_ticksize(
     Ok(ticker_info_map)
 }
 
-const LINEAR_FILTER_VOLUME: f32 = 12_000_000.0;
-const INVERSE_FILTER_VOLUME: f32 = 1_000.0;
-const SPOT_FILTER_VOLUME: f32 = 4_000_000.0;
-
 pub async fn fetch_ticker_prices(
     market_type: MarketKind,
 ) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
     let exchange = exchange_from_market_type(market_type);
 
-    let (market, volume_threshold) = match market_type {
-        MarketKind::Spot => ("spot", SPOT_FILTER_VOLUME),
-        MarketKind::LinearPerps => ("linear", LINEAR_FILTER_VOLUME),
-        MarketKind::InversePerps => ("inverse", INVERSE_FILTER_VOLUME),
+    let market = match market_type {
+        MarketKind::Spot => "spot",
+        MarketKind::LinearPerps => "linear",
+        MarketKind::InversePerps => "inverse",
     };
 
     let url = format!("https://api.bybit.com/v5/market/tickers?category={market}");
@@ -803,6 +804,10 @@ pub async fn fetch_ticker_prices(
         let symbol = item["symbol"]
             .as_str()
             .ok_or_else(|| StreamError::ParseError("Symbol not found".to_string()))?;
+
+        if !is_symbol_supported(symbol, exchange, false) {
+            continue;
+        }
 
         let mark_price = item["lastPrice"]
             .as_str()
@@ -829,10 +834,6 @@ pub async fn fetch_ticker_prices(
         } else {
             daily_volume * mark_price
         };
-
-        if volume_in_usd < volume_threshold {
-            continue;
-        }
 
         let ticker_stats = TickerStats {
             mark_price,

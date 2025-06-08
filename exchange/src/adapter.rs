@@ -250,7 +250,7 @@ impl Exchange {
         Exchange::BybitSpot,
     ];
 
-    pub fn get_market_type(&self) -> MarketKind {
+    pub fn market_type(&self) -> MarketKind {
         match self {
             Exchange::BinanceLinear | Exchange::BybitLinear => MarketKind::LinearPerps,
             Exchange::BinanceInverse | Exchange::BybitInverse => MarketKind::InversePerps,
@@ -278,7 +278,7 @@ pub struct StreamConfig<I> {
 
 impl<I> StreamConfig<I> {
     pub fn new(id: I, exchange: Exchange) -> Self {
-        let market_type = exchange.get_market_type();
+        let market_type = exchange.market_type();
 
         Self { id, market_type }
     }
@@ -287,7 +287,7 @@ impl<I> StreamConfig<I> {
 pub async fn fetch_ticker_info(
     exchange: Exchange,
 ) -> Result<HashMap<Ticker, Option<TickerInfo>>, StreamError> {
-    let market_type = exchange.get_market_type();
+    let market_type = exchange.market_type();
 
     match exchange {
         Exchange::BinanceLinear | Exchange::BinanceInverse | Exchange::BinanceSpot => {
@@ -302,7 +302,7 @@ pub async fn fetch_ticker_info(
 pub async fn fetch_ticker_prices(
     exchange: Exchange,
 ) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
-    let market_type = exchange.get_market_type();
+    let market_type = exchange.market_type();
 
     match exchange {
         Exchange::BinanceLinear | Exchange::BinanceInverse | Exchange::BinanceSpot => {

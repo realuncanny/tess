@@ -19,7 +19,7 @@ use super::{
         connect::{State, setup_tcp_connection, setup_tls_connection, setup_websocket_connection},
         de_string_to_f32,
         depth::{DepthPayload, DepthUpdate, LocalDepthCache, Order},
-        str_f32_parse,
+        is_symbol_supported, str_f32_parse,
     },
     Connection, Event, StreamError,
 };
@@ -195,7 +195,7 @@ fn feed_de(slice: &[u8], market: MarketKind) -> Result<StreamData, StreamError> 
                         .map_err(|e| StreamError::ParseError(e.to_string()))?;
 
                     return Ok(StreamData::Kline(
-                        Ticker::new(kline_wrap.symbol, exchange),
+                        Ticker::new(&kline_wrap.symbol, exchange),
                         kline_wrap.kline,
                     ));
                 }
@@ -871,6 +871,10 @@ pub async fn fetch_ticksize(
             .as_str()
             .ok_or_else(|| StreamError::ParseError("Missing symbol".to_string()))?;
 
+        if !is_symbol_supported(symbol_str, exchange, true) {
+            continue;
+        }
+
         if let Some(contract_type) = item["contractType"].as_str() {
             if contract_type != "PERPETUAL" {
                 continue;
@@ -932,14 +936,10 @@ pub async fn fetch_ticksize(
     Ok(ticker_info_map)
 }
 
-const LINEAR_FILTER_VOLUME: f32 = 32_000_000.0;
-const INVERSE_FILTER_VOLUME: f32 = 4_000.0;
-const SPOT_FILTER_VOLUME: f32 = 9_000_000.0;
-
 pub async fn fetch_ticker_prices(
     market: MarketKind,
 ) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
-    let exhange = exchange_from_market_type(market);
+    let exchange = exchange_from_market_type(market);
 
     let url = match market {
         MarketKind::Spot => "https://api.binance.com/api/v3/ticker/24hr".to_string(),
@@ -954,16 +954,14 @@ pub async fn fetch_ticker_prices(
 
     let mut ticker_price_map = HashMap::new();
 
-    let volume_threshold = match market {
-        MarketKind::Spot => SPOT_FILTER_VOLUME,
-        MarketKind::LinearPerps => LINEAR_FILTER_VOLUME,
-        MarketKind::InversePerps => INVERSE_FILTER_VOLUME,
-    };
-
     for item in value {
         let symbol = item["symbol"]
             .as_str()
             .ok_or_else(|| StreamError::ParseError("Symbol not found".to_string()))?;
+
+        if !is_symbol_supported(symbol, exchange, false) {
+            continue;
+        }
 
         let last_price = item["lastPrice"]
             .as_str()
@@ -996,10 +994,6 @@ pub async fn fetch_ticker_prices(
             }
         };
 
-        if volume < volume_threshold {
-            continue;
-        }
-
         let ticker_stats = TickerStats {
             mark_price: last_price,
             daily_price_chg: price_change_pt,
@@ -1012,7 +1006,7 @@ pub async fn fetch_ticker_prices(
             },
         };
 
-        ticker_price_map.insert(Ticker::new(symbol, exhange), ticker_stats);
+        ticker_price_map.insert(Ticker::new(symbol, exchange), ticker_stats);
     }
 
     Ok(ticker_price_map)
