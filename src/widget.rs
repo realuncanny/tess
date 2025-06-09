@@ -1,5 +1,5 @@
 use super::Element;
-use crate::style::{self, ICONS_FONT, Icon, modal_container};
+use crate::style::{self, Icon, icon_text, modal_container};
 use iced::{
     Alignment::{self, Center},
     Color,
@@ -117,14 +117,7 @@ where
     Message: Clone + 'a,
 {
     let content = if is_enabled {
-        let icon = text(char::from(Icon::DragHandle).to_string())
-            .align_y(Alignment::Center)
-            .font(ICONS_FONT)
-            .style(|theme: &Theme| iced::widget::text::Style {
-                color: Some(theme.extended_palette().background.weakest.color),
-            })
-            .size(11);
-
+        let icon = icon_text(Icon::DragHandle, 11);
         row![icon, content,]
             .align_y(Alignment::Center)
             .spacing(2)

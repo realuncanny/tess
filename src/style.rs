@@ -174,13 +174,17 @@ pub mod button {
         let palette = theme.extended_palette();
 
         Style {
-            text_color: match status {
-                Status::Active => palette.background.base.text,
-                Status::Pressed => palette.background.weak.text,
-                Status::Hovered => palette.background.strong.text,
-                Status::Disabled => palette.background.weakest.text,
+            background: if Status::Hovered == status {
+                Some(palette.background.base.color.into())
+            } else {
+                None
             },
-            background: None,
+            text_color: palette.background.base.text,
+            border: Border {
+                radius: 4.0.into(),
+                width: 1.0,
+                color: iced::Color::TRANSPARENT,
+            },
             ..Default::default()
         }
     }

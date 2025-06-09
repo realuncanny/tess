@@ -780,9 +780,7 @@ impl Flowsurface {
                             column![
                                 text("Panes").size(14),
                                 if dashboard.focus.is_some() {
-                                    row![reset_pane_button, split_pane_button,]
-                                        .padding(padding::left(8).right(8))
-                                        .spacing(8)
+                                    row![reset_pane_button, split_pane_button,].spacing(8)
                                 } else {
                                     row![text("No pane selected"),]
                                 },
@@ -795,7 +793,7 @@ impl Flowsurface {
                         .align_x(Alignment::Center)
                         .spacing(20),
                     )
-                    .width(280)
+                    .width(260)
                     .padding(24)
                     .style(style::dashboard_modal)
                 };

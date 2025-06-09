@@ -265,16 +265,11 @@ impl LayoutManager {
             .spacing(4),
         ]);
 
-        let layout_btn =
-            |layout: &Layout, on_press: Option<Message>| create_layout_button(layout, on_press);
-
         let mut layout_widgets: Vec<Element<'_, Message>> = vec![];
 
         for id_loop in &self.layout_order {
             if let Some((layout, _)) = self.layouts.get(id_loop) {
-                let mut layout_row = row![]
-                    .height(iced::Length::Fixed(32.0))
-                    .padding(padding::left(8));
+                let mut layout_row = row![].height(iced::Length::Fixed(32.0));
 
                 let is_active = self.active_layout.id == layout.id;
 
@@ -288,7 +283,7 @@ impl LayoutManager {
                                 .push(confirm_btn)
                                 .push(cancel_btn);
                         } else {
-                            layout_row = layout_row.push(layout_btn(layout, None));
+                            layout_row = layout_row.push(create_layout_button(layout, None));
                         }
                     }
                     Editing::Renaming(renaming_id, name) => {
@@ -303,12 +298,12 @@ impl LayoutManager {
                                 .push(center(input_box).padding(padding::left(4)))
                                 .push(cancel_btn);
                         } else {
-                            layout_row = layout_row.push(layout_btn(layout, None));
+                            layout_row = layout_row.push(create_layout_button(layout, None));
                         }
                     }
                     Editing::Preview => {
                         layout_row = layout_row
-                            .push(layout_btn(layout, None))
+                            .push(create_layout_button(layout, None))
                             .push(tooltip(
                                 button(icon_text(style::Icon::Clone, 12))
                                     .on_press(Message::CloneLayout(layout.id))
@@ -323,7 +318,7 @@ impl LayoutManager {
                         }
                     }
                     Editing::None => {
-                        layout_row = layout_row.push(layout_btn(
+                        layout_row = layout_row.push(create_layout_button(
                             layout,
                             if is_active {
                                 None
@@ -343,7 +338,6 @@ impl LayoutManager {
                 let styled_container = container(layout_row.align_y(iced::Alignment::Center))
                     .style(move |theme| {
                         let palette = theme.extended_palette();
-
                         let color = if is_active {
                             palette.background.weak.color
                         } else {
@@ -384,7 +378,7 @@ impl LayoutManager {
         };
 
         scrollable::Scrollable::with_direction(
-            content.padding(padding::left(8).right(8)),
+            content,
             scrollable::Direction::Vertical(
                 scrollable::Scrollbar::new().width(8).scroller_width(6),
             ),
