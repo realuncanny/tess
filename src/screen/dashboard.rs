@@ -902,20 +902,18 @@ impl Dashboard {
     }
 
     pub fn go_back(&mut self, main_window: window::Id) -> bool {
-        let (window, pane) = match self.focus {
-            Some(focus) => focus,
-            None => return false,
+        let Some((window, pane)) = self.focus else {
+            return false;
         };
 
-        let state = match self.get_mut_pane(main_window, window, pane) {
-            Some(state) => state,
-            None => return false,
+        let Some(state) = self.get_mut_pane(main_window, window, pane) else {
+            return false;
         };
+
         if state.modal.is_some() {
             state.modal = None;
             return true;
         }
-
         false
     }
 

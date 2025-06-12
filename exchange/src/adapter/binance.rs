@@ -105,6 +105,14 @@ fn exchange_from_market_type(market: MarketKind) -> Exchange {
     }
 }
 
+fn limiter_from_market_type(market: MarketKind) -> &'static Mutex<BinanceLimiter> {
+    match market {
+        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
+        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
+        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
+    }
+}
+
 #[derive(Deserialize, Clone)]
 pub struct FetchedPerpDepth {
     #[serde(rename = "lastUpdateId")]
@@ -782,11 +790,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<DepthPayload, StreamError> {
         },
     };
 
-    let limiter = match market_type {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
-    };
+    let limiter = limiter_from_market_type(market_type);
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     match market_type {
@@ -902,11 +906,7 @@ pub async fn fetch_klines(
         },
     };
 
-    let limiter = match market_type {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
-    };
+    let limiter = limiter_from_market_type(market_type);
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let fetched_klines: Vec<FetchedKlines> = serde_json::from_str(&text)
@@ -951,11 +951,7 @@ pub async fn fetch_ticksize(
         MarketKind::InversePerps => (INVERSE_PERP_DOMAIN.to_string() + "/dapi/v1/exchangeInfo", 1),
     };
 
-    let limiter = match market {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
-    };
+    let limiter = limiter_from_market_type(market);
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let exchange_info: serde_json::Value = serde_json::from_str(&text)
@@ -1047,11 +1043,7 @@ pub async fn fetch_ticker_prices(
         MarketKind::InversePerps => (INVERSE_PERP_DOMAIN.to_string() + "/dapi/v1/ticker/24hr", 40),
     };
 
-    let limiter = match market {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
-    };
+    let limiter = limiter_from_market_type(market);
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let value: Vec<serde_json::Value> = serde_json::from_str(&text)
@@ -1129,6 +1121,9 @@ struct DeOpenInterest {
 
 const THIRTY_DAYS_MS: u64 = 30 * 24 * 60 * 60 * 1000; // 30 days in milliseconds
 
+/// # Panics
+///
+/// Will panic if the `period` is not one of the supported timeframes for open interest
 pub async fn fetch_historical_oi(
     ticker: Ticker,
     range: Option<(u64, u64)>,
@@ -1200,11 +1195,7 @@ pub async fn fetch_historical_oi(
         url.push_str("&limit=400");
     }
 
-    let limiter = match market {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
-    };
+    let limiter = limiter_from_market_type(market);
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let binance_oi: Vec<DeOpenInterest> = serde_json::from_str(&text).map_err(|e| {
@@ -1273,11 +1264,7 @@ pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trad
     let mut url = format!("{base_url}?symbol={symbol_str}&limit=1000",);
     url.push_str(&format!("&startTime={from}"));
 
-    let limiter = match market_type {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
-    };
+    let limiter = limiter_from_market_type(market_type);
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let trades: Vec<Trade> = {

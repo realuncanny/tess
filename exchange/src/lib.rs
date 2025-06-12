@@ -84,6 +84,9 @@ impl Timeframe {
         Timeframe::MS1000,
     ];
 
+    /// # Panics
+    ///
+    /// Will panic if the `Timeframe` is not one of the defined variants
     pub fn to_minutes(self) -> u16 {
         match self {
             Timeframe::M1 => 1,
@@ -246,7 +249,7 @@ impl Ticker {
             ticker
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_'),
-            "Invalid character in ticker: {ticker:?}"
+            "Ticker must contain only ASCII alphanumeric characters and underscores: {ticker:?}"
         );
 
         let mut data = [0u64; 2];
@@ -459,11 +462,11 @@ impl TickMultiplier {
         !Self::ALL.contains(self)
     }
 
-    pub fn base(&self, multiplied: f32) -> f32 {
-        let decimals = (-multiplied.log10()).ceil() as i32 + 2;
+    pub fn base(&self, scaled_value: f32) -> f32 {
+        let decimals = (-scaled_value.log10()).ceil() as i32 + 2;
         let multiplier = 10f32.powi(decimals);
 
-        ((multiplied * multiplier) / (self.0 as f32)).round() / multiplier
+        ((scaled_value * multiplier) / f32::from(self.0)).round() / multiplier
     }
 
     /// Returns the final tick size after applying the user selected multiplier

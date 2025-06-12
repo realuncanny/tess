@@ -27,12 +27,7 @@ use iced::{
         tooltip::Position as TooltipPosition,
     },
 };
-use std::{
-    borrow::Cow,
-    collections::HashMap,
-    time::{Duration, Instant},
-    vec,
-};
+use std::{borrow::Cow, collections::HashMap, vec};
 
 fn main() {
     logger::setup(cfg!(debug_assertions)).expect("Failed to initialize logger");
@@ -75,17 +70,15 @@ enum Message {
     Sidebar(dashboard::sidebar::Message),
     MarketWsEvent(exchange::Event),
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
-    Tick(Instant),
+    Tick(std::time::Instant),
     WindowEvent(window::Event),
     ExitRequested(HashMap<window::Id, WindowSpec>),
     GoBack,
-
     DataFolderRequested,
     ThemeSelected(data::Theme),
     ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
     ToggleTradeFetch(bool),
-
     ToggleDialogModal(Option<(String, Box<Message>)>),
     AddNotification(Toast),
     DeleteNotification(usize),
@@ -100,14 +93,12 @@ impl Flowsurface {
 
         let (main_window_id, open_main_window) = {
             let (position, size) = saved_state.window();
-
             let config = window::Settings {
                 size,
                 position,
                 exit_on_close_request: false,
                 ..window::settings()
             };
-
             window::open(config)
         };
 
@@ -130,12 +121,9 @@ impl Flowsurface {
                 notifications: vec![],
             },
             open_main_window
-                .then(|_| Task::none())
-                .chain(Task::batch(vec![
-                    load_layout,
-                    launch_sidebar.map(Message::Sidebar),
-                    Task::done(Message::SetTimezone(saved_state.timezone)),
-                ])),
+                .discard()
+                .chain(launch_sidebar.map(Message::Sidebar))
+                .chain(load_layout),
         )
     }
 
@@ -545,7 +533,7 @@ impl Flowsurface {
             .market_subscriptions()
             .map(Message::MarketWsEvent);
 
-        let tick = iced::time::every(Duration::from_millis(100)).map(Message::Tick);
+        let tick = iced::time::every(std::time::Duration::from_millis(100)).map(Message::Tick);
 
         let hotkeys = keyboard::on_key_press(|key, _| match key.as_ref() {
             keyboard::Key::Named(keyboard::key::Named::Escape) => Some(Message::GoBack),

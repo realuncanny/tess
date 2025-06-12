@@ -700,7 +700,7 @@ impl CommonChartData {
         match self.basis {
             Basis::Time(timeframe) => {
                 let interval = timeframe.to_milliseconds() as f64;
-                let cell_width = self.cell_width as f64;
+                let cell_width = f64::from(self.cell_width);
 
                 let diff = value as f64 - self.latest_x as f64;
                 (diff / interval * cell_width) as f32

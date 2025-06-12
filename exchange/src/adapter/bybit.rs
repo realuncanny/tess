@@ -548,6 +548,9 @@ struct DeOpenInterest {
     pub timestamp: u64,
 }
 
+/// # Panics
+///
+/// Will panic if the `period` is not one of the supported timeframes for open interest
 pub async fn fetch_historical_oi(
     ticker: Ticker,
     range: Option<(u64, u64)>,

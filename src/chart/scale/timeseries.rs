@@ -135,7 +135,7 @@ pub fn generate_time_labels(
     };
 
     let is_drawable = |x_pos: f64, width: f32| -> bool {
-        x_pos >= (-TEXT_SIZE * 5.0).into() && x_pos <= f64::from(width) + (TEXT_SIZE * 5.0) as f64
+        x_pos >= (-TEXT_SIZE * 5.0).into() && x_pos <= f64::from(width) + f64::from(TEXT_SIZE * 5.0)
     };
 
     let mut all_labels = Vec::with_capacity(x_labels_can_fit as usize * 3);

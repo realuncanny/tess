@@ -346,10 +346,10 @@ impl AxisLabelsX<'_> {
                 let interval = timeframe.to_milliseconds() as f64;
 
                 if x <= 0.0 {
-                    let diff = ((-x / self.cell_width) as f64 * interval) as u64;
+                    let diff = (f64::from(-x / self.cell_width) * interval) as u64;
                     self.max.saturating_sub(diff)
                 } else {
-                    let diff = ((x / self.cell_width) as f64 * interval) as u64;
+                    let diff = (f64::from(x / self.cell_width) * interval) as u64;
                     self.max.saturating_add(diff)
                 }
             }
