@@ -1,3 +1,5 @@
+use crate::limiter::{self, http_request_with_limiter};
+
 use super::{
     super::{
         Exchange, Kline, MarketKind, OpenInterest, StreamKind, Ticker, TickerInfo, TickerStats,
@@ -6,7 +8,6 @@ use super::{
         de_string_to_f32, de_string_to_u64,
         depth::{DepthPayload, DepthUpdate, LocalDepthCache, Order},
         is_symbol_supported,
-        limiter::SourceLimit,
     },
     Connection, Event, StreamError,
 };
@@ -21,8 +22,41 @@ use iced_futures::{
 use serde_json::{Value, json};
 use sonic_rs::to_object_iter_unchecked;
 use sonic_rs::{Deserialize, JsonValueTrait};
+use tokio::sync::Mutex;
 
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::LazyLock, time::Duration};
+
+const BYBIT_LIMIT: usize = 600;
+const BYBIT_REFILL_RATE: Duration = Duration::from_secs(5);
+
+static BYBIT_LIMITER: LazyLock<Mutex<BybitLimiter>> =
+    LazyLock::new(|| Mutex::new(BybitLimiter::new(BYBIT_LIMIT, BYBIT_REFILL_RATE)));
+
+pub struct BybitLimiter {
+    bucket: limiter::FixedWindowBucket,
+}
+
+impl BybitLimiter {
+    pub fn new(limit: usize, refill_rate: Duration) -> Self {
+        Self {
+            bucket: limiter::FixedWindowBucket::new(limit, refill_rate),
+        }
+    }
+}
+
+impl limiter::RateLimiter for BybitLimiter {
+    fn prepare_request(&mut self, weight: usize) -> Option<Duration> {
+        self.bucket.calculate_wait_time(weight)
+    }
+
+    fn update_from_response(&mut self, _response: &reqwest::Response, weight: usize) {
+        self.bucket.consume_tokens(weight);
+    }
+
+    fn should_exit_on_response(&self, response: &reqwest::Response) -> bool {
+        response.status() == 403
+    }
+}
 
 fn exchange_from_market_type(market: MarketKind) -> Exchange {
     match market {
@@ -545,7 +579,7 @@ pub async fn fetch_historical_oi(
         url.push_str("&limit=200");
     }
 
-    let response_text = crate::limiter::http_request(&url, SourceLimit::Bybit, None).await?;
+    let response_text = http_request_with_limiter(&url, &BYBIT_LIMITER, 1).await?;
 
     let content: Value = sonic_rs::from_str(&response_text).map_err(|e| {
         log::error!(
@@ -654,7 +688,7 @@ pub async fn fetch_klines(
         url.push_str(&format!("&limit={}", 200));
     }
 
-    let response_text = crate::limiter::http_request(&url, SourceLimit::Bybit, None).await?;
+    let response_text = http_request_with_limiter(&url, &BYBIT_LIMITER, 1).await?;
 
     let value: ApiResponse =
         sonic_rs::from_str(&response_text).map_err(|e| StreamError::ParseError(e.to_string()))?;
@@ -699,7 +733,7 @@ pub async fn fetch_ticksize(
     let url =
         format!("https://api.bybit.com/v5/market/instruments-info?category={market}&limit=1000",);
 
-    let response_text = crate::limiter::http_request(&url, SourceLimit::Bybit, None).await?;
+    let response_text = http_request_with_limiter(&url, &BYBIT_LIMITER, 1).await?;
 
     let exchange_info: Value =
         sonic_rs::from_str(&response_text).map_err(|e| StreamError::ParseError(e.to_string()))?;
@@ -779,7 +813,7 @@ pub async fn fetch_ticker_prices(
 
     let url = format!("https://api.bybit.com/v5/market/tickers?category={market}");
 
-    let response_text = crate::limiter::http_request(&url, SourceLimit::Bybit, None).await?;
+    let response_text = http_request_with_limiter(&url, &BYBIT_LIMITER, 1).await?;
 
     let exchange_info: Value =
         sonic_rs::from_str(&response_text).map_err(|e| StreamError::ParseError(e.to_string()))?;

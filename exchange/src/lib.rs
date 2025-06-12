@@ -127,31 +127,6 @@ impl From<Timeframe> for u64 {
     }
 }
 
-impl TryFrom<u64> for Timeframe {
-    type Error = InvalidTimeframe;
-
-    fn try_from(milliseconds: u64) -> Result<Self, Self::Error> {
-        match milliseconds {
-            100 => Ok(Timeframe::MS100),
-            200 => Ok(Timeframe::MS200),
-            500 => Ok(Timeframe::MS500),
-            1_000 => Ok(Timeframe::MS1000),
-            60_000 => Ok(Timeframe::M1),
-            180_000 => Ok(Timeframe::M3),
-            300_000 => Ok(Timeframe::M5),
-            900_000 => Ok(Timeframe::M15),
-            1_800_000 => Ok(Timeframe::M30),
-            3_600_000 => Ok(Timeframe::H1),
-            7_200_000 => Ok(Timeframe::H2),
-            14_400_000 => Ok(Timeframe::H4),
-            21_600_000 => Ok(Timeframe::H6),
-            43_200_000 => Ok(Timeframe::H12),
-            86_400_000 => Ok(Timeframe::D1),
-            _ => Err(InvalidTimeframe(milliseconds)),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct InvalidTimeframe(pub u64);
 
@@ -397,7 +372,7 @@ pub struct Kline {
     pub volume: (f32, f32),
 }
 
-#[derive(Debug, Clone, Copy, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, Deserialize)]
 pub struct TickerStats {
     pub mark_price: f32,
     pub daily_price_chg: f32,
