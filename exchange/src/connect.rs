@@ -1,4 +1,4 @@
-use crate::adapter::StreamError;
+use crate::adapter::AdapterError;
 use bytes::Bytes;
 use fastwebsockets::FragmentCollector;
 use http_body_util::Empty;
@@ -32,7 +32,7 @@ where
     }
 }
 
-pub fn tls_connector() -> Result<TlsConnector, StreamError> {
+pub fn tls_connector() -> Result<TlsConnector, AdapterError> {
     let mut root_store = tokio_rustls::rustls::RootCertStore::empty();
 
     root_store.add_trust_anchors(webpki_roots::TLS_SERVER_ROOTS.0.iter().map(|ta| {
@@ -51,32 +51,32 @@ pub fn tls_connector() -> Result<TlsConnector, StreamError> {
     Ok(TlsConnector::from(std::sync::Arc::new(config)))
 }
 
-pub async fn setup_tcp_connection(domain: &str) -> Result<TcpStream, StreamError> {
+pub async fn setup_tcp_connection(domain: &str) -> Result<TcpStream, AdapterError> {
     let addr = format!("{domain}:443");
     TcpStream::connect(&addr)
         .await
-        .map_err(|e| StreamError::WebsocketError(e.to_string()))
+        .map_err(|e| AdapterError::WebsocketError(e.to_string()))
 }
 
 pub async fn setup_tls_connection(
     domain: &str,
     tcp_stream: TcpStream,
-) -> Result<tokio_rustls::client::TlsStream<TcpStream>, StreamError> {
+) -> Result<tokio_rustls::client::TlsStream<TcpStream>, AdapterError> {
     let tls_connector: TlsConnector = tls_connector()?;
     let domain: tokio_rustls::rustls::ServerName =
         tokio_rustls::rustls::ServerName::try_from(domain)
-            .map_err(|_| StreamError::ParseError("invalid dnsname".to_string()))?;
+            .map_err(|_| AdapterError::ParseError("invalid dnsname".to_string()))?;
     tls_connector
         .connect(domain, tcp_stream)
         .await
-        .map_err(|e| StreamError::WebsocketError(e.to_string()))
+        .map_err(|e| AdapterError::WebsocketError(e.to_string()))
 }
 
 pub async fn setup_websocket_connection(
     domain: &str,
     tls_stream: tokio_rustls::client::TlsStream<TcpStream>,
     url: &str,
-) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
+) -> Result<FragmentCollector<TokioIo<Upgraded>>, AdapterError> {
     let req: Request<Empty<Bytes>> = Request::builder()
         .method("GET")
         .uri(url)
@@ -89,11 +89,11 @@ pub async fn setup_websocket_connection(
         )
         .header("Sec-WebSocket-Version", "13")
         .body(Empty::<Bytes>::new())
-        .map_err(|e| StreamError::WebsocketError(e.to_string()))?;
+        .map_err(|e| AdapterError::WebsocketError(e.to_string()))?;
 
     let (ws, _) = fastwebsockets::handshake::client(&SpawnExecutor, req, tls_stream)
         .await
-        .map_err(|e| StreamError::WebsocketError(e.to_string()))?;
+        .map_err(|e| AdapterError::WebsocketError(e.to_string()))?;
 
     Ok(FragmentCollector::new(ws))
 }

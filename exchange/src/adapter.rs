@@ -11,7 +11,7 @@ pub mod binance;
 pub mod bybit;
 
 #[derive(thiserror::Error, Debug)]
-pub enum StreamError {
+pub enum AdapterError {
     #[error("{0}")]
     FetchError(#[from] reqwest::Error),
     #[error("Parsing: {0}")]
@@ -20,11 +20,9 @@ pub enum StreamError {
     WebsocketError(String),
     #[error("Invalid request: {0}")]
     InvalidRequest(String),
-    #[error("{0}")]
-    UnknownError(String),
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 pub enum MarketKind {
     Spot,
     LinearPerps,
@@ -259,11 +257,8 @@ impl Exchange {
 }
 
 #[derive(Debug, Clone)]
-pub struct Connection;
-
-#[derive(Debug, Clone)]
 pub enum Event {
-    Connected(Exchange, Connection),
+    Connected(Exchange),
     Disconnected(Exchange, String),
     DepthReceived(StreamKind, u64, Depth, Box<[Trade]>),
     KlineReceived(StreamKind, Kline),
@@ -278,14 +273,13 @@ pub struct StreamConfig<I> {
 impl<I> StreamConfig<I> {
     pub fn new(id: I, exchange: Exchange) -> Self {
         let market_type = exchange.market_type();
-
         Self { id, market_type }
     }
 }
 
 pub async fn fetch_ticker_info(
     exchange: Exchange,
-) -> Result<HashMap<Ticker, Option<TickerInfo>>, StreamError> {
+) -> Result<HashMap<Ticker, Option<TickerInfo>>, AdapterError> {
     let market_type = exchange.market_type();
 
     match exchange {
@@ -300,7 +294,7 @@ pub async fn fetch_ticker_info(
 
 pub async fn fetch_ticker_prices(
     exchange: Exchange,
-) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
+) -> Result<HashMap<Ticker, TickerStats>, AdapterError> {
     let market_type = exchange.market_type();
 
     match exchange {
@@ -318,7 +312,7 @@ pub async fn fetch_klines(
     ticker: Ticker,
     timeframe: Timeframe,
     range: Option<(u64, u64)>,
-) -> Result<Vec<Kline>, StreamError> {
+) -> Result<Vec<Kline>, AdapterError> {
     match exchange {
         Exchange::BinanceLinear | Exchange::BinanceInverse | Exchange::BinanceSpot => {
             binance::fetch_klines(ticker, timeframe, range).await
@@ -334,7 +328,7 @@ pub async fn fetch_open_interest(
     ticker: Ticker,
     timeframe: Timeframe,
     range: Option<(u64, u64)>,
-) -> Result<Vec<OpenInterest>, StreamError> {
+) -> Result<Vec<OpenInterest>, AdapterError> {
     match exchange {
         Exchange::BinanceLinear | Exchange::BinanceInverse => {
             binance::fetch_historical_oi(ticker, range, timeframe).await
@@ -342,6 +336,6 @@ pub async fn fetch_open_interest(
         Exchange::BybitLinear | Exchange::BybitInverse => {
             bybit::fetch_historical_oi(ticker, range, timeframe).await
         }
-        _ => Err(StreamError::InvalidRequest("Invalid exchange".to_string())),
+        _ => Err(AdapterError::InvalidRequest("Invalid exchange".to_string())),
     }
 }

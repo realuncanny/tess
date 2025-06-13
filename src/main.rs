@@ -122,8 +122,8 @@ impl Flowsurface {
             },
             open_main_window
                 .discard()
-                .chain(launch_sidebar.map(Message::Sidebar))
-                .chain(load_layout),
+                .chain(load_layout)
+                .chain(launch_sidebar.map(Message::Sidebar)),
         )
     }
 
@@ -134,7 +134,7 @@ impl Flowsurface {
                 let dashboard = self.active_dashboard_mut();
 
                 match event {
-                    exchange::Event::Connected(exchange, _) => {
+                    exchange::Event::Connected(exchange) => {
                         log::info!("a stream connected to {exchange} WS");
                     }
                     exchange::Event::Disconnected(exchange, reason) => {

@@ -1,4 +1,4 @@
-use crate::adapter::StreamError;
+use crate::adapter::AdapterError;
 
 use reqwest::{Client, Response};
 use std::sync::LazyLock;
@@ -21,10 +21,11 @@ pub async fn http_request_with_limiter<L: RateLimiter>(
     url: &str,
     limiter: &tokio::sync::Mutex<L>,
     weight: usize,
-) -> Result<String, StreamError> {
+) -> Result<String, AdapterError> {
     let mut limiter_guard = limiter.lock().await;
 
     if let Some(wait_time) = limiter_guard.prepare_request(weight) {
+        log::warn!("Rate limit hit for: {url}. Waiting for {:?}", wait_time);
         tokio::time::sleep(wait_time).await;
     }
 
@@ -32,16 +33,16 @@ pub async fn http_request_with_limiter<L: RateLimiter>(
         .get(url)
         .send()
         .await
-        .map_err(StreamError::FetchError)?;
+        .map_err(AdapterError::FetchError)?;
 
     if limiter_guard.should_exit_on_response(&response) {
-        eprintln!("Rate limit exceeded for: {}", url);
+        eprintln!("Rate limit exceeded for: {url}");
         std::process::exit(1);
     }
 
     limiter_guard.update_from_response(&response, weight);
 
-    response.text().await.map_err(StreamError::FetchError)
+    response.text().await.map_err(AdapterError::FetchError)
 }
 
 /// Limiter for a fixed window rate
@@ -110,16 +111,18 @@ pub struct DynamicBucket {
     max_weight: usize,
     current_used_weight: usize,
     last_updated: Instant,
+    refill_rate: Duration,
     fallback_bucket: FixedWindowBucket,
 }
 
 impl DynamicBucket {
-    pub fn new(max_weight: usize) -> Self {
+    pub fn new(max_weight: usize, refill_rate: Duration) -> Self {
         Self {
             max_weight,
             current_used_weight: 0,
             last_updated: Instant::now(),
-            fallback_bucket: FixedWindowBucket::new(max_weight, Duration::from_secs(60)),
+            refill_rate,
+            fallback_bucket: FixedWindowBucket::new(max_weight, refill_rate),
         }
     }
 
@@ -135,31 +138,44 @@ impl DynamicBucket {
         weight: usize,
     ) -> (Option<Duration>, Option<DynamicLimitReason>) {
         let now = Instant::now();
-        let elapsed_since_last_update = now.duration_since(self.last_updated);
-        let can_use_header_data =
-            elapsed_since_last_update <= Duration::from_secs(60) && self.current_used_weight > 0;
+        let elapsed = now.duration_since(self.last_updated);
 
-        if can_use_header_data {
-            let available_weight = self.max_weight.saturating_sub(self.current_used_weight);
-
-            if available_weight >= weight {
-                (None, None)
-            } else if let Ok(current_time) =
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-            {
-                let seconds_in_current_minute = current_time.as_secs() % 60;
-                let time_until_next_minute = Duration::from_secs(60 - seconds_in_current_minute);
-
-                let wait_time = time_until_next_minute.saturating_add(Duration::from_millis(100));
-                (Some(wait_time), Some(DynamicLimitReason::HeaderRate))
-            } else {
-                (None, Some(DynamicLimitReason::HeaderRate))
-            }
+        if elapsed <= self.refill_rate && self.current_used_weight > 0 {
+            self.prepare_with_header_data(weight)
         } else {
-            match self.fallback_bucket.calculate_wait_time(weight) {
-                None => (None, None),
-                Some(wait_time) => (Some(wait_time), Some(DynamicLimitReason::FixedWindowRate)),
-            }
+            self.prepare_with_fallback(weight)
+        }
+    }
+
+    fn prepare_with_header_data(
+        &self,
+        weight: usize,
+    ) -> (Option<Duration>, Option<DynamicLimitReason>) {
+        let available = self.max_weight.saturating_sub(self.current_used_weight);
+
+        if available >= weight {
+            return (None, None);
+        }
+
+        let current_time = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default();
+
+        let period_seconds = self.refill_rate.as_secs();
+        let seconds_in_period = current_time.as_secs() % period_seconds;
+        let wait_time = Duration::from_secs(period_seconds - seconds_in_period)
+            .saturating_add(Duration::from_millis(500));
+
+        (Some(wait_time), Some(DynamicLimitReason::HeaderRate))
+    }
+
+    fn prepare_with_fallback(
+        &mut self,
+        weight: usize,
+    ) -> (Option<Duration>, Option<DynamicLimitReason>) {
+        match self.fallback_bucket.calculate_wait_time(weight) {
+            None => (None, None),
+            Some(wait_time) => (Some(wait_time), Some(DynamicLimitReason::FixedWindowRate)),
         }
     }
 }

@@ -9,7 +9,7 @@ use super::{
         limiter::{self, RateLimiter},
         str_f32_parse,
     },
-    Connection, Event, StreamError,
+    AdapterError, Event,
 };
 
 use csv::ReaderBuilder;
@@ -22,65 +22,46 @@ use iced_futures::{
 };
 use serde::Deserialize;
 use sonic_rs::{FastStr, to_object_iter_unchecked};
-use tokio::sync::Mutex;
-
 use std::{collections::HashMap, io::BufReader, path::PathBuf, sync::LazyLock, time::Duration};
+use tokio::sync::Mutex;
 
 const SPOT_DOMAIN: &str = "https://api.binance.com";
 const LINEAR_PERP_DOMAIN: &str = "https://fapi.binance.com";
 const INVERSE_PERP_DOMAIN: &str = "https://dapi.binance.com";
 
-const BINANCE_SPOT_LIMIT: usize = 6000;
-const BINANCE_PERP_LIMIT: usize = 2400;
+const SPOT_LIMIT: usize = 6000;
+const PERP_LIMIT: usize = 2400;
 
-static BINANCE_SPOT_LIMITER: LazyLock<Mutex<BinanceLimiter>> =
-    LazyLock::new(|| Mutex::new(BinanceLimiter::new(BINANCE_SPOT_LIMIT)));
-static BINANCE_LINEAR_LIMITER: LazyLock<Mutex<BinanceLimiter>> =
-    LazyLock::new(|| Mutex::new(BinanceLimiter::new(BINANCE_PERP_LIMIT)));
-static BINANCE_INVERSE_LIMITER: LazyLock<Mutex<BinanceLimiter>> =
-    LazyLock::new(|| Mutex::new(BinanceLimiter::new(BINANCE_PERP_LIMIT)));
+const REFILL_RATE: Duration = Duration::from_secs(60);
+const LIMITER_BUFFER_PCT: f32 = 0.03;
+
+static SPOT_LIMITER: LazyLock<Mutex<BinanceLimiter>> =
+    LazyLock::new(|| Mutex::new(BinanceLimiter::new(SPOT_LIMIT, REFILL_RATE)));
+static LINEAR_LIMITER: LazyLock<Mutex<BinanceLimiter>> =
+    LazyLock::new(|| Mutex::new(BinanceLimiter::new(PERP_LIMIT, REFILL_RATE)));
+static INVERSE_LIMITER: LazyLock<Mutex<BinanceLimiter>> =
+    LazyLock::new(|| Mutex::new(BinanceLimiter::new(PERP_LIMIT, REFILL_RATE)));
 
 pub struct BinanceLimiter {
     bucket: limiter::DynamicBucket,
-    pending_finalization: Option<(usize, limiter::DynamicLimitReason)>,
-    in_flight_weight: usize,
 }
 
 impl BinanceLimiter {
-    pub fn new(limit: usize) -> Self {
+    pub fn new(limit: usize, refill_rate: Duration) -> Self {
+        let effective_limit = (limit as f32 * (1.0 - LIMITER_BUFFER_PCT)) as usize;
         BinanceLimiter {
-            bucket: limiter::DynamicBucket::new(limit),
-            pending_finalization: None,
-            in_flight_weight: 0,
+            bucket: limiter::DynamicBucket::new(effective_limit, refill_rate),
         }
     }
 }
 
 impl RateLimiter for BinanceLimiter {
     fn prepare_request(&mut self, weight: usize) -> Option<Duration> {
-        let (wait_time, reason) = self.bucket.prepare_request(weight);
-
-        if wait_time.is_none() {
-            self.in_flight_weight += weight;
-        }
-
-        if let Some(reason) = reason {
-            if wait_time.is_some() {
-                self.pending_finalization = Some((weight, reason));
-            }
-        }
+        let (wait_time, _reason) = self.bucket.prepare_request(weight);
         wait_time
     }
 
-    fn update_from_response(&mut self, response: &reqwest::Response, weight: usize) {
-        self.in_flight_weight = self.in_flight_weight.saturating_sub(weight);
-
-        if let Some((finalize_weight, reason)) = self.pending_finalization.take() {
-            if reason == limiter::DynamicLimitReason::HeaderRate {
-                self.bucket.update_weight(finalize_weight);
-            }
-        }
-
+    fn update_from_response(&mut self, response: &reqwest::Response, _weight: usize) {
         if let Some(header_value) = response
             .headers()
             .get("x-mbx-used-weight-1m")
@@ -107,9 +88,9 @@ fn exchange_from_market_type(market: MarketKind) -> Exchange {
 
 fn limiter_from_market_type(market: MarketKind) -> &'static Mutex<BinanceLimiter> {
     match market {
-        MarketKind::Spot => &BINANCE_SPOT_LIMITER,
-        MarketKind::LinearPerps => &BINANCE_LINEAR_LIMITER,
-        MarketKind::InversePerps => &BINANCE_INVERSE_LIMITER,
+        MarketKind::Spot => &SPOT_LIMITER,
+        MarketKind::LinearPerps => &LINEAR_LIMITER,
+        MarketKind::InversePerps => &INVERSE_LIMITER,
     }
 }
 
@@ -236,14 +217,14 @@ impl StreamWrapper {
     }
 }
 
-fn feed_de(slice: &[u8], market: MarketKind) -> Result<StreamData, StreamError> {
+fn feed_de(slice: &[u8], market: MarketKind) -> Result<StreamData, AdapterError> {
     let exchange = exchange_from_market_type(market);
 
     let mut stream_type: Option<StreamWrapper> = None;
     let iter: sonic_rs::ObjectJsonIter = unsafe { to_object_iter_unchecked(slice) };
 
     for elem in iter {
-        let (k, v) = elem.map_err(|e| StreamError::ParseError(e.to_string()))?;
+        let (k, v) = elem.map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
         if k == "stream" {
             if let Some(s) = StreamWrapper::from_stream_type(&v.as_raw_faststr()) {
@@ -253,27 +234,27 @@ fn feed_de(slice: &[u8], market: MarketKind) -> Result<StreamData, StreamError> 
             match stream_type {
                 Some(StreamWrapper::Trade) => {
                     let trade: SonicTrade = sonic_rs::from_str(&v.as_raw_faststr())
-                        .map_err(|e| StreamError::ParseError(e.to_string()))?;
+                        .map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
                     return Ok(StreamData::Trade(trade));
                 }
                 Some(StreamWrapper::Depth) => match market {
                     MarketKind::Spot => {
                         let depth: SpotDepth = sonic_rs::from_str(&v.as_raw_faststr())
-                            .map_err(|e| StreamError::ParseError(e.to_string()))?;
+                            .map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
                         return Ok(StreamData::Depth(SonicDepth::Spot(depth)));
                     }
                     MarketKind::LinearPerps | MarketKind::InversePerps => {
                         let depth: PerpDepth = sonic_rs::from_str(&v.as_raw_faststr())
-                            .map_err(|e| StreamError::ParseError(e.to_string()))?;
+                            .map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
                         return Ok(StreamData::Depth(SonicDepth::Perp(depth)));
                     }
                 },
                 Some(StreamWrapper::Kline) => {
                     let kline_wrap: SonicKlineWrap = sonic_rs::from_str(&v.as_raw_faststr())
-                        .map_err(|e| StreamError::ParseError(e.to_string()))?;
+                        .map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
                     return Ok(StreamData::Kline(
                         Ticker::new(&kline_wrap.symbol, exchange),
@@ -289,7 +270,7 @@ fn feed_de(slice: &[u8], market: MarketKind) -> Result<StreamData, StreamError> 
         }
     }
 
-    Err(StreamError::ParseError(
+    Err(AdapterError::ParseError(
         "Failed to parse ws data".to_string(),
     ))
 }
@@ -297,7 +278,7 @@ fn feed_de(slice: &[u8], market: MarketKind) -> Result<StreamData, StreamError> 
 async fn connect(
     domain: &str,
     streams: &str,
-) -> Result<FragmentCollector<TokioIo<Upgraded>>, StreamError> {
+) -> Result<FragmentCollector<TokioIo<Upgraded>>, AdapterError> {
     let tcp_stream = setup_tcp_connection(domain).await?;
     let tls_stream = setup_tls_connection(domain, tcp_stream).await?;
     let url = format!("wss://{domain}/stream?streams={streams}");
@@ -390,7 +371,7 @@ pub fn connect_market_stream(ticker: Ticker) -> impl Stream<Item = Event> {
 
                                 state = State::Connected(websocket);
 
-                                let _ = output.send(Event::Connected(exchange, Connection)).await;
+                                let _ = output.send(Event::Connected(exchange)).await;
                             }
                             Ok(Err(e)) => {
                                 let _ = output
@@ -632,7 +613,7 @@ pub fn connect_kline_stream(
 
                     if let Ok(websocket) = connect(domain, stream_str.as_str()).await {
                         state = State::Connected(websocket);
-                        let _ = output.send(Event::Connected(exchange, Connection)).await;
+                        let _ = output.send(Event::Connected(exchange)).await;
                     } else {
                         tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
 
@@ -752,7 +733,7 @@ fn new_depth_cache(depth: &SonicDepth, contract_size: Option<f32>) -> DepthPaylo
     }
 }
 
-async fn fetch_depth(ticker: &Ticker) -> Result<DepthPayload, StreamError> {
+async fn fetch_depth(ticker: &Ticker) -> Result<DepthPayload, AdapterError> {
     let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
 
     let base_url = match market_type {
@@ -796,7 +777,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<DepthPayload, StreamError> {
     match market_type {
         MarketKind::Spot => {
             let fetched_depth: FetchedSpotDepth =
-                serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
+                serde_json::from_str(&text).map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
             let depth = DepthPayload {
                 last_update_id: fetched_depth.update_id,
@@ -809,7 +790,7 @@ async fn fetch_depth(ticker: &Ticker) -> Result<DepthPayload, StreamError> {
         }
         MarketKind::LinearPerps | MarketKind::InversePerps => {
             let fetched_depth: FetchedPerpDepth =
-                serde_json::from_str(&text).map_err(|e| StreamError::ParseError(e.to_string()))?;
+                serde_json::from_str(&text).map_err(|e| AdapterError::ParseError(e.to_string()))?;
 
             let depth = DepthPayload {
                 last_update_id: fetched_depth.update_id,
@@ -859,7 +840,7 @@ pub async fn fetch_klines(
     ticker: Ticker,
     timeframe: Timeframe,
     range: Option<(u64, u64)>,
-) -> Result<Vec<Kline>, StreamError> {
+) -> Result<Vec<Kline>, AdapterError> {
     let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
     let timeframe_str = timeframe.to_string();
 
@@ -910,7 +891,7 @@ pub async fn fetch_klines(
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let fetched_klines: Vec<FetchedKlines> = serde_json::from_str(&text)
-        .map_err(|e| StreamError::ParseError(format!("Failed to parse klines: {e}")))?;
+        .map_err(|e| AdapterError::ParseError(format!("Failed to parse klines: {e}")))?;
 
     let klines: Vec<_> = fetched_klines
         .into_iter()
@@ -944,7 +925,7 @@ pub async fn fetch_klines(
 
 pub async fn fetch_ticksize(
     market: MarketKind,
-) -> Result<HashMap<Ticker, Option<TickerInfo>>, StreamError> {
+) -> Result<HashMap<Ticker, Option<TickerInfo>>, AdapterError> {
     let (url, weight) = match market {
         MarketKind::Spot => (SPOT_DOMAIN.to_string() + "/api/v3/exchangeInfo", 20),
         MarketKind::LinearPerps => (LINEAR_PERP_DOMAIN.to_string() + "/fapi/v1/exchangeInfo", 1),
@@ -955,11 +936,11 @@ pub async fn fetch_ticksize(
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let exchange_info: serde_json::Value = serde_json::from_str(&text)
-        .map_err(|e| StreamError::ParseError(format!("Failed to parse exchange info: {e}")))?;
+        .map_err(|e| AdapterError::ParseError(format!("Failed to parse exchange info: {e}")))?;
 
     let symbols = exchange_info["symbols"]
         .as_array()
-        .ok_or_else(|| StreamError::ParseError("Missing symbols array".to_string()))?;
+        .ok_or_else(|| AdapterError::ParseError("Missing symbols array".to_string()))?;
 
     let exchange = exchange_from_market_type(market);
     let mut ticker_info_map = HashMap::new();
@@ -967,7 +948,7 @@ pub async fn fetch_ticksize(
     for item in symbols {
         let symbol_str = item["symbol"]
             .as_str()
-            .ok_or_else(|| StreamError::ParseError("Missing symbol".to_string()))?;
+            .ok_or_else(|| AdapterError::ParseError("Missing symbol".to_string()))?;
 
         if !is_symbol_supported(symbol_str, exchange, true) {
             continue;
@@ -993,7 +974,7 @@ pub async fn fetch_ticksize(
 
         let filters = item["filters"]
             .as_array()
-            .ok_or_else(|| StreamError::ParseError("Missing filters array".to_string()))?;
+            .ok_or_else(|| AdapterError::ParseError("Missing filters array".to_string()))?;
 
         let price_filter = filters
             .iter()
@@ -1004,17 +985,17 @@ pub async fn fetch_ticksize(
             .find(|x| x["filterType"].as_str().unwrap_or_default() == "LOT_SIZE")
             .and_then(|x| x["minQty"].as_str())
             .ok_or_else(|| {
-                StreamError::ParseError("Missing minQty in LOT_SIZE filter".to_string())
+                AdapterError::ParseError("Missing minQty in LOT_SIZE filter".to_string())
             })?
             .parse::<f32>()
-            .map_err(|e| StreamError::ParseError(format!("Failed to parse minQty: {e}")))?;
+            .map_err(|e| AdapterError::ParseError(format!("Failed to parse minQty: {e}")))?;
 
         if let Some(price_filter) = price_filter {
             let min_ticksize = price_filter["tickSize"]
                 .as_str()
-                .ok_or_else(|| StreamError::ParseError("tickSize not found".to_string()))?
+                .ok_or_else(|| AdapterError::ParseError("tickSize not found".to_string()))?
                 .parse::<f32>()
-                .map_err(|e| StreamError::ParseError(format!("Failed to parse tickSize: {e}")))?;
+                .map_err(|e| AdapterError::ParseError(format!("Failed to parse tickSize: {e}")))?;
 
             let ticker = Ticker::new(symbol_str, exchange);
 
@@ -1036,7 +1017,7 @@ pub async fn fetch_ticksize(
 
 pub async fn fetch_ticker_prices(
     market: MarketKind,
-) -> Result<HashMap<Ticker, TickerStats>, StreamError> {
+) -> Result<HashMap<Ticker, TickerStats>, AdapterError> {
     let (url, weight) = match market {
         MarketKind::Spot => (SPOT_DOMAIN.to_string() + "/api/v3/ticker/24hr", 80),
         MarketKind::LinearPerps => (LINEAR_PERP_DOMAIN.to_string() + "/fapi/v1/ticker/24hr", 40),
@@ -1047,7 +1028,7 @@ pub async fn fetch_ticker_prices(
     let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
 
     let value: Vec<serde_json::Value> = serde_json::from_str(&text)
-        .map_err(|e| StreamError::ParseError(format!("Failed to parse prices: {e}")))?;
+        .map_err(|e| AdapterError::ParseError(format!("Failed to parse prices: {e}")))?;
 
     let exchange = exchange_from_market_type(market);
     let mut ticker_price_map = HashMap::new();
@@ -1055,7 +1036,7 @@ pub async fn fetch_ticker_prices(
     for item in value {
         let symbol = item["symbol"]
             .as_str()
-            .ok_or_else(|| StreamError::ParseError("Symbol not found".to_string()))?;
+            .ok_or_else(|| AdapterError::ParseError("Symbol not found".to_string()))?;
 
         if !is_symbol_supported(symbol, exchange, false) {
             continue;
@@ -1063,32 +1044,34 @@ pub async fn fetch_ticker_prices(
 
         let last_price = item["lastPrice"]
             .as_str()
-            .ok_or_else(|| StreamError::ParseError("Last price not found".to_string()))?
+            .ok_or_else(|| AdapterError::ParseError("Last price not found".to_string()))?
             .parse::<f32>()
-            .map_err(|e| StreamError::ParseError(format!("Failed to parse last price: {e}")))?;
+            .map_err(|e| AdapterError::ParseError(format!("Failed to parse last price: {e}")))?;
 
         let price_change_pt = item["priceChangePercent"]
             .as_str()
-            .ok_or_else(|| StreamError::ParseError("Price change percent not found".to_string()))?
+            .ok_or_else(|| AdapterError::ParseError("Price change percent not found".to_string()))?
             .parse::<f32>()
             .map_err(|e| {
-                StreamError::ParseError(format!("Failed to parse price change percent: {e}"))
+                AdapterError::ParseError(format!("Failed to parse price change percent: {e}"))
             })?;
 
         let volume = {
             match market {
                 MarketKind::Spot | MarketKind::LinearPerps => item["quoteVolume"]
                     .as_str()
-                    .ok_or_else(|| StreamError::ParseError("Quote volume not found".to_string()))?
+                    .ok_or_else(|| AdapterError::ParseError("Quote volume not found".to_string()))?
                     .parse::<f32>()
                     .map_err(|e| {
-                        StreamError::ParseError(format!("Failed to parse quote volume: {e}"))
+                        AdapterError::ParseError(format!("Failed to parse quote volume: {e}"))
                     })?,
                 MarketKind::InversePerps => item["volume"]
                     .as_str()
-                    .ok_or_else(|| StreamError::ParseError("Volume not found".to_string()))?
+                    .ok_or_else(|| AdapterError::ParseError("Volume not found".to_string()))?
                     .parse::<f32>()
-                    .map_err(|e| StreamError::ParseError(format!("Failed to parse volume: {e}")))?,
+                    .map_err(|e| {
+                        AdapterError::ParseError(format!("Failed to parse volume: {e}"))
+                    })?,
             }
         };
 
@@ -1128,7 +1111,7 @@ pub async fn fetch_historical_oi(
     ticker: Ticker,
     range: Option<(u64, u64)>,
     period: Timeframe,
-) -> Result<Vec<OpenInterest>, StreamError> {
+) -> Result<Vec<OpenInterest>, AdapterError> {
     let (ticker_str, market) = ticker.to_full_symbol_and_type();
     let period_str = period.to_string();
 
@@ -1152,7 +1135,7 @@ pub async fn fetch_historical_oi(
         _ => {
             let err_msg = format!("Unsupported market type for open interest: {market:?}");
             log::error!("{}", err_msg);
-            return Err(StreamError::UnknownError(err_msg));
+            return Err(AdapterError::InvalidRequest(err_msg));
         }
     };
 
@@ -1171,7 +1154,7 @@ pub async fn fetch_historical_oi(
                 "Requested end time {end} is before available data (30 days is the API limit)"
             );
             log::error!("{}", err_msg);
-            return Err(StreamError::UnknownError(err_msg));
+            return Err(AdapterError::InvalidRequest(err_msg));
         }
 
         let adjusted_start = if start < thirty_days_ago {
@@ -1205,7 +1188,7 @@ pub async fn fetch_historical_oi(
             e,
             text
         );
-        StreamError::ParseError(format!("Failed to parse open interest: {e}"))
+        AdapterError::ParseError(format!("Failed to parse open interest: {e}"))
     })?;
 
     let contract_size = get_contract_size(&ticker, market);
@@ -1225,7 +1208,7 @@ pub async fn fetch_trades(
     ticker: Ticker,
     from_time: u64,
     data_path: PathBuf,
-) -> Result<Vec<Trade>, StreamError> {
+) -> Result<Vec<Trade>, AdapterError> {
     let today_midnight = chrono::Utc::now()
         .date_naive()
         .and_hms_opt(0, 0, 0)
@@ -1237,7 +1220,7 @@ pub async fn fetch_trades(
     }
 
     let from_date = chrono::DateTime::from_timestamp_millis(from_time as i64)
-        .ok_or_else(|| StreamError::ParseError("Invalid timestamp".into()))?
+        .ok_or_else(|| AdapterError::ParseError("Invalid timestamp".into()))?
         .date_naive();
 
     match get_hist_trades(ticker, from_date, data_path).await {
@@ -1252,7 +1235,7 @@ pub async fn fetch_trades(
     }
 }
 
-pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trade>, StreamError> {
+pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trade>, AdapterError> {
     let (symbol_str, market_type) = ticker.to_full_symbol_and_type();
 
     let (base_url, weight) = match market_type {
@@ -1269,7 +1252,7 @@ pub async fn fetch_intraday_trades(ticker: Ticker, from: u64) -> Result<Vec<Trad
 
     let trades: Vec<Trade> = {
         let de_trades: Vec<SonicTrade> = sonic_rs::from_str(&text)
-            .map_err(|e| StreamError::ParseError(format!("Failed to parse trades: {e}")))?;
+            .map_err(|e| AdapterError::ParseError(format!("Failed to parse trades: {e}")))?;
 
         de_trades
             .into_iter()
@@ -1289,7 +1272,7 @@ pub async fn get_hist_trades(
     ticker: Ticker,
     date: chrono::NaiveDate,
     base_path: PathBuf,
-) -> Result<Vec<Trade>, StreamError> {
+) -> Result<Vec<Trade>, AdapterError> {
     let (symbol, market_type) = ticker.to_full_symbol_and_type();
 
     let market_subpath = match market_type {
@@ -1307,7 +1290,7 @@ pub async fn get_hist_trades(
     let base_path = base_path.join(&market_subpath);
 
     std::fs::create_dir_all(&base_path)
-        .map_err(|e| StreamError::ParseError(format!("Failed to create directories: {e}")))?;
+        .map_err(|e| AdapterError::ParseError(format!("Failed to create directories: {e}")))?;
 
     let zip_path = format!("{market_subpath}/{zip_file_name}",);
     let base_zip_path = base_path.join(&zip_file_name);
@@ -1319,33 +1302,33 @@ pub async fn get_hist_trades(
 
         log::info!("Downloading from {}", url);
 
-        let resp = reqwest::get(&url).await.map_err(StreamError::FetchError)?;
+        let resp = reqwest::get(&url).await.map_err(AdapterError::FetchError)?;
 
         if !resp.status().is_success() {
-            return Err(StreamError::InvalidRequest(format!(
+            return Err(AdapterError::InvalidRequest(format!(
                 "Failed to fetch from {}: {}",
                 url,
                 resp.status()
             )));
         }
 
-        let body = resp.bytes().await.map_err(StreamError::FetchError)?;
+        let body = resp.bytes().await.map_err(AdapterError::FetchError)?;
 
         std::fs::write(&base_zip_path, &body).map_err(|e| {
-            StreamError::ParseError(format!("Failed to write zip file: {e}, {base_zip_path:?}"))
+            AdapterError::ParseError(format!("Failed to write zip file: {e}, {base_zip_path:?}"))
         })?;
     }
 
     match std::fs::File::open(&base_zip_path) {
         Ok(file) => {
             let mut archive = zip::ZipArchive::new(file)
-                .map_err(|e| StreamError::ParseError(format!("Failed to unzip file: {e}")))?;
+                .map_err(|e| AdapterError::ParseError(format!("Failed to unzip file: {e}")))?;
 
             let mut trades = Vec::new();
             for i in 0..archive.len() {
                 let csv_file = archive
                     .by_index(i)
-                    .map_err(|e| StreamError::ParseError(format!("Failed to read csv: {e}")))?;
+                    .map_err(|e| AdapterError::ParseError(format!("Failed to read csv: {e}")))?;
 
                 let mut csv_reader = ReaderBuilder::new()
                     .has_headers(false)
@@ -1381,7 +1364,7 @@ pub async fn get_hist_trades(
 
             Ok(trades)
         }
-        Err(e) => Err(StreamError::ParseError(format!(
+        Err(e) => Err(AdapterError::ParseError(format!(
             "Failed to open compressed file: {e}"
         ))),
     }

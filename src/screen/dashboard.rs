@@ -15,7 +15,7 @@ use data::{UserTimezone, chart::Basis, layout::WindowSpec};
 use exchange::{
     Kline, TickMultiplier, Ticker, TickerInfo, Timeframe, Trade,
     adapter::{
-        self, Exchange, StreamConfig, StreamError, StreamKind, UniqueStreams, binance, bybit,
+        self, AdapterError, Exchange, StreamConfig, StreamKind, UniqueStreams, binance, bybit,
     },
     depth::Depth,
     fetcher::{FetchRange, FetchedData},
@@ -184,8 +184,9 @@ impl Dashboard {
             }
             Message::ErrorOccurred(pane_id, err) => match pane_id {
                 Some(id) => {
-                    if let Some(pane_state) = self.get_mut_pane_state_by_uuid(main_window.id, id) {
-                        pane_state.notifications.push(Toast::error(err.to_string()));
+                    if let Some(state) = self.get_mut_pane_state_by_uuid(main_window.id, id) {
+                        state.status = pane::Status::Ready;
+                        state.notifications.push(Toast::error(err.to_string()));
                     }
                 }
                 _ => {
@@ -1409,7 +1410,7 @@ pub fn fetch_trades_batched(
     from_time: u64,
     to_time: u64,
     data_path: PathBuf,
-) -> impl Straw<(), Vec<Trade>, StreamError> {
+) -> impl Straw<(), Vec<Trade>, AdapterError> {
     sipper(async move |mut progress| {
         let mut latest_trade_t = from_time;
 
@@ -1436,10 +1437,12 @@ pub fn depth_subscription(exchange: Exchange, ticker: Ticker) -> Subscription<ex
     let config = StreamConfig::new(ticker, exchange);
     match exchange {
         Exchange::BinanceSpot | Exchange::BinanceInverse | Exchange::BinanceLinear => {
-            Subscription::run_with(config, move |cfg| binance::connect_market_stream(cfg.id))
+            let builder = |cfg: &StreamConfig<Ticker>| binance::connect_market_stream(cfg.id);
+            Subscription::run_with(config, builder)
         }
         Exchange::BybitSpot | Exchange::BybitLinear | Exchange::BybitInverse => {
-            Subscription::run_with(config, move |cfg| bybit::connect_market_stream(cfg.id))
+            let builder = |cfg: &StreamConfig<Ticker>| bybit::connect_market_stream(cfg.id);
+            Subscription::run_with(config, builder)
         }
     }
 }
@@ -1451,14 +1454,16 @@ pub fn kline_subscription(
     let config = StreamConfig::new(kline_subs, exchange);
     match exchange {
         Exchange::BinanceSpot | Exchange::BinanceInverse | Exchange::BinanceLinear => {
-            Subscription::run_with(config, move |cfg| {
+            let builder = |cfg: &StreamConfig<Vec<(Ticker, Timeframe)>>| {
                 binance::connect_kline_stream(cfg.id.clone(), cfg.market_type)
-            })
+            };
+            Subscription::run_with(config, builder)
         }
         Exchange::BybitSpot | Exchange::BybitInverse | Exchange::BybitLinear => {
-            Subscription::run_with(config, move |cfg| {
+            let builder = |cfg: &StreamConfig<Vec<(Ticker, Timeframe)>>| {
                 bybit::connect_kline_stream(cfg.id.clone(), cfg.market_type)
-            })
+            };
+            Subscription::run_with(config, builder)
         }
     }
 }
