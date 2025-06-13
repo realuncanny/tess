@@ -30,6 +30,7 @@ const DEFAULT_CELL_WIDTH: f32 = 4.0;
 const DEFAULT_CELL_HEIGHT: f32 = 3.0;
 
 const ZOOM_SENSITIVITY: f32 = 30.0;
+const TEXT_SIZE: f32 = 12.0;
 
 #[derive(Default, Debug, Clone, Copy)]
 pub enum Interaction {
@@ -477,6 +478,8 @@ pub fn view<'a, T: Chart>(
         .padding(2)
     };
 
+    let y_labels_width = chart_state.y_labels_width();
+
     let chart_content = {
         let axis_labels_y = Canvas::new(AxisLabelsY {
             labels_cache: &chart_state.cache.y_labels,
@@ -503,7 +506,7 @@ pub fn view<'a, T: Chart>(
                 mouse_area(axis_labels_y)
                     .on_double_click(Message::DoubleClick(AxisScaleClicked::Y))
             )
-            .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)))
+            .width(y_labels_width)
             .height(Length::FillPortion(120))
         ]
         .into();
@@ -536,7 +539,7 @@ pub fn view<'a, T: Chart>(
             .width(Length::FillPortion(10))
             .height(Length::Fixed(26.0)),
             chart_controls
-                .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)))
+                .width(y_labels_width)
                 .height(Length::Fixed(26.0))
         ]
     ]
@@ -856,6 +859,16 @@ impl CommonChartData {
             crosshair: self.crosshair,
             splits: self.splits.clone(),
         }
+    }
+
+    pub fn y_labels_width(&self) -> Length {
+        let base_value = self.base_price_y;
+        let decimals = self.decimals;
+
+        let value = format!("{base_value:.decimals$}");
+        let width = (value.len() as f32 * TEXT_SIZE * 0.8).max(72.0);
+
+        Length::Fixed(width.ceil())
     }
 }
 

@@ -1,4 +1,5 @@
 use super::AxisLabel;
+use crate::chart::TEXT_SIZE;
 use chrono::{DateTime, Datelike, Duration, Months};
 use data::{
     UserTimezone,
@@ -7,8 +8,6 @@ use data::{
 use iced::theme::palette::Extended;
 
 pub const ONE_DAY_MS: u64 = 24 * 60 * 60 * 1000;
-
-const TEXT_SIZE: f32 = 12.0;
 
 const M1_TIME_STEPS: [u64; 9] = [
     1000 * 60 * 720, // 12 hour

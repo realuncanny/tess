@@ -28,9 +28,11 @@ pub fn indicator_elem<'a>(
                     )))
                     .into();
                 } else {
+                    if latest < earliest {
+                        return row![].into();
+                    }
                     data_points
-                        .iter()
-                        .filter(|(timestamp, _)| **timestamp >= earliest && **timestamp <= latest)
+                        .range(earliest..=latest)
                         .fold((f32::MIN, f32::MAX), |(max, min), (_, value)| {
                             (max.max(*value), min.min(*value))
                         })
@@ -65,7 +67,7 @@ pub fn indicator_elem<'a>(
         chart_bounds: chart_state.bounds,
     })
     .height(Length::Fill)
-    .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)));
+    .width(chart_state.y_labels_width());
 
     row![
         indi_chart,

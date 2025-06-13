@@ -19,11 +19,16 @@ pub fn indicator_elem<'a>(
 ) -> Element<'a, Message> {
     let max_volume = {
         match chart_state.basis {
-            Basis::Time(_) => data_points
-                .range(earliest..=latest)
-                .map(|(_, (buy, sell))| buy.max(*sell))
-                .max_by(|a, b| a.partial_cmp(b).unwrap())
-                .unwrap_or(0.0),
+            Basis::Time(_) => {
+                if latest < earliest {
+                    return row![].into();
+                }
+                data_points
+                    .range(earliest..=latest)
+                    .map(|(_, (buy, sell))| buy.max(*sell))
+                    .max_by(|a, b| a.partial_cmp(b).unwrap())
+                    .unwrap_or(0.0)
+            }
             Basis::Tick(_) => {
                 let mut max_volume: f32 = 0.0;
                 let earliest = earliest as usize;
@@ -61,7 +66,7 @@ pub fn indicator_elem<'a>(
         chart_bounds: chart_state.bounds,
     })
     .height(Length::Fill)
-    .width(Length::Fixed(64.0 + (chart_state.decimals as f32 * 4.0)));
+    .width(chart_state.y_labels_width());
 
     row![
         indi_chart,

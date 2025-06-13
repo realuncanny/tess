@@ -1,7 +1,7 @@
 pub mod linear;
 pub mod timeseries;
 
-use crate::style::AZERET_MONO;
+use crate::{chart::TEXT_SIZE, style::AZERET_MONO};
 
 use super::{Basis, Interaction, Message};
 use data::util::round_to_tick;
@@ -10,8 +10,6 @@ use iced::{
     theme::palette::Extended,
     widget::canvas::{self, Cache, Frame, Geometry},
 };
-
-const TEXT_SIZE: f32 = 12.0;
 
 /// calculates `Rectangle` from given content, clamps it within bounds if needed
 pub fn calc_label_rect(
