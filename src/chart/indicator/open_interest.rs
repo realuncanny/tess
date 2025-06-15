@@ -12,7 +12,7 @@ use exchange::Timeframe;
 pub fn indicator_elem<'a>(
     chart_state: &'a CommonChartData,
     cache: &'a Caches,
-    data_points: &'a BTreeMap<u64, f32>,
+    datapoints: &'a BTreeMap<u64, f32>,
     earliest: u64,
     latest: u64,
 ) -> Element<'a, Message> {
@@ -31,7 +31,7 @@ pub fn indicator_elem<'a>(
                     if latest < earliest {
                         return row![].into();
                     }
-                    data_points
+                    datapoints
                         .range(earliest..=latest)
                         .fold((f32::MIN, f32::MAX), |(max, min), (_, value)| {
                             (max.max(*value), min.min(*value))
@@ -54,7 +54,7 @@ pub fn indicator_elem<'a>(
         crosshair_cache: &cache.crosshair,
         chart_state,
         max_value,
-        timeseries: data_points,
+        timeseries: datapoints,
     })
     .height(Length::Fill)
     .width(Length::Fill);

@@ -92,7 +92,7 @@ impl TickAccumulation {
 }
 
 pub struct TickAggr {
-    pub data_points: Vec<TickAccumulation>,
+    pub datapoints: Vec<TickAccumulation>,
     pub interval: aggr::TickCount,
     pub tick_size: f32,
 }
@@ -100,7 +100,7 @@ pub struct TickAggr {
 impl TickAggr {
     pub fn new(interval: aggr::TickCount, tick_size: f32, raw_trades: &[Trade]) -> Self {
         let mut tick_aggr = Self {
-            data_points: Vec::new(),
+            datapoints: Vec::new(),
             interval,
             tick_size,
         };
@@ -115,7 +115,7 @@ impl TickAggr {
     pub fn change_tick_size(&mut self, tick_size: f32, raw_trades: &[Trade]) {
         self.tick_size = tick_size;
 
-        self.data_points.clear();
+        self.datapoints.clear();
 
         if !raw_trades.is_empty() {
             self.insert_trades(raw_trades);
@@ -124,9 +124,9 @@ impl TickAggr {
 
     /// return latest data point and its index
     pub fn latest_dp(&self) -> Option<(&TickAccumulation, usize)> {
-        self.data_points
+        self.datapoints
             .last()
-            .map(|dp| (dp, self.data_points.len() - 1))
+            .map(|dp| (dp, self.datapoints.len() - 1))
     }
 
     pub fn volume_data(&self) -> BTreeMap<u64, (f32, f32)> {
@@ -137,19 +137,19 @@ impl TickAggr {
         let mut updated_indices = Vec::new();
 
         for trade in buffer {
-            if self.data_points.is_empty() {
-                self.data_points
+            if self.datapoints.is_empty() {
+                self.datapoints
                     .push(TickAccumulation::new(trade, self.tick_size));
                 updated_indices.push(0);
             } else {
-                let last_idx = self.data_points.len() - 1;
+                let last_idx = self.datapoints.len() - 1;
 
-                if self.data_points[last_idx].is_full(self.interval) {
-                    self.data_points
+                if self.datapoints[last_idx].is_full(self.interval) {
+                    self.datapoints
                         .push(TickAccumulation::new(trade, self.tick_size));
-                    updated_indices.push(self.data_points.len() - 1);
+                    updated_indices.push(self.datapoints.len() - 1);
                 } else {
-                    self.data_points[last_idx].update_with_trade(trade, self.tick_size);
+                    self.datapoints[last_idx].update_with_trade(trade, self.tick_size);
                     if !updated_indices.contains(&last_idx) {
                         updated_indices.push(last_idx);
                     }
@@ -158,8 +158,8 @@ impl TickAggr {
         }
 
         for idx in updated_indices {
-            if idx < self.data_points.len() {
-                self.data_points[idx].calculate_poc();
+            if idx < self.datapoints.len() {
+                self.datapoints[idx].calculate_poc();
             }
         }
 
@@ -168,19 +168,19 @@ impl TickAggr {
 
     pub fn update_poc_status(&mut self) {
         let updates = self
-            .data_points
+            .datapoints
             .iter()
             .enumerate()
             .filter_map(|(idx, dp)| dp.poc_price().map(|price| (idx, price)))
             .collect::<Vec<_>>();
 
-        let total_points = self.data_points.len();
+        let total_points = self.datapoints.len();
 
         for (current_idx, poc_price) in updates {
             let mut npoc = NPoc::default();
 
             for next_idx in (current_idx + 1)..total_points {
-                let next_dp = &self.data_points[next_idx];
+                let next_dp = &self.datapoints[next_idx];
                 if round_to_tick(next_dp.kline.low, self.tick_size) <= poc_price
                     && round_to_tick(next_dp.kline.high, self.tick_size) >= poc_price
                 {
@@ -195,7 +195,7 @@ impl TickAggr {
             }
 
             if current_idx < total_points {
-                let data_point = &mut self.data_points[current_idx];
+                let data_point = &mut self.datapoints[current_idx];
                 data_point.set_poc_status(npoc);
             }
         }
@@ -211,7 +211,7 @@ impl TickAggr {
     ) -> f32 {
         let mut max_cluster_qty: f32 = 0.0;
 
-        self.data_points
+        self.datapoints
             .iter()
             .rev()
             .enumerate()
@@ -229,7 +229,7 @@ impl From<&TickAggr> for BTreeMap<u64, (f32, f32)> {
     /// Converts datapoints into a map of timestamps and volume data
     fn from(tick_aggr: &TickAggr) -> Self {
         tick_aggr
-            .data_points
+            .datapoints
             .iter()
             .enumerate()
             .map(|(idx, dp)| (idx as u64, (dp.kline.volume.0, dp.kline.volume.1)))

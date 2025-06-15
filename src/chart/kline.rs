@@ -98,7 +98,7 @@ impl Chart for KlineChart {
             ChartData::TimeBased(_) => None,
             ChartData::TickBased(tick_aggr) => Some(
                 tick_aggr
-                    .data_points
+                    .datapoints
                     .iter()
                     .map(|dp| dp.kline.time)
                     .collect(),
@@ -124,8 +124,8 @@ impl Chart for KlineChart {
 
     fn is_empty(&self) -> bool {
         match &self.data_source {
-            ChartData::TimeBased(timeseries) => timeseries.data_points.is_empty(),
-            ChartData::TickBased(tick_aggr) => tick_aggr.data_points.is_empty(),
+            ChartData::TimeBased(timeseries) => timeseries.datapoints.is_empty(),
+            ChartData::TickBased(tick_aggr) => tick_aggr.datapoints.is_empty(),
         }
     }
 }
@@ -379,32 +379,10 @@ impl KlineChart {
                 }
 
                 if !self.fetching_trades.0 && exchange::fetcher::is_trade_fetch_enabled() {
-                    if let Some(earliest_gap) = timeseries
-                        .data_points
-                        .range(visible_earliest..=visible_latest)
-                        .filter(|(_, dp)| dp.footprint.trades.is_empty())
-                        .map(|(time, _)| *time)
-                        .min()
+                    if let Some((fetch_from, fetch_to)) =
+                        timeseries.suggest_trade_fetch_range(visible_earliest, visible_latest)
                     {
-                        let last_kline_before_gap = timeseries
-                            .data_points
-                            .range(..earliest_gap)
-                            .filter(|(_, dp)| !dp.footprint.trades.is_empty())
-                            .max_by_key(|(time, _)| *time)
-                            .map_or(earliest_gap, |(time, _)| *time);
-
-                        let first_kline_after_gap = timeseries
-                            .data_points
-                            .range(earliest_gap..)
-                            .filter(|(_, dp)| !dp.footprint.trades.is_empty())
-                            .min_by_key(|(time, _)| *time)
-                            .map_or(kline_latest, |(time, _)| *time - 1);
-
-                        let range = FetchRange::Trades(
-                            last_kline_before_gap.max(visible_earliest),
-                            first_kline_after_gap.min(visible_latest),
-                        );
-
+                        let range = FetchRange::Trades(fetch_from, fetch_to);
                         if let Some(action) = request_fetch(&mut self.request_handler, range) {
                             self.fetching_trades = (true, None);
                             return Some(action);
@@ -446,7 +424,7 @@ impl KlineChart {
 
                 // priority 3, missing klines & integrity check
                 if let Some(missing_keys) =
-                    timeseries.check_integrity(kline_earliest, kline_latest, timeframe)
+                    timeseries.check_kline_integrity(kline_earliest, kline_latest, timeframe)
                 {
                     let latest = missing_keys.iter().max().unwrap_or(&visible_latest) + timeframe;
                     let earliest =
@@ -484,7 +462,7 @@ impl KlineChart {
                 if clear_raw {
                     self.raw_trades.clear();
                 } else {
-                    source.insert_trades(&self.raw_trades, None);
+                    source.insert_trades(&self.raw_trades);
                 }
             }
             ChartData::TickBased(_) => {
@@ -599,12 +577,12 @@ impl KlineChart {
         (from_time, to_time)
     }
 
-    pub fn insert_trades_buffer(&mut self, trades_buffer: &[Trade], depth_update: u64) {
+    pub fn insert_trades_buffer(&mut self, trades_buffer: &[Trade]) {
         self.raw_trades.extend_from_slice(trades_buffer);
 
         match self.data_source {
             ChartData::TickBased(ref mut tick_aggr) => {
-                let old_dp_len = tick_aggr.data_points.len();
+                let old_dp_len = tick_aggr.datapoints.len();
 
                 tick_aggr.insert_trades(trades_buffer);
 
@@ -612,12 +590,12 @@ impl KlineChart {
                     self.indicators.get_mut(&KlineIndicator::Volume)
                 {
                     let start_idx = old_dp_len.saturating_sub(1);
-                    for (idx, dp) in tick_aggr.data_points.iter().enumerate().skip(start_idx) {
+                    for (idx, dp) in tick_aggr.datapoints.iter().enumerate().skip(start_idx) {
                         data.insert(idx as u64, (dp.kline.volume.0, dp.kline.volume.1));
                     }
                 }
 
-                if let Some(last_dp) = tick_aggr.data_points.last() {
+                if let Some(last_dp) = tick_aggr.datapoints.last() {
                     self.chart.last_price =
                         Some(PriceInfoLabel::new(last_dp.kline.close, last_dp.kline.open));
                 } else {
@@ -627,7 +605,7 @@ impl KlineChart {
                 self.invalidate(None);
             }
             ChartData::TimeBased(ref mut timeseries) => {
-                timeseries.insert_trades(trades_buffer, Some(depth_update));
+                timeseries.insert_trades(trades_buffer);
             }
         }
     }
@@ -638,7 +616,7 @@ impl KlineChart {
                 tick_aggr.insert_trades(&raw_trades);
             }
             ChartData::TimeBased(ref mut timeseries) => {
-                timeseries.insert_trades(&raw_trades, None);
+                timeseries.insert_trades(&raw_trades);
             }
         }
 
@@ -1069,7 +1047,7 @@ fn render_data_source<F>(
             let latest = latest as usize;
 
             tick_aggr
-                .data_points
+                .datapoints
                 .iter()
                 .rev()
                 .enumerate()
@@ -1086,7 +1064,7 @@ fn render_data_source<F>(
             }
 
             timeseries
-                .data_points
+                .datapoints
                 .range(earliest..=latest)
                 .for_each(|(timestamp, dp)| {
                     let x_position = interval_to_x(*timestamp);
@@ -1155,7 +1133,7 @@ fn draw_all_npocs(
     match data_source {
         ChartData::TickBased(tick_aggr) => {
             tick_aggr
-                .data_points
+                .datapoints
                 .iter()
                 .rev()
                 .enumerate()
@@ -1165,7 +1143,7 @@ fn draw_all_npocs(
         }
         ChartData::TimeBased(timeseries) => {
             timeseries
-                .data_points
+                .datapoints
                 .iter()
                 .rev()
                 .take(lookback)
@@ -1202,7 +1180,7 @@ fn draw_clusters(
             let should_show_text = cell_height_unscaled > 8.0 && cell_width_unscaled > 80.0;
             let bar_color_alpha = if should_show_text { 0.25 } else { 1.0 };
 
-            for (price, (buy_qty, sell_qty)) in &footprint.trades {
+            for (price, group) in &footprint.trades {
                 let y_position = price_to_y(**price);
 
                 if let Some((threshold, color_scale, ignore_zeros)) = imbalance {
@@ -1213,7 +1191,7 @@ fn draw_clusters(
                         &price_to_y,
                         footprint,
                         *price,
-                        *sell_qty,
+                        group.sell_qty,
                         higher_price,
                         threshold,
                         color_scale,
@@ -1232,8 +1210,8 @@ fn draw_clusters(
                     frame,
                     start_x,
                     y_position,
-                    *buy_qty,
-                    *sell_qty,
+                    group.buy_qty,
+                    group.sell_qty,
                     max_cluster_qty,
                     cell_height,
                     cell_width * 0.8,
@@ -1245,7 +1223,7 @@ fn draw_clusters(
                 if should_show_text {
                     draw_cluster_text(
                         frame,
-                        &abbr_large_numbers(buy_qty + sell_qty),
+                        &abbr_large_numbers(group.total_qty()),
                         Point::new(start_x, y_position),
                         text_size,
                         text_color,
@@ -1259,7 +1237,7 @@ fn draw_clusters(
             let should_show_text = cell_height_unscaled > 8.0 && cell_width_unscaled > 80.0;
             let bar_color_alpha = if should_show_text { 0.25 } else { 1.0 };
 
-            for (price, (buy_qty, sell_qty)) in &footprint.trades {
+            for (price, group) in &footprint.trades {
                 let y_position = price_to_y(**price);
 
                 if let Some((threshold, color_scale, ignore_zeros)) = imbalance {
@@ -1270,7 +1248,7 @@ fn draw_clusters(
                         &price_to_y,
                         footprint,
                         *price,
-                        *sell_qty,
+                        group.sell_qty,
                         higher_price,
                         threshold,
                         color_scale,
@@ -1283,7 +1261,7 @@ fn draw_clusters(
                     );
                 }
 
-                let delta_qty = buy_qty - sell_qty;
+                let delta_qty = group.delta_qty();
 
                 if should_show_text {
                     draw_cluster_text(
@@ -1318,7 +1296,7 @@ fn draw_clusters(
             let should_show_text = cell_height_unscaled > 8.0 && cell_width_unscaled > 120.0;
             let bar_color_alpha = if should_show_text { 0.25 } else { 1.0 };
 
-            for (price, (buy_qty, sell_qty)) in &footprint.trades {
+            for (price, group) in &footprint.trades {
                 let y_position = price_to_y(**price);
 
                 if let Some((threshold, color_scale, ignore_zeros)) = imbalance {
@@ -1329,7 +1307,7 @@ fn draw_clusters(
                         &price_to_y,
                         footprint,
                         *price,
-                        *sell_qty,
+                        group.sell_qty,
                         higher_price,
                         threshold,
                         color_scale,
@@ -1342,11 +1320,11 @@ fn draw_clusters(
                     );
                 }
 
-                if *buy_qty > 0.0 {
+                if group.buy_qty > 0.0 {
                     if should_show_text {
                         draw_cluster_text(
                             frame,
-                            &abbr_large_numbers(*buy_qty),
+                            &abbr_large_numbers(group.buy_qty),
                             Point::new(x_position + (candle_width / 4.0), y_position),
                             text_size,
                             text_color,
@@ -1355,7 +1333,7 @@ fn draw_clusters(
                         );
                     }
 
-                    let bar_width = (buy_qty / max_cluster_qty) * (cell_width * 0.4);
+                    let bar_width = (group.buy_qty / max_cluster_qty) * (cell_width * 0.4);
                     frame.fill_rectangle(
                         Point::new(
                             x_position + (candle_width / 4.0),
@@ -1366,11 +1344,11 @@ fn draw_clusters(
                     );
                 }
 
-                if *sell_qty > 0.0 {
+                if group.sell_qty > 0.0 {
                     if should_show_text {
                         draw_cluster_text(
                             frame,
-                            &abbr_large_numbers(*sell_qty),
+                            &abbr_large_numbers(group.sell_qty),
                             Point::new(x_position - (candle_width / 4.0), y_position),
                             text_size,
                             text_color,
@@ -1379,7 +1357,7 @@ fn draw_clusters(
                         );
                     }
 
-                    let bar_width = -(sell_qty / max_cluster_qty) * (cell_width * 0.4);
+                    let bar_width = -(group.sell_qty / max_cluster_qty) * (cell_width * 0.4);
                     frame.fill_rectangle(
                         Point::new(
                             x_position - (candle_width / 4.0),
@@ -1416,7 +1394,9 @@ fn draw_imbalance_marker(
         return;
     }
 
-    if let Some((diagonal_buy_qty, _)) = footprint.trades.get(&higher_price) {
+    if let Some(group) = footprint.trades.get(&higher_price) {
+        let diagonal_buy_qty = &group.buy_qty;
+
         if ignore_zeros && *diagonal_buy_qty <= 0.0 {
             return;
         }
@@ -1508,15 +1488,15 @@ fn draw_crosshair_tooltip(
     let tooltip = match data {
         ChartData::TimeBased(timeseries) => {
             let dp_opt = timeseries
-                .data_points
+                .datapoints
                 .iter()
                 .find(|(time, _)| **time == at_interval)
                 .map(|(_, dp)| dp);
 
-            let dp_opt = if dp_opt.is_none() && !timeseries.data_points.is_empty() {
-                if let Some((last_time, _)) = timeseries.data_points.last_key_value() {
+            let dp_opt = if dp_opt.is_none() && !timeseries.datapoints.is_empty() {
+                if let Some((last_time, _)) = timeseries.datapoints.last_key_value() {
                     if at_interval > *last_time {
-                        timeseries.data_points.last_key_value().map(|(_, dp)| dp)
+                        timeseries.datapoints.last_key_value().map(|(_, dp)| dp)
                     } else {
                         None
                     }
@@ -1550,8 +1530,8 @@ fn draw_crosshair_tooltip(
         ChartData::TickBased(tick_aggr) => {
             let index = (at_interval / u64::from(tick_aggr.interval.0)) as usize;
 
-            if index < tick_aggr.data_points.len() {
-                let dp = &tick_aggr.data_points[tick_aggr.data_points.len() - 1 - index];
+            if index < tick_aggr.datapoints.len() {
+                let dp = &tick_aggr.datapoints[tick_aggr.datapoints.len() - 1 - index];
 
                 let change_pct = ((dp.kline.close - dp.kline.open) / dp.kline.open) * 100.0;
 

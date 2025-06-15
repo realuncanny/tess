@@ -48,10 +48,18 @@ impl DataPoint {
     pub fn calculate_poc(&mut self) {
         self.footprint.calculate_poc();
     }
+
+    pub fn last_trade_time(&self) -> Option<u64> {
+        self.footprint.last_trade_t()
+    }
+
+    pub fn first_trade_time(&self) -> Option<u64> {
+        self.footprint.first_trade_t()
+    }
 }
 
 pub struct TimeSeries {
-    pub data_points: BTreeMap<u64, DataPoint>,
+    pub datapoints: BTreeMap<u64, DataPoint>,
     pub interval: Timeframe,
     pub tick_size: f32,
 }
@@ -64,7 +72,7 @@ impl TimeSeries {
         klines: &[Kline],
     ) -> Self {
         let mut timeseries = Self {
-            data_points: BTreeMap::new(),
+            datapoints: BTreeMap::new(),
             interval,
             tick_size,
         };
@@ -72,32 +80,32 @@ impl TimeSeries {
         timeseries.insert_klines(klines);
 
         if !raw_trades.is_empty() {
-            timeseries.insert_trades(raw_trades, None);
+            timeseries.insert_trades(raw_trades);
         }
 
         timeseries
     }
 
     pub fn base_price(&self) -> f32 {
-        self.data_points
+        self.datapoints
             .values()
             .last()
             .map_or(0.0, |dp| dp.kline.close)
     }
 
     pub fn latest_timestamp(&self) -> Option<u64> {
-        self.data_points.keys().last().copied()
+        self.datapoints.keys().last().copied()
     }
 
     pub fn latest_kline(&self) -> Option<&Kline> {
-        self.data_points.values().last().map(|dp| &dp.kline)
+        self.datapoints.values().last().map(|dp| &dp.kline)
     }
 
     pub fn price_scale(&self, lookback: usize) -> (f32, f32) {
         let mut scale_high = 0.0f32;
         let mut scale_low = f32::MAX;
 
-        self.data_points
+        self.datapoints
             .iter()
             .rev()
             .take(lookback)
@@ -114,8 +122,8 @@ impl TimeSeries {
     }
 
     pub fn kline_timerange(&self) -> (u64, u64) {
-        let earliest = self.data_points.keys().next().copied().unwrap_or(0);
-        let latest = self.data_points.keys().last().copied().unwrap_or(0);
+        let earliest = self.datapoints.keys().next().copied().unwrap_or(0);
+        let latest = self.datapoints.keys().last().copied().unwrap_or(0);
 
         (earliest, latest)
     }
@@ -125,14 +133,14 @@ impl TimeSeries {
         self.clear_trades();
 
         if !all_raw_trades.is_empty() {
-            self.insert_trades(all_raw_trades, None);
+            self.insert_trades(all_raw_trades);
         }
     }
 
     pub fn insert_klines(&mut self, klines: &[Kline]) {
         for kline in klines {
             let entry = self
-                .data_points
+                .datapoints
                 .entry(kline.time)
                 .or_insert_with(|| DataPoint {
                     kline: *kline,
@@ -145,26 +153,22 @@ impl TimeSeries {
         self.update_poc_status();
     }
 
-    pub fn insert_trades(&mut self, buffer: &[Trade], update_t: Option<u64>) {
+    pub fn insert_trades(&mut self, buffer: &[Trade]) {
         if buffer.is_empty() {
             return;
         }
-
-        let aggregate_time = self.interval.to_milliseconds();
-        let rounded_update_t = update_t.map(|t| (t / aggregate_time) * aggregate_time);
-
+        let aggr_time = self.interval.to_milliseconds();
         let mut updated_times = Vec::new();
 
         buffer.iter().for_each(|trade| {
-            let rounded_time =
-                rounded_update_t.unwrap_or((trade.time / aggregate_time) * aggregate_time);
+            let rounded_time = (trade.time / aggr_time) * aggr_time;
 
             if !updated_times.contains(&rounded_time) {
                 updated_times.push(rounded_time);
             }
 
             let entry = self
-                .data_points
+                .datapoints
                 .entry(rounded_time)
                 .or_insert_with(|| DataPoint {
                     kline: Kline {
@@ -182,7 +186,7 @@ impl TimeSeries {
         });
 
         for time in updated_times {
-            if let Some(data_point) = self.data_points.get_mut(&time) {
+            if let Some(data_point) = self.datapoints.get_mut(&time) {
                 data_point.calculate_poc();
             }
         }
@@ -190,7 +194,7 @@ impl TimeSeries {
 
     pub fn update_poc_status(&mut self) {
         let updates = self
-            .data_points
+            .datapoints
             .iter()
             .filter_map(|(&time, dp)| dp.poc_price().map(|price| (time, price)))
             .collect::<Vec<_>>();
@@ -198,7 +202,7 @@ impl TimeSeries {
         for (current_time, poc_price) in updates {
             let mut npoc = NPoc::default();
 
-            for (&next_time, next_dp) in self.data_points.range((current_time + 1)..) {
+            for (&next_time, next_dp) in self.datapoints.range((current_time + 1)..) {
                 if round_to_tick(next_dp.kline.low, self.tick_size) <= poc_price
                     && round_to_tick(next_dp.kline.high, self.tick_size) >= poc_price
                 {
@@ -209,9 +213,68 @@ impl TimeSeries {
                 }
             }
 
-            if let Some(data_point) = self.data_points.get_mut(&current_time) {
+            if let Some(data_point) = self.datapoints.get_mut(&current_time) {
                 data_point.set_poc_status(npoc);
             }
+        }
+    }
+
+    pub fn suggest_trade_fetch_range(
+        &self,
+        visible_earliest: u64,
+        visible_latest: u64,
+    ) -> Option<(u64, u64)> {
+        if self.datapoints.is_empty() {
+            return None;
+        }
+
+        self.find_trade_gap()
+            .and_then(|(last_t_before_gap, first_t_after_gap)| {
+                if last_t_before_gap.is_none() && first_t_after_gap.is_none() {
+                    return None;
+                }
+                let (kline_earliest, kline_latest) = self.kline_timerange();
+
+                let fetch_from = last_t_before_gap
+                    .map(|t| t.saturating_add(1))
+                    .unwrap_or(kline_earliest)
+                    .max(visible_earliest);
+                let fetch_to = first_t_after_gap
+                    .map(|t| t.saturating_sub(1))
+                    .unwrap_or(kline_latest)
+                    .min(visible_latest);
+
+                if fetch_from < fetch_to {
+                    Some((fetch_from, fetch_to))
+                } else {
+                    None
+                }
+            })
+    }
+
+    fn find_trade_gap(&self) -> Option<(Option<u64>, Option<u64>)> {
+        let empty_kline_time = self
+            .datapoints
+            .iter()
+            .rev()
+            .find(|(_, dp)| dp.footprint.trades.is_empty())
+            .map(|(&time, _)| time);
+
+        if let Some(target_time) = empty_kline_time {
+            let last_t_before_gap = self
+                .datapoints
+                .range(..target_time)
+                .rev()
+                .find_map(|(_, dp)| dp.last_trade_time());
+
+            let first_t_after_gap = self
+                .datapoints
+                .range(target_time + 1..)
+                .find_map(|(_, dp)| dp.first_trade_time());
+
+            Some((last_t_before_gap, first_t_after_gap))
+        } else {
+            None
         }
     }
 
@@ -225,7 +288,7 @@ impl TimeSeries {
     ) -> f32 {
         let mut max_cluster_qty: f32 = 0.0;
 
-        self.data_points
+        self.datapoints
             .range(earliest..=latest)
             .for_each(|(_, dp)| {
                 max_cluster_qty =
@@ -236,17 +299,22 @@ impl TimeSeries {
     }
 
     pub fn clear_trades(&mut self) {
-        for data_point in self.data_points.values_mut() {
+        for data_point in self.datapoints.values_mut() {
             data_point.clear_trades();
         }
     }
 
-    pub fn check_integrity(&self, earliest: u64, latest: u64, interval: u64) -> Option<Vec<u64>> {
+    pub fn check_kline_integrity(
+        &self,
+        earliest: u64,
+        latest: u64,
+        interval: u64,
+    ) -> Option<Vec<u64>> {
         let mut time = earliest;
         let mut missing_count = 0;
 
         while time < latest {
-            if !self.data_points.contains_key(&time) {
+            if !self.datapoints.contains_key(&time) {
                 missing_count += 1;
                 break;
             }
@@ -258,7 +326,7 @@ impl TimeSeries {
             let mut time = earliest;
 
             while time < latest {
-                if !self.data_points.contains_key(&time) {
+                if !self.datapoints.contains_key(&time) {
                     missing_keys.push(time);
                 }
                 time += interval;
@@ -279,7 +347,7 @@ impl From<&TimeSeries> for BTreeMap<u64, (f32, f32)> {
     /// Converts datapoints into a map of timestamps and volume data
     fn from(timeseries: &TimeSeries) -> Self {
         timeseries
-            .data_points
+            .datapoints
             .iter()
             .map(|(time, dp)| (*time, (dp.kline.volume.0, dp.kline.volume.1)))
             .collect()

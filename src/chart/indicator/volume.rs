@@ -13,7 +13,7 @@ use data::util::{format_with_commas, round_to_tick};
 pub fn indicator_elem<'a>(
     chart_state: &'a CommonChartData,
     cache: &'a Caches,
-    data_points: &'a BTreeMap<u64, (f32, f32)>,
+    datapoints: &'a BTreeMap<u64, (f32, f32)>,
     earliest: u64,
     latest: u64,
 ) -> Element<'a, Message> {
@@ -23,7 +23,7 @@ pub fn indicator_elem<'a>(
                 if latest < earliest {
                     return row![].into();
                 }
-                data_points
+                datapoints
                     .range(earliest..=latest)
                     .map(|(_, (buy, sell))| buy.max(*sell))
                     .max_by(|a, b| a.partial_cmp(b).unwrap())
@@ -34,7 +34,7 @@ pub fn indicator_elem<'a>(
                 let earliest = earliest as usize;
                 let latest = latest as usize;
 
-                data_points
+                datapoints
                     .iter()
                     .rev()
                     .enumerate()
@@ -52,7 +52,7 @@ pub fn indicator_elem<'a>(
         indicator_cache: &cache.main,
         crosshair_cache: &cache.crosshair,
         chart_state,
-        data_points,
+        datapoints,
         max_volume,
     })
     .height(Length::Fill)
@@ -80,7 +80,7 @@ pub struct VolumeIndicator<'a> {
     pub indicator_cache: &'a Cache,
     pub crosshair_cache: &'a Cache,
     pub max_volume: f32,
-    pub data_points: &'a BTreeMap<u64, (f32, f32)>,
+    pub datapoints: &'a BTreeMap<u64, (f32, f32)>,
     pub chart_state: &'a CommonChartData,
 }
 
@@ -174,7 +174,7 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                         return;
                     }
 
-                    self.data_points.range(earliest..=latest).for_each(
+                    self.datapoints.range(earliest..=latest).for_each(
                         |(timestamp, (buy_volume, sell_volume))| {
                             let x_position = chart_state.interval_to_x(*timestamp);
 
@@ -225,7 +225,7 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                     let earliest = earliest as usize;
                     let latest = latest as usize;
 
-                    self.data_points
+                    self.datapoints
                         .iter()
                         .rev()
                         .enumerate()
@@ -321,15 +321,15 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                     let volume_data = match chart_state.basis {
                         Basis::Time(_) => {
                             let exact_match = self
-                                .data_points
+                                .datapoints
                                 .iter()
                                 .find(|(interval, _)| **interval == rounded_interval);
 
                             if exact_match.is_none()
                                 && rounded_interval
-                                    > self.data_points.keys().last().copied().unwrap_or(0)
+                                    > self.datapoints.keys().last().copied().unwrap_or(0)
                             {
-                                self.data_points.iter().last()
+                                self.datapoints.iter().last()
                             } else {
                                 exact_match
                             }
@@ -337,13 +337,13 @@ impl canvas::Program<Message> for VolumeIndicator<'_> {
                         Basis::Tick(_) => {
                             let index_from_end = rounded_interval as usize;
 
-                            if index_from_end < self.data_points.len() {
-                                self.data_points.iter().rev().nth(index_from_end)
-                            } else if !self.data_points.is_empty() {
+                            if index_from_end < self.datapoints.len() {
+                                self.datapoints.iter().rev().nth(index_from_end)
+                            } else if !self.datapoints.is_empty() {
                                 let right_edge = chart_state.x_to_interval(region.x + region.width);
 
                                 if rounded_interval <= right_edge {
-                                    self.data_points.iter().next_back()
+                                    self.datapoints.iter().next_back()
                                 } else {
                                     None
                                 }
