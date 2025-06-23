@@ -1,19 +1,69 @@
-use exchange::{Timeframe, adapter::Exchange};
-use serde::{Deserialize, Serialize};
-
 pub mod heatmap;
 pub mod indicator;
 pub mod kline;
 pub mod timeandsales;
 
+use super::aggr::{self, ticks::TickAggr, time::TimeSeries};
+use exchange::{Timeframe, adapter::Exchange};
+use serde::{Deserialize, Serialize};
+
 pub use kline::KlineChartKind;
 
-use crate::aggr;
+pub enum PlotData {
+    TimeBased(TimeSeries),
+    TickBased(TickAggr),
+}
 
-#[derive(Debug, Clone, Deserialize, Serialize)]
-pub struct ChartLayout {
+impl PlotData {
+    pub fn latest_y_midpoint(&self, calculate_target_y: impl Fn(exchange::Kline) -> f32) -> f32 {
+        match self {
+            PlotData::TimeBased(timeseries) => timeseries
+                .latest_kline()
+                .map_or(0.0, |kline| calculate_target_y(*kline)),
+            PlotData::TickBased(tick_aggr) => tick_aggr
+                .latest_dp()
+                .map_or(0.0, |(dp, _)| calculate_target_y(dp.kline)),
+        }
+    }
+
+    pub fn visible_price_range(
+        &self,
+        start_interval: u64,
+        end_interval: u64,
+    ) -> Option<(f32, f32)> {
+        match self {
+            PlotData::TimeBased(timeseries) => {
+                timeseries.min_max_price_in_range(start_interval, end_interval)
+            }
+            PlotData::TickBased(tick_aggr) => {
+                tick_aggr.min_max_price_in_range(start_interval as usize, end_interval as usize)
+            }
+        }
+    }
+}
+
+pub trait PlotConstants {
+    fn min_scaling(&self) -> f32;
+    fn max_scaling(&self) -> f32;
+    fn max_cell_width(&self) -> f32;
+    fn min_cell_width(&self) -> f32;
+    fn max_cell_height(&self) -> f32;
+    fn min_cell_height(&self) -> f32;
+    fn default_cell_width(&self) -> f32;
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ViewConfig {
     pub crosshair: bool,
     pub splits: Vec<f32>,
+    pub autoscale: Option<Autoscale>,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize, Serialize, Default, PartialEq)]
+pub enum Autoscale {
+    #[default]
+    CenterLatest,
+    FitToVisible,
 }
 
 #[derive(Debug, Clone, Copy, Deserialize, Serialize)]
