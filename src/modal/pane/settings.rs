@@ -2,6 +2,7 @@ use crate::screen::dashboard::pane::Message;
 use crate::screen::dashboard::panel::timeandsales;
 use crate::widget::{classic_slider_row, labeled_slider};
 use crate::{style, tooltip, widget::scrollable_content};
+use data::chart::timeandsales::StackedBarRatio;
 use data::chart::{
     KlineChartKind, VisualConfig,
     heatmap::{self, CoalesceKind},
@@ -15,6 +16,18 @@ use iced::{
         row, slider, text, tooltip::Position as TooltipPosition,
     },
 };
+
+fn cfg_view_container<'a, T>(max_width: u32, content: T) -> Element<'a, Message>
+where
+    T: Into<Element<'a, Message>>,
+{
+    container(scrollable_content(content))
+        .width(Length::Shrink)
+        .padding(28)
+        .max_width(max_width)
+        .style(style::chart_modal)
+        .into()
+}
 
 pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Element<'a, Message> {
     let trade_size_slider = {
@@ -33,7 +46,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
                     }),
                 )
             },
-            |value| format!("${}", format_with_commas(*value)),
+            |value| format!(">${}", format_with_commas(*value)),
             Some(500.0),
         )
     };
@@ -54,7 +67,7 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
                     }),
                 )
             },
-            |value| format!("${}", format_with_commas(*value)),
+            |value| format!(">${}", format_with_commas(*value)),
             Some(5000.0),
         )
     };
@@ -166,128 +179,169 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
         }
     };
 
-    container(scrollable_content(
-        column![
-            column![
-                text("Size filters").size(14),
-                column![trade_size_slider, order_size_slider].spacing(8),
-            ]
-            .spacing(20)
-            .padding(16)
-            .align_x(Alignment::Start),
-            horizontal_rule(1).style(style::split_ruler),
-            column![
-                text("Noise filters").size(14),
-                iced::widget::checkbox(
-                    "Merge orders if sizes are similar",
-                    cfg.coalescing.is_some(),
-                )
-                .on_toggle(move |value| {
-                    Message::VisualConfigChanged(
-                        Some(pane),
-                        VisualConfig::Heatmap(heatmap::Config {
-                            coalescing: if value {
-                                Some(CoalesceKind::Average(0.15))
-                            } else {
-                                None
-                            },
-                            ..cfg
-                        }),
-                    )
+    let size_filters_column = column![
+        text("Size filters").size(14),
+        column![trade_size_slider, order_size_slider].spacing(8),
+    ]
+    .spacing(8);
+
+    let noise_filters_column = column![
+        text("Noise filters").size(14),
+        iced::widget::checkbox(
+            "Merge orders if sizes are similar",
+            cfg.coalescing.is_some(),
+        )
+        .on_toggle(move |value| {
+            Message::VisualConfigChanged(
+                Some(pane),
+                VisualConfig::Heatmap(heatmap::Config {
+                    coalescing: if value {
+                        Some(CoalesceKind::Average(0.15))
+                    } else {
+                        None
+                    },
+                    ..cfg
                 }),
-                coalescer_cfg,
-            ]
-            .spacing(20)
-            .padding(16)
-            .align_x(Alignment::Start),
-            horizontal_rule(1).style(style::split_ruler),
-            column![
-                text("Trade visualization").size(14),
-                iced::widget::checkbox("Dynamic circle radius", cfg.trade_size_scale.is_some(),)
-                    .on_toggle(move |value| {
-                        Message::VisualConfigChanged(
-                            Some(pane),
-                            VisualConfig::Heatmap(heatmap::Config {
-                                trade_size_scale: if value { Some(100) } else { None },
-                                ..cfg
-                            }),
-                        )
+            )
+        }),
+        coalescer_cfg,
+    ]
+    .spacing(8);
+
+    let trade_viz_column = column![
+        text("Trade visualization").size(14),
+        iced::widget::checkbox("Dynamic circle radius", cfg.trade_size_scale.is_some(),).on_toggle(
+            move |value| {
+                Message::VisualConfigChanged(
+                    Some(pane),
+                    VisualConfig::Heatmap(heatmap::Config {
+                        trade_size_scale: if value { Some(100) } else { None },
+                        ..cfg
                     }),
-                circle_scaling_slider,
-            ]
-            .spacing(20)
-            .padding(16)
-            .width(Length::Fill)
-            .align_x(Alignment::Start),
-            horizontal_rule(1).style(style::split_ruler),
-            row![
-                horizontal_space(),
-                sync_all_button(VisualConfig::Heatmap(cfg))
-            ],
-        ]
-        .spacing(8),
-    ))
-    .width(Length::Shrink)
-    .padding(16)
-    .max_width(360)
-    .style(style::chart_modal)
-    .into()
+                )
+            }
+        ),
+        circle_scaling_slider,
+    ]
+    .spacing(8);
+
+    let content = column![
+        size_filters_column,
+        horizontal_rule(1).style(style::split_ruler),
+        noise_filters_column,
+        horizontal_rule(1).style(style::split_ruler),
+        trade_viz_column,
+        horizontal_rule(1).style(style::split_ruler),
+        row![
+            horizontal_space(),
+            sync_all_button(VisualConfig::Heatmap(cfg))
+        ],
+    ]
+    .align_x(Alignment::Start)
+    .spacing(12);
+
+    cfg_view_container(360, content)
 }
 
 pub fn timesales_cfg_view<'a>(
     cfg: timeandsales::Config,
     pane: pane_grid::Pane,
 ) -> Element<'a, Message> {
-    let trade_size_slider = {
-        let filter = cfg.trade_size_filter;
+    let trade_size_column = {
+        let slider = {
+            let filter = cfg.trade_size_filter;
 
-        labeled_slider(
-            "Trade",
-            0.0..=50000.0,
-            filter,
-            move |value| {
-                Message::VisualConfigChanged(
-                    Some(pane),
-                    VisualConfig::TimeAndSales(timeandsales::Config {
-                        trade_size_filter: value,
-                    }),
-                )
-            },
-            |value| format!("${}", format_with_commas(*value)),
-            Some(500.0),
-        )
+            labeled_slider(
+                "Trade",
+                0.0..=50000.0,
+                filter,
+                move |value| {
+                    Message::VisualConfigChanged(
+                        Some(pane),
+                        VisualConfig::TimeAndSales(timeandsales::Config {
+                            trade_size_filter: value,
+                            ..cfg
+                        }),
+                    )
+                },
+                |value| format!(">${}", format_with_commas(*value)),
+                Some(500.0),
+            )
+        };
+
+        column![text("Size filter").size(14), slider,].spacing(8)
     };
 
-    container(scrollable_content(
-        column![
-            column![text("Size filter").size(14), trade_size_slider,]
-                .spacing(20)
-                .padding(16)
-                .align_x(Alignment::Center),
-            row![
-                horizontal_space(),
-                sync_all_button(VisualConfig::TimeAndSales(cfg))
-            ],
-        ]
-        .spacing(8),
-    ))
-    .width(Length::Shrink)
-    .padding(16)
-    .max_width(500)
-    .style(style::chart_modal)
-    .into()
-}
+    let storage_buffer_column = {
+        let slider = {
+            let buffer_size = cfg.buffer_filter as f32;
 
-fn sync_all_button<'a>(config: VisualConfig) -> Element<'a, Message> {
-    container(tooltip(
-        button("Sync all")
-            .on_press(Message::VisualConfigChanged(None, config))
-            .padding(8),
-        Some("Apply configuration to similar panes"),
-        TooltipPosition::Top,
-    ))
-    .padding(16)
-    .into()
+            labeled_slider(
+                "Count",
+                400.0..=5000.0,
+                buffer_size,
+                move |value| {
+                    Message::VisualConfigChanged(
+                        Some(pane),
+                        VisualConfig::TimeAndSales(timeandsales::Config {
+                            buffer_filter: value as usize,
+                            ..cfg
+                        }),
+                    )
+                },
+                |value| format!("{}", *value as usize),
+                Some(100.0),
+            )
+        };
+
+        column![
+            row![
+                text("Max trades stored").size(14),
+                tooltip(
+                    button("i").style(style::button::info),
+                    Some("Affects the stacked bar, colors and how much you can scroll down"),
+                    TooltipPosition::Top,
+                ),
+            ]
+            .align_y(Alignment::Center)
+            .spacing(4),
+            row![slider,]
+        ]
+        .spacing(4)
+    };
+
+    let stacked_bar_ratio = {
+        let ratio = cfg.stacked_bar_ratio;
+
+        let ratio_picklist = pick_list(StackedBarRatio::ALL, Some(ratio), move |new_ratio| {
+            Message::VisualConfigChanged(
+                Some(pane),
+                VisualConfig::TimeAndSales(timeandsales::Config {
+                    stacked_bar_ratio: new_ratio,
+                    ..cfg
+                }),
+            )
+        });
+
+        column![text("Stacked bar ratio").size(14), ratio_picklist].spacing(8)
+    };
+
+    let content = column![
+        trade_size_column,
+        horizontal_rule(1).style(style::split_ruler),
+        storage_buffer_column,
+        horizontal_rule(1).style(style::split_ruler),
+        stacked_bar_ratio,
+        horizontal_rule(1).style(style::split_ruler),
+        row![
+            horizontal_space(),
+            sync_all_button(VisualConfig::TimeAndSales(cfg))
+        ],
+    ]
+    .align_x(Alignment::Start)
+    .spacing(12);
+
+    cfg_view_container(320, content)
 }
 
 pub fn kline_cfg_view<'a>(
@@ -295,15 +349,10 @@ pub fn kline_cfg_view<'a>(
     kind: &'a KlineChartKind,
     pane: pane_grid::Pane,
 ) -> Element<'a, Message> {
-    match kind {
-        KlineChartKind::Candles => container(text(
-            "This chart type doesn't have any configurations, WIP...",
-        ))
-        .padding(16)
-        .width(Length::Shrink)
-        .max_width(500)
-        .style(style::chart_modal)
-        .into(),
+    let content = match kind {
+        KlineChartKind::Candles => column![text(
+            "This chart type doesn't have any configurations, WIP..."
+        )],
         KlineChartKind::Footprint { clusters, studies } => {
             let cluster_picklist =
                 pick_list(ClusterKind::ALL, Some(clusters), move |new_cluster_kind| {
@@ -314,22 +363,24 @@ pub fn kline_cfg_view<'a>(
                 .view(studies)
                 .map(move |msg| Message::StudyConfigurator(pane, msg));
 
-            container(scrollable_content(
-                column![
-                    column![text("Clustering type").size(14), cluster_picklist].spacing(4),
-                    column![text("Footprint studies").size(14), study_cfg].spacing(4),
-                ]
-                .spacing(20)
-                .padding(16)
-                .align_x(Alignment::Start),
-            ))
-            .width(Length::Shrink)
-            .max_width(320)
-            .padding(16)
-            .style(style::chart_modal)
-            .into()
+            column![
+                column![text("Clustering type").size(14), cluster_picklist].spacing(8),
+                column![text("Footprint studies").size(14), study_cfg].spacing(8),
+            ]
+            .spacing(12)
+            .align_x(Alignment::Start)
         }
-    }
+    };
+
+    cfg_view_container(360, content)
+}
+
+fn sync_all_button<'a>(config: VisualConfig) -> Element<'a, Message> {
+    tooltip(
+        button("Sync all").on_press(Message::VisualConfigChanged(None, config)),
+        Some("Apply configuration to similar panes"),
+        TooltipPosition::Top,
+    )
 }
 
 pub mod study {

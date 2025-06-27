@@ -251,6 +251,20 @@ pub mod button {
         }
     }
 
+    pub fn info(theme: &Theme, _status: Status) -> Style {
+        let palette = theme.extended_palette();
+
+        Style {
+            text_color: palette.background.base.text,
+            border: Border {
+                radius: 3.0.into(),
+                ..Default::default()
+            },
+            background: Some(palette.background.weakest.color.into()),
+            ..Default::default()
+        }
+    }
+
     pub fn menu_body(theme: &Theme, status: Status, is_selected: bool) -> Style {
         let palette = theme.extended_palette();
 
@@ -478,27 +492,6 @@ pub fn dragger_row_container(theme: &Theme) -> Style {
             color: Color::BLACK.scale_alpha(if palette.is_dark { 0.8 } else { 0.2 }),
         },
         snap: true,
-    }
-}
-
-// Time&Sales Table
-pub fn ts_table_container(theme: &Theme, is_sell: bool, color_alpha: f32) -> Style {
-    let palette = theme.extended_palette();
-
-    let color = if is_sell {
-        palette.danger.base.color
-    } else {
-        palette.success.base.color
-    };
-
-    Style {
-        text_color: color.into(),
-        border: Border {
-            width: 2.0,
-            color: color.scale_alpha(color_alpha),
-            radius: 2.0.into(),
-        },
-        ..Default::default()
     }
 }
 

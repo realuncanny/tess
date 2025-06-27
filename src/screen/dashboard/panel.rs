@@ -1,36 +1,48 @@
 pub mod timeandsales;
 
-use crate::{
-    screen::dashboard::pane::Message,
-    widget::{self},
-};
-
-use super::pane;
-
 use iced::{
-    Alignment, Element,
-    widget::{center, pane_grid},
+    Element, padding,
+    widget::{canvas, container},
 };
+use std::time::Instant;
 
-pub trait PanelView {
-    fn view(
-        &self,
-        pane: pane_grid::Pane,
-        state: &pane::State,
-        timezone: data::UserTimezone,
-    ) -> Element<Message>;
+#[derive(Debug, Clone, Copy)]
+pub enum Message {
+    Scrolled(f32),
+    ResetScroll,
+    Invalidate(Option<Instant>),
 }
 
-pub fn view<'a, C: PanelView>(
-    pane: pane_grid::Pane,
-    state: &'a pane::State,
-    content: &'a C,
-    timezone: data::UserTimezone,
-) -> Element<'a, Message> {
-    let base = center(content.view(pane, state, timezone));
+pub enum Action {}
 
-    widget::toast::Manager::new(base, &state.notifications, Alignment::End, move |idx| {
-        Message::DeleteNotification(pane, idx)
-    })
+pub trait Panel: canvas::Program<Message> {
+    fn scroll(&mut self, scroll: f32);
+
+    fn reset_scroll(&mut self);
+
+    fn invalidate(&mut self, now: Option<Instant>) -> Option<Action>;
+}
+
+pub fn view<T: Panel>(panel: &T, _timezone: data::UserTimezone) -> Element<Message> {
+    container(
+        canvas(panel)
+            .height(iced::Length::Fill)
+            .width(iced::Length::Fill),
+    )
+    .padding(padding::left(1).right(1).bottom(1))
     .into()
+}
+
+pub fn update<T: Panel>(panel: &mut T, message: Message) {
+    match message {
+        Message::Scrolled(delta) => {
+            panel.scroll(delta);
+        }
+        Message::ResetScroll => {
+            panel.reset_scroll();
+        }
+        Message::Invalidate(now) => {
+            panel.invalidate(now);
+        }
+    }
 }

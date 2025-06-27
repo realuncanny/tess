@@ -257,9 +257,9 @@ impl Dashboard {
                             pane_state.modal = None;
                         }
                     }
-                    pane::Message::ChartUserUpdate(pane, msg) => {
-                        if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
-                            match pane_state.content {
+                    pane::Message::ChartInteraction(pane, msg) => {
+                        if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
+                            match state.content {
                                 pane::Content::Heatmap(ref mut chart, _) => {
                                     chart::update(chart, msg);
                                 }
@@ -267,6 +267,13 @@ impl Dashboard {
                                     chart::update(chart, msg);
                                 }
                                 _ => {}
+                            }
+                        }
+                    }
+                    pane::Message::PanelInteraction(pane, msg) => {
+                        if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
+                            if let pane::Content::TimeAndSales(ref mut panel) = state.content {
+                                panel::update(panel, msg);
                             }
                         }
                     }
@@ -279,8 +286,14 @@ impl Dashboard {
                         } else {
                             self.iter_all_panes_mut(main_window.id)
                                 .for_each(|(_, _, state)| {
-                                    state.settings.visual_config = Some(cfg);
-                                    state.content.change_visual_config(cfg);
+                                    if let Some(current_cfg) = state.settings.visual_config {
+                                        if std::mem::discriminant(&current_cfg)
+                                            == std::mem::discriminant(&cfg)
+                                        {
+                                            state.settings.visual_config = Some(cfg);
+                                            state.content.change_visual_config(cfg);
+                                        }
+                                    }
                                 });
                         }
                     }
@@ -858,7 +871,7 @@ impl Dashboard {
                 timezone,
             )
         })
-        .min_size(200)
+        .min_size(240)
         .on_click(pane::Message::PaneClicked)
         .on_drag(pane::Message::PaneDragged)
         .on_resize(8, pane::Message::PaneResized)
@@ -1212,22 +1225,24 @@ impl Dashboard {
 
         self.iter_all_panes_mut(main_window)
             .for_each(|(window, pane, state)| match state.tick(now) {
-                Some(chart::Action::ErrorOccurred(err)) => {
-                    let pane_id = state.unique_id();
+                Some(pane::Action::Chart(chart_action)) => match chart_action {
+                    chart::Action::ErrorOccurred(err) => {
+                        let pane_id = state.unique_id();
 
-                    tasks.push(Task::done(Message::ErrorOccurred(
-                        Some(pane_id),
-                        DashboardError::Unknown(err.to_string()),
-                    )));
-                }
-                Some(chart::Action::FetchRequested(req_id, fetch)) => {
-                    tasks.push(Task::done(Message::ChartRequestedFetch {
-                        pane,
-                        window,
-                        req_id,
-                        fetch,
-                    }));
-                }
+                        tasks.push(Task::done(Message::ErrorOccurred(
+                            Some(pane_id),
+                            DashboardError::Unknown(err.to_string()),
+                        )));
+                    }
+                    chart::Action::FetchRequested(req_id, fetch) => {
+                        tasks.push(Task::done(Message::ChartRequestedFetch {
+                            pane,
+                            window,
+                            req_id,
+                            fetch,
+                        }));
+                    }
+                },
                 None => {}
             });
 
