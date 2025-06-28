@@ -133,20 +133,6 @@
       ]
     },
     {
-      "uid": "eea00ad41add9f0d8b7ab1bd8719f5f4",
-      "css": "edit",
-      "code": 59409,
-      "src": "custom_icons",
-      "selected": true,
-      "svg": {
-        "path": "M496 661L560 596 475 511 411 576V607H464V661H496ZM741 259Q732 250 723 259L527 455Q518 464 527 473T545 473L741 277Q750 268 741 259ZM786 590V696Q786 763 739 810T625 857H161Q94 857 47 810T0 696V232Q0 166 47 119T161 71H625Q660 71 690 85 699 89 700.5 98.5T695 114L668 142Q660 150 650 146 637 143 625 143H161Q124 143 98 169T71 232V696Q71 733 98 759T161 786H625Q662 786 688 759T714 696V626Q714 619 719 614L755 578Q763 570 775 574T786 590ZM732 179L893 339 518 714H357V554ZM980 252L929 304 768 143 819 91Q835 76 857 76T895 91L980 176Q996 192 996 214T980 252Z",
-        "width": 1000
-      },
-      "search": [
-        "edit"
-      ]
-    },
-    {
       "uid": "ad524b8f25babd3ee6bf98ebcb204886",
       "css": "cog",
       "code": 59408,
@@ -347,8 +333,8 @@
       ]
     },
     {
-      "uid": "ec5a1cc2949f6983a7e9534b725552e9",
-      "css": "drag-handle-svgrepo-com-converted",
+      "uid": "adecd1411594eea6bf8672350f6dd44e",
+      "css": "iconly_svg_converted-converted-(1)",
       "code": 59415,
       "src": "custom_icons",
       "selected": true,
@@ -357,7 +343,39 @@
         "width": 1000
       },
       "search": [
-        "drag-handle-svgrepo-com-converted"
+        "iconly_svg_converted-converted-(1)"
+      ]
+    },
+    {
+      "uid": "d35a1d35efeb784d1dc9ac18b9b6c2b6",
+      "css": "pencil",
+      "code": 59409,
+      "src": "fontawesome"
+    },
+    {
+      "uid": "b091a8bd0fdade174951f17d936f51e4",
+      "css": "folder-empty",
+      "code": 61716,
+      "src": "fontawesome"
+    },
+    {
+      "uid": "e35de5ea31cd56970498e33efbcb8e36",
+      "css": "link-ext-alt",
+      "code": 61772,
+      "src": "fontawesome"
+    },
+    {
+      "uid": "eea00ad41add9f0d8b7ab1bd8719f5f4",
+      "css": "edit",
+      "code": 59409,
+      "src": "custom_icons",
+      "selected": false,
+      "svg": {
+        "path": "M496 661L560 596 475 511 411 576V607H464V661H496ZM741 259Q732 250 723 259L527 455Q518 464 527 473T545 473L741 277Q750 268 741 259ZM786 590V696Q786 763 739 810T625 857H161Q94 857 47 810T0 696V232Q0 166 47 119T161 71H625Q660 71 690 85 699 89 700.5 98.5T695 114L668 142Q660 150 650 146 637 143 625 143H161Q124 143 98 169T71 232V696Q71 733 98 759T161 786H625Q662 786 688 759T714 696V626Q714 619 719 614L755 578Q763 570 775 574T786 590ZM732 179L893 339 518 714H357V554ZM980 252L929 304 768 143 819 91Q835 76 857 76T895 91L980 176Q996 192 996 214T980 252Z",
+        "width": 1000
+      },
+      "search": [
+        "edit"
       ]
     }
   ]

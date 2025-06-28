@@ -23,7 +23,7 @@ use widget::{
 use iced::{
     Alignment, Element, Subscription, Task, keyboard, padding,
     widget::{
-        button, column, container, pane_grid, pick_list, row, text,
+        button, column, container, horizontal_rule, pane_grid, pick_list, row, scrollable, text,
         tooltip::Position as TooltipPosition,
     },
 };
@@ -66,7 +66,6 @@ struct Flowsurface {
 
 #[derive(Debug, Clone)]
 enum Message {
-    LoadLayout(layout::Layout),
     Sidebar(dashboard::sidebar::Message),
     MarketWsEvent(exchange::Event),
     Dashboard(Option<uuid::Uuid>, dashboard::Message),
@@ -79,9 +78,8 @@ enum Message {
     ScaleFactorChanged(data::ScaleFactor),
     SetTimezone(data::UserTimezone),
     ToggleTradeFetch(bool),
+    RemoveNotification(usize),
     ToggleDialogModal(Option<(String, Box<Message>)>),
-    AddNotification(Toast),
-    DeleteNotification(usize),
     ThemeEditor(modal::theme_editor::Message),
     Layouts(modal::layout_manager::Message),
     AudioStream(modal::audio::Message),
@@ -102,24 +100,26 @@ impl Flowsurface {
             window::open(config)
         };
 
-        let load_layout = Task::done(Message::LoadLayout(
-            saved_state.layout_manager.active_layout(),
-        ));
         let (sidebar, launch_sidebar) = dashboard::Sidebar::new(&saved_state);
 
+        let mut state = Self {
+            main_window: window::Window::new(main_window_id),
+            layout_manager: saved_state.layout_manager,
+            theme_editor: ThemeEditor::new(saved_state.custom_theme),
+            audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
+            sidebar,
+            confirm_dialog: None,
+            timezone: saved_state.timezone,
+            scale_factor: saved_state.scale_factor,
+            theme: saved_state.theme,
+            notifications: vec![],
+        };
+
+        let last_active_layout = state.layout_manager.active_layout();
+        let load_layout = state.load_layout(last_active_layout);
+
         (
-            Self {
-                main_window: window::Window::new(main_window_id),
-                layout_manager: saved_state.layout_manager,
-                theme_editor: ThemeEditor::new(saved_state.custom_theme),
-                audio_stream: audio::AudioStream::new(saved_state.audio_cfg),
-                sidebar,
-                confirm_dialog: None,
-                timezone: saved_state.timezone,
-                scale_factor: saved_state.scale_factor,
-                theme: saved_state.theme,
-                notifications: vec![],
-            },
+            state,
             open_main_window
                 .discard()
                 .chain(load_layout)
@@ -300,7 +300,8 @@ impl Flowsurface {
                             .distribute_fetched_data(main_window.id, pane_id, data, stream)
                             .map(move |msg| Message::Dashboard(Some(layout_id), msg)),
                         Some(dashboard::Event::Notification(toast)) => {
-                            Task::done(Message::AddNotification(toast))
+                            self.notifications.push(toast);
+                            Task::none()
                         }
                         None => Task::none(),
                     };
@@ -308,6 +309,11 @@ impl Flowsurface {
                     return main_task
                         .map(move |msg| Message::Dashboard(Some(layout_id), msg))
                         .chain(additional_task);
+                }
+            }
+            Message::RemoveNotification(index) => {
+                if index < self.notifications.len() {
+                    self.notifications.remove(index);
                 }
             }
             Message::SetTimezone(tz) => {
@@ -356,37 +362,16 @@ impl Flowsurface {
                         )
                         .map(move |msg| Message::Dashboard(None, msg))
                         .chain(window_tasks)
-                        .chain(Task::done(Message::LoadLayout(layout)));
+                        .chain(self.load_layout(layout));
                     }
                     None => {}
-                }
-            }
-            Message::LoadLayout(layout) => match self.layout_manager.set_active_layout(layout) {
-                Ok(dashboard) => {
-                    return dashboard
-                        .load_layout()
-                        .map(move |msg| Message::Dashboard(None, msg));
-                }
-                Err(err) => {
-                    return Task::done(Message::AddNotification(Toast::error(format!(
-                        "Failed to load layout: {err}"
-                    ))));
-                }
-            },
-            Message::AddNotification(toast) => {
-                self.notifications.push(toast);
-            }
-            Message::DeleteNotification(index) => {
-                if index < self.notifications.len() {
-                    self.notifications.remove(index);
                 }
             }
             Message::AudioStream(message) => self.audio_stream.update(message),
             Message::DataFolderRequested => {
                 if let Err(err) = data::open_data_folder() {
-                    return Task::done(Message::AddNotification(Toast::error(format!(
-                        "Failed to open data folder: {err}",
-                    ))));
+                    self.notifications
+                        .push(Toast::error(format!("Failed to open data folder: {err}")));
                 }
             }
             Message::ThemeEditor(msg) => {
@@ -507,7 +492,7 @@ impl Flowsurface {
                 sidebar::Position::Left => Alignment::End,
                 sidebar::Position::Right => Alignment::Start,
             },
-            Message::DeleteNotification,
+            Message::RemoveNotification,
         )
         .into()
     }
@@ -559,6 +544,14 @@ impl Flowsurface {
         self.layout_manager
             .active_dashboard_mut()
             .expect("No active dashboard")
+    }
+
+    fn load_layout(&mut self, layout: layout::Layout) -> Task<Message> {
+        self.layout_manager
+            .set_active_layout(layout)
+            .expect("Failed to set active layout")
+            .load_layout()
+            .map(move |msg| Message::Dashboard(None, msg))
     }
 
     fn view_with_modal<'a>(
@@ -671,26 +664,32 @@ impl Flowsurface {
                         )
                     };
 
-                    container(
+                    let column_content = split_column![
+                        column![open_data_folder,].spacing(8),
+                        column![text("Sidebar position").size(14), sidebar_pos,].spacing(12),
+                        column![text("Time zone").size(14), timezone_picklist,].spacing(12),
+                        column![text("Theme").size(14), theme_picklist,].spacing(12),
+                        column![text("Interface scale").size(14), scale_factor,].spacing(12),
                         column![
-                            column![open_data_folder,].spacing(8),
-                            column![text("Sidebar position").size(14), sidebar_pos,].spacing(8),
-                            column![text("Time zone").size(14), timezone_picklist,].spacing(8),
-                            column![text("Theme").size(14), theme_picklist,].spacing(8),
-                            column![text("Interface scale").size(14), scale_factor,].spacing(8),
-                            column![
-                                text("Experimental").size(14),
-                                trade_fetch_checkbox,
-                                toggle_theme_editor
-                            ]
-                            .spacing(8),
+                            text("Experimental").size(14),
+                            column![trade_fetch_checkbox, toggle_theme_editor,].spacing(8),
                         ]
-                        .spacing(20),
-                    )
-                    .align_x(Alignment::Start)
-                    .max_width(400)
-                    .padding(24)
-                    .style(style::dashboard_modal)
+                        .spacing(12),
+                        ; spacing = 16, align_x = Alignment::Start
+                    ];
+
+                    let content = scrollable::Scrollable::with_direction(
+                        column_content,
+                        scrollable::Direction::Vertical(
+                            scrollable::Scrollbar::new().width(8).scroller_width(6),
+                        ),
+                    );
+
+                    container(content)
+                        .align_x(Alignment::Start)
+                        .max_width(240)
+                        .padding(24)
+                        .style(style::dashboard_modal)
                 };
 
                 let (align_x, padding) = match sidebar_pos {
@@ -726,10 +725,10 @@ impl Flowsurface {
             sidebar::Menu::Layout => {
                 let main_window = self.main_window.id;
 
-                let pane = if let Some(focus) = dashboard.focus {
-                    focus.1
+                let (focused_window_id, pane) = if let Some((window_id, focus)) = dashboard.focus {
+                    (Some(window_id), focus)
                 } else {
-                    *dashboard.panes.iter().next().unwrap().0
+                    (None, *dashboard.panes.iter().next().unwrap().0)
                 };
 
                 let reset_pane_button = tooltip(
@@ -767,10 +766,16 @@ impl Flowsurface {
                         column![
                             column![
                                 text("Panes").size(14),
-                                if dashboard.focus.is_some() {
-                                    row![reset_pane_button, split_pane_button,].spacing(8)
-                                } else {
-                                    row![text("No pane selected"),]
+                                match (dashboard.focus, focused_window_id) {
+                                    (Some((window_id, _)), Some(_)) if window_id == main_window => {
+                                        row![reset_pane_button, split_pane_button,].spacing(8)
+                                    }
+                                    (Some((_, _)), Some(_)) => {
+                                        row![text("Selected pane isn't in the main window"),]
+                                    }
+                                    _ => {
+                                        row![text("No pane selected"),]
+                                    }
                                 },
                             ]
                             .align_x(Alignment::Center)

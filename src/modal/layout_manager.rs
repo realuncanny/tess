@@ -272,7 +272,7 @@ impl LayoutManager {
 
         for id_loop in &self.layout_order {
             if let Some((layout, _)) = self.layouts.get(id_loop) {
-                let mut layout_row = row![].height(iced::Length::Fixed(32.0));
+                let mut layout_row = row![].height(iced::Length::Fixed(32.0)).padding(4);
 
                 let is_active = self.active_layout.id == layout.id;
 
@@ -307,13 +307,7 @@ impl LayoutManager {
                     Editing::Preview => {
                         layout_row = layout_row
                             .push(create_layout_button(layout, None))
-                            .push(tooltip(
-                                button(icon_text(style::Icon::Clone, 12))
-                                    .on_press(Message::CloneLayout(layout.id))
-                                    .style(move |t, s| style::button::modifier(t, s, false)),
-                                Some("Clone layout"),
-                                TooltipPosition::Top,
-                            ))
+                            .push(create_clone_button(layout.id))
                             .push(create_rename_button(layout));
 
                         if !is_active {
@@ -433,6 +427,19 @@ fn create_rename_button<'a>(layout: &Layout) -> button::Button<'a, Message> {
     )
 }
 
+fn create_clone_button<'a>(layout_id: Uuid) -> Element<'a, Message> {
+    tooltip(
+        create_icon_button(
+            style::Icon::Clone,
+            12,
+            |theme, status| style::button::layout_name(theme, *status),
+            Some(Message::CloneLayout(layout_id)),
+        ),
+        Some("Clone layout"),
+        TooltipPosition::Top,
+    )
+}
+
 fn create_confirm_delete_buttons<'a>(
     layout: &Layout,
 ) -> (button::Button<'a, Message>, button::Button<'a, Message>) {
@@ -454,7 +461,7 @@ fn create_confirm_delete_buttons<'a>(
 }
 
 fn create_layout_button<'a>(layout: &Layout, on_press: Option<Message>) -> Element<'a, Message> {
-    let mut layout_btn = button(text(layout.name.clone()))
+    let mut layout_btn = button(text(layout.name.clone()).align_y(iced::Alignment::Center))
         .width(iced::Length::Fill)
         .style(style::button::layout_name);
 
@@ -471,8 +478,8 @@ fn create_icon_button<'a>(
     style_fn: impl Fn(&Theme, &button::Status) -> button::Style + 'static,
     on_press: Option<Message>,
 ) -> button::Button<'a, Message> {
-    let mut btn =
-        button(icon_text(icon, size)).style(move |theme, status| style_fn(theme, &status));
+    let mut btn = button(icon_text(icon, size).align_y(iced::Alignment::Center))
+        .style(move |theme, status| style_fn(theme, &status));
 
     if let Some(msg) = on_press {
         btn = btn.on_press(msg);

@@ -1,9 +1,9 @@
 use iced::font::{Family, Stretch, Weight};
+use iced::widget::Text;
 use iced::widget::canvas::{LineDash, Stroke};
 use iced::widget::container::{self, Style};
 use iced::widget::pane_grid::{Highlight, Line};
 use iced::widget::scrollable::{Rail, Scroller};
-use iced::widget::{Text, text};
 use iced::{Border, Color, Font, Renderer, Shadow, Theme, widget};
 
 pub const ICONS_BYTES: &[u8] = include_bytes!(".././assets/fonts/icons.ttf");
@@ -47,6 +47,8 @@ pub enum Icon {
     SpeakerLow,
     SpeakerHigh,
     DragHandle,
+    Folder,
+    ExternalLink,
 }
 
 impl From<Icon> for char {
@@ -79,12 +81,14 @@ impl From<Icon> for char {
             Icon::SpeakerHigh => '\u{E815}',
             Icon::SpeakerLow => '\u{E816}',
             Icon::DragHandle => '\u{E817}',
+            Icon::Folder => '\u{F114}',
+            Icon::ExternalLink => '\u{F14C}',
         }
     }
 }
 
 pub fn icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
-    text(char::from(icon).to_string())
+    iced::widget::text(char::from(icon).to_string())
         .font(ICONS_FONT)
         .size(iced::Pixels(size.into()))
 }
@@ -173,12 +177,14 @@ pub mod button {
     pub fn layout_name(theme: &Theme, status: Status) -> Style {
         let palette = theme.extended_palette();
 
+        let bg_color = match status {
+            Status::Pressed => Some(palette.background.weak.color.into()),
+            Status::Hovered => Some(palette.background.strong.color.into()),
+            Status::Disabled | Status::Active => None,
+        };
+
         Style {
-            background: if Status::Hovered == status {
-                Some(palette.background.base.color.into())
-            } else {
-                None
-            },
+            background: bg_color,
             text_color: palette.background.base.text,
             border: Border {
                 radius: 4.0.into(),
@@ -206,7 +212,7 @@ pub mod button {
                         None
                     }
                 }
-                Status::Pressed => Some(palette.background.strongest.color.into()),
+                Status::Pressed => Some(palette.background.weak.color.into()),
                 Status::Hovered => Some(palette.background.strong.color.into()),
                 Status::Disabled => {
                     if is_clicked {

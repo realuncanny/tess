@@ -1,12 +1,13 @@
 use crate::screen::dashboard::pane::Message;
 use crate::screen::dashboard::panel::timeandsales;
+use crate::split_column;
 use crate::widget::{classic_slider_row, labeled_slider};
 use crate::{style, tooltip, widget::scrollable_content};
-use data::chart::timeandsales::StackedBarRatio;
 use data::chart::{
     KlineChartKind, VisualConfig,
     heatmap::{self, CoalesceKind},
     kline::ClusterKind,
+    timeandsales::StackedBarRatio,
 };
 use data::util::format_with_commas;
 use iced::{
@@ -225,20 +226,16 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
     ]
     .spacing(8);
 
-    let content = column![
+    let content = split_column![
         size_filters_column,
-        horizontal_rule(1).style(style::split_ruler),
         noise_filters_column,
-        horizontal_rule(1).style(style::split_ruler),
         trade_viz_column,
-        horizontal_rule(1).style(style::split_ruler),
         row![
             horizontal_space(),
             sync_all_button(VisualConfig::Heatmap(cfg))
-        ],
-    ]
-    .align_x(Alignment::Start)
-    .spacing(12);
+        ]
+        ; spacing = 12, align_x = Alignment::Start
+    ];
 
     cfg_view_container(360, content)
 }
@@ -326,20 +323,16 @@ pub fn timesales_cfg_view<'a>(
         column![text("Stacked bar ratio").size(14), ratio_picklist].spacing(8)
     };
 
-    let content = column![
+    let content = split_column![
         trade_size_column,
-        horizontal_rule(1).style(style::split_ruler),
         storage_buffer_column,
-        horizontal_rule(1).style(style::split_ruler),
         stacked_bar_ratio,
-        horizontal_rule(1).style(style::split_ruler),
         row![
             horizontal_space(),
             sync_all_button(VisualConfig::TimeAndSales(cfg))
         ],
-    ]
-    .align_x(Alignment::Start)
-    .spacing(12);
+        ; spacing = 12, align_x = Alignment::Start
+    ];
 
     cfg_view_container(320, content)
 }
@@ -363,12 +356,11 @@ pub fn kline_cfg_view<'a>(
                 .view(studies)
                 .map(move |msg| Message::StudyConfigurator(pane, msg));
 
-            column![
-                column![text("Clustering type").size(14), cluster_picklist].spacing(8),
-                column![text("Footprint studies").size(14), study_cfg].spacing(8),
+            split_column![
+                column![text("Cluster type").size(14), cluster_picklist].spacing(8),
+                column![text("Studies").size(14), study_cfg].spacing(8),
+                ; spacing = 12, align_x = Alignment::Start
             ]
-            .spacing(12)
-            .align_x(Alignment::Start)
         }
     };
 
@@ -384,7 +376,10 @@ fn sync_all_button<'a>(config: VisualConfig) -> Element<'a, Message> {
 }
 
 pub mod study {
-    use crate::style::{self, Icon, icon_text};
+    use crate::{
+        split_column,
+        style::{self, Icon, icon_text},
+    };
     use data::chart::kline::FootprintStudy;
     use iced::{
         Element, padding,
@@ -477,7 +472,7 @@ pub mod study {
             let mut checkbox_row = row![checkbox, horizontal_space()]
                 .height(36)
                 .align_y(iced::Alignment::Center)
-                .padding(4)
+                .padding(padding::left(8).right(4))
                 .spacing(4);
 
             let is_expanded = self
@@ -495,7 +490,7 @@ pub mod study {
                 );
             }
 
-            let mut column = column![checkbox_row].padding(padding::left(4));
+            let mut column = column![checkbox_row];
 
             if is_expanded && study_config.is_some() {
                 let config = study_config.unwrap();
@@ -601,15 +596,8 @@ pub mod study {
                         };
 
                         column = column.push(
-                            column![
-                                qty_threshold,
-                                horizontal_rule(1).style(style::split_ruler),
-                                color_scaling,
-                                horizontal_rule(1).style(style::split_ruler),
-                                ignore_zeros_checkbox,
-                            ]
-                            .padding(8)
-                            .spacing(4),
+                            split_column![qty_threshold, color_scaling, ignore_zeros_checkbox]
+                                .padding(4),
                         );
                     }
                 }
