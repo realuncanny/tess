@@ -51,7 +51,10 @@ fern = "0.7.1"
 exchange = { version = "0.1.0", path = "exchange" }
 data = { version = "0.1.0", path = "data" }
 
+[features]
+debug = ["iced/hot"]
+
 [patch.crates-io]
-iced = { git = "https://github.com/iced-rs/iced", rev = "7afbb89ebfd49aa86453d45f7d9c13a7c48b58f2" }
-iced_futures = { git = "https://github.com/iced-rs/iced", rev = "7afbb89ebfd49aa86453d45f7d9c13a7c48b58f2" }
-iced_core = { git = "https://github.com/iced-rs/iced", rev = "7afbb89ebfd49aa86453d45f7d9c13a7c48b58f2"}
+iced = { git = "https://github.com/iced-rs/iced", rev = "2a144e7e762cbefa8e2075946ebc357b4dbc443f" }
+iced_futures = { git = "https://github.com/iced-rs/iced", rev = "2a144e7e762cbefa8e2075946ebc357b4dbc443f" }
+iced_core = { git = "https://github.com/iced-rs/iced", rev = "2a144e7e762cbefa8e2075946ebc357b4dbc443f"}

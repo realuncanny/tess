@@ -635,7 +635,6 @@ pub fn split_ruler(theme: &Theme) -> iced::widget::rule::Style {
 
     iced::widget::rule::Style {
         color: palette.background.strong.color.scale_alpha(0.25),
-        width: crate::widget::multi_split::DRAG_SIZE as u16,
         radius: iced::border::Radius::default(),
         fill_mode: iced::widget::rule::FillMode::Full,
         snap: true,
