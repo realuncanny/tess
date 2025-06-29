@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::style::{self, ICONS_FONT, Icon, icon_text};
 use data::InternalError;
@@ -17,7 +17,7 @@ use iced::{
     },
 };
 
-const ACTIVE_UPDATE_INTERVAL: u64 = 25;
+const ACTIVE_UPDATE_INTERVAL: u64 = 13;
 const INACTIVE_UPDATE_INTERVAL: u64 = 300;
 
 const TICKER_CARD_HEIGHT: f32 = 64.0;
@@ -54,10 +54,20 @@ pub enum TickerTab {
 #[derive(Clone)]
 struct TickerDisplayData {
     display_ticker: String,
-    price_change_display: String,
+    daily_change_pct: String,
     volume_display: String,
     mark_price_display: String,
+    price_unchanged_part: String,
+    price_changed_part: String,
+    price_change_direction: PriceChangeDirection,
     card_color_alpha: f32,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum PriceChangeDirection {
+    Increased,
+    Decreased,
+    Unchanged,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,6 +101,7 @@ pub struct TickersTable {
     combined_tickers: Vec<(Exchange, Ticker, TickerStats, bool)>,
     favorited_tickers: Vec<(Exchange, Ticker)>,
     display_cache: HashMap<(Exchange, Ticker), TickerDisplayData>,
+    previous_prices: HashMap<(Exchange, Ticker), f32>,
     selected_tab: TickerTab,
     search_query: String,
     show_sort_options: bool,
@@ -110,6 +121,7 @@ impl TickersTable {
                 combined_tickers: Vec::new(),
                 display_cache: HashMap::new(),
                 favorited_tickers,
+                previous_prices: HashMap::new(),
                 selected_tab: TickerTab::All,
                 search_query: String::new(),
                 show_sort_options: false,
@@ -130,9 +142,14 @@ impl TickersTable {
         let tickers_vec: Vec<_> = ticker_stats
             .into_iter()
             .map(|(ticker, stats)| {
+                let previous_price = self.previous_prices.get(&(exchange, ticker)).copied();
+
+                self.previous_prices
+                    .insert((exchange, ticker), stats.mark_price);
+
                 self.display_cache.insert(
                     (exchange, ticker),
-                    Self::compute_display_data(&ticker, &stats),
+                    Self::compute_display_data(&ticker, &stats, previous_price),
                 );
                 (ticker, stats)
             })
@@ -230,7 +247,11 @@ impl TickersTable {
             .collect()
     }
 
-    fn compute_display_data(ticker: &Ticker, stats: &TickerStats) -> TickerDisplayData {
+    fn compute_display_data(
+        ticker: &Ticker,
+        stats: &TickerStats,
+        previous_price: Option<f32>,
+    ) -> TickerDisplayData {
         let (ticker_str, market) = ticker.display_symbol_and_type();
         let display_ticker = if ticker_str.len() >= 11 {
             ticker_str[..9].to_string() + "..."
@@ -243,13 +264,70 @@ impl TickersTable {
             }
         };
 
+        let current_price = stats.mark_price;
+        let (price_unchanged_part, price_changed_part, price_change_direction) =
+            if let Some(prev_price) = previous_price {
+                Self::split_price_changes(prev_price, current_price)
+            } else {
+                (
+                    current_price.to_string(),
+                    String::new(),
+                    PriceChangeDirection::Unchanged,
+                )
+            };
+
         TickerDisplayData {
             display_ticker,
-            price_change_display: data::util::pct_change(stats.daily_price_chg),
+            daily_change_pct: data::util::pct_change(stats.daily_price_chg),
             volume_display: data::util::currency_abbr(stats.daily_volume),
             mark_price_display: stats.mark_price.to_string(),
+            price_unchanged_part,
+            price_changed_part,
+            price_change_direction,
             card_color_alpha: { (stats.daily_price_chg / 8.0).clamp(-1.0, 1.0) },
         }
+    }
+
+    fn split_price_changes(
+        previous_price: f32,
+        current_price: f32,
+    ) -> (String, String, PriceChangeDirection) {
+        if previous_price == current_price {
+            return (
+                current_price.to_string(),
+                String::new(),
+                PriceChangeDirection::Unchanged,
+            );
+        }
+
+        let prev_str = previous_price.to_string();
+        let curr_str = current_price.to_string();
+
+        let direction = if current_price > previous_price {
+            PriceChangeDirection::Increased
+        } else {
+            PriceChangeDirection::Decreased
+        };
+
+        let mut split_index = 0;
+        let prev_chars: Vec<char> = prev_str.chars().collect();
+        let curr_chars: Vec<char> = curr_str.chars().collect();
+
+        for (i, &curr_char) in curr_chars.iter().enumerate() {
+            if i >= prev_chars.len() || prev_chars[i] != curr_char {
+                split_index = i;
+                break;
+            }
+        }
+
+        if split_index == 0 && curr_chars.len() != prev_chars.len() {
+            split_index = prev_chars.len().min(curr_chars.len());
+        }
+
+        let unchanged_part = curr_str[..split_index].to_string();
+        let changed_part = curr_str[split_index..].to_string();
+
+        (unchanged_part, changed_part, direction)
     }
 
     fn matches_exchange(ex: Exchange, tab: &TickerTab) -> bool {
@@ -335,16 +413,16 @@ impl TickersTable {
     }
 
     pub fn update_ticker_stats(&mut self, exchange: Exchange, stats: HashMap<Ticker, TickerStats>) {
-        let tickers = self
+        let tickers_set: HashSet<_> = self
             .tickers_info
             .get(&exchange)
-            .map(|info| info.keys().copied().collect::<Vec<_>>())
+            .map(|info| info.keys().cloned().collect())
             .unwrap_or_default();
 
         let filtered_tickers_stats = stats
             .into_iter()
-            .filter(|(ticker, _)| tickers.iter().any(|t| t == ticker))
-            .collect::<HashMap<Ticker, TickerStats>>();
+            .filter(|(ticker, _)| tickers_set.contains(ticker))
+            .collect();
 
         self.update_table(exchange, filtered_tickers_stats);
     }
@@ -395,6 +473,22 @@ impl TickersTable {
             }
             Message::ToggleTable => {
                 self.is_shown = !self.is_shown;
+
+                if self.is_shown {
+                    self.display_cache.clear();
+
+                    for (exchange, tickers) in &self.ticker_stats {
+                        for (ticker, stats) in tickers {
+                            self.previous_prices
+                                .insert((*exchange, *ticker), stats.mark_price);
+
+                            self.display_cache.insert(
+                                (*exchange, *ticker),
+                                Self::compute_display_data(ticker, stats, Some(stats.mark_price)),
+                            );
+                        }
+                    }
+                }
             }
             Message::FetchForTickerStats(exchange) => {
                 let task = if let Some(exchange) = exchange {
@@ -720,32 +814,47 @@ fn create_ticker_card<'a>(
         .width(Length::Fixed(2.0))
         .style(move |theme| style::ticker_card_bar(theme, display_data.card_color_alpha));
 
+    let price_display = if display_data.price_changed_part.is_empty() {
+        row![text(&display_data.price_unchanged_part)]
+    } else {
+        row![
+            text(&display_data.price_unchanged_part),
+            text(&display_data.price_changed_part).style(move |theme: &Theme| {
+                let palette = theme.extended_palette();
+                iced::widget::text::Style {
+                    color: Some(match display_data.price_change_direction {
+                        PriceChangeDirection::Increased => palette.success.base.color,
+                        PriceChangeDirection::Decreased => palette.danger.base.color,
+                        PriceChangeDirection::Unchanged => palette.background.base.text,
+                    }),
+                }
+            })
+        ]
+    };
+
+    let icon = match exchange {
+        Exchange::BybitInverse | Exchange::BybitLinear | Exchange::BybitSpot => Icon::BybitLogo,
+        Exchange::BinanceInverse | Exchange::BinanceLinear | Exchange::BinanceSpot => {
+            Icon::BinanceLogo
+        }
+    };
+
     container(
         button(
             row![
                 color_column,
                 column![
                     row![
-                        row![
-                            match exchange {
-                                Exchange::BybitInverse
-                                | Exchange::BybitLinear
-                                | Exchange::BybitSpot => icon_text(Icon::BybitLogo, 12),
-                                Exchange::BinanceInverse
-                                | Exchange::BinanceLinear
-                                | Exchange::BinanceSpot => icon_text(Icon::BinanceLogo, 12),
-                            },
-                            text(&display_data.display_ticker),
-                        ]
-                        .spacing(2)
-                        .align_y(alignment::Vertical::Center),
+                        row![icon_text(icon, 12), text(&display_data.display_ticker),]
+                            .spacing(2)
+                            .align_y(alignment::Vertical::Center),
                         Space::new(Length::Fill, Length::Shrink),
-                        text(&display_data.price_change_display),
+                        text(&display_data.daily_change_pct),
                     ]
                     .spacing(4)
                     .align_y(alignment::Vertical::Center),
                     row![
-                        text(&display_data.mark_price_display),
+                        price_display,
                         Space::new(Length::Fill, Length::Shrink),
                         text(&display_data.volume_display),
                     ]
@@ -813,7 +922,7 @@ fn create_expanded_ticker_card<'a>(
                 row![
                     text("Daily Change: ").size(11),
                     Space::new(Length::Fill, Length::Shrink),
-                    text(&display_data.price_change_display),
+                    text(&display_data.daily_change_pct),
                 ],
                 row![
                     text("Daily Volume: ").size(11),

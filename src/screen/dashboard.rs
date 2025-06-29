@@ -283,13 +283,29 @@ impl Dashboard {
                         } else {
                             self.iter_all_panes_mut(main_window.id)
                                 .for_each(|(_, _, state)| {
-                                    if let Some(current_cfg) = state.settings.visual_config {
-                                        if std::mem::discriminant(&current_cfg)
-                                            == std::mem::discriminant(&cfg)
-                                        {
-                                            state.settings.visual_config = Some(cfg);
-                                            state.content.change_visual_config(cfg);
+                                    let should_apply = match state.settings.visual_config {
+                                        Some(current_cfg) => {
+                                            std::mem::discriminant(&current_cfg)
+                                                == std::mem::discriminant(&cfg)
                                         }
+                                        None => matches!(
+                                            (&cfg, &state.content),
+                                            (
+                                                data::chart::VisualConfig::Kline(_),
+                                                pane::Content::Kline(_, _)
+                                            ) | (
+                                                data::chart::VisualConfig::Heatmap(_),
+                                                pane::Content::Heatmap(_, _)
+                                            ) | (
+                                                data::chart::VisualConfig::TimeAndSales(_),
+                                                pane::Content::TimeAndSales(_)
+                                            )
+                                        ),
+                                    };
+
+                                    if should_apply {
+                                        state.settings.visual_config = Some(cfg);
+                                        state.content.change_visual_config(cfg);
                                     }
                                 });
                         }
