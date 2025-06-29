@@ -116,7 +116,7 @@ impl Flowsurface {
         };
 
         let last_active_layout = state.layout_manager.active_layout();
-        let load_layout = state.load_layout(last_active_layout);
+        let load_layout = state.load_layout(last_active_layout, main_window_id);
 
         (
             state,
@@ -341,6 +341,8 @@ impl Flowsurface {
 
                 match action {
                     Some(modal::layout_manager::Action::Select(layout)) => {
+                        let old_layout = self.layout_manager.active_layout().clone();
+
                         let active_popout_keys = self
                             .active_dashboard()
                             .popout
@@ -360,9 +362,9 @@ impl Flowsurface {
                             active_popout_keys,
                             dashboard::Message::SavePopoutSpecs,
                         )
-                        .map(move |msg| Message::Dashboard(None, msg))
+                        .map(move |msg| Message::Dashboard(Some(old_layout.id), msg))
                         .chain(window_tasks)
-                        .chain(self.load_layout(layout));
+                        .chain(self.load_layout(layout, self.main_window.id));
                     }
                     None => {}
                 }
@@ -546,12 +548,12 @@ impl Flowsurface {
             .expect("No active dashboard")
     }
 
-    fn load_layout(&mut self, layout: layout::Layout) -> Task<Message> {
+    fn load_layout(&mut self, layout: layout::Layout, main_window: window::Id) -> Task<Message> {
         self.layout_manager
-            .set_active_layout(layout)
+            .set_active_layout(layout.clone())
             .expect("Failed to set active layout")
-            .load_layout()
-            .map(move |msg| Message::Dashboard(None, msg))
+            .load_layout(main_window, layout.id)
+            .map(move |msg| Message::Dashboard(Some(layout.id), msg))
     }
 
     fn view_with_modal<'a>(

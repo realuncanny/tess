@@ -39,8 +39,6 @@ pub enum Message {
     SavePopoutSpecs(HashMap<window::Id, WindowSpec>),
     ErrorOccurred(Option<uuid::Uuid>, DashboardError),
     Notification(Toast),
-    LayoutFetchAll,
-    RefreshStreams,
     ChartRequestedFetch {
         window: window::Id,
         pane: pane_grid::Pane,
@@ -132,7 +130,7 @@ impl Dashboard {
         }
     }
 
-    pub fn load_layout(&mut self) -> Task<Message> {
+    pub fn load_layout(&mut self, main_window: window::Id, layout_id: uuid::Uuid) -> Task<Message> {
         let mut open_popouts_tasks: Vec<Task<Message>> = vec![];
         let mut new_popout = Vec::new();
         let mut keys_to_remove = Vec::new();
@@ -162,10 +160,9 @@ impl Dashboard {
             self.popout.insert(window, (pane, specs));
         }
 
-        Task::batch(open_popouts_tasks).chain(Task::batch(vec![
-            Task::done(Message::RefreshStreams),
-            Task::done(Message::LayoutFetchAll),
-        ]))
+        Task::batch(open_popouts_tasks)
+            .chain(self.refresh_streams(main_window))
+            .chain(self.klines_fetch_all_task(layout_id, main_window))
     }
 
     pub fn update(
@@ -238,7 +235,7 @@ impl Dashboard {
                             *pane = pane::State::new();
                         }
 
-                        return (Task::done(Message::RefreshStreams), None);
+                        return (self.refresh_streams(main_window.id), None);
                     }
                     pane::Message::ShowModal(pane, requested_modal) => {
                         if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
@@ -445,8 +442,8 @@ impl Dashboard {
                                                                     None, None,
                                                                 );
                                                                 return (
-                                                                    Task::done(
-                                                                        Message::RefreshStreams,
+                                                                    self.refresh_streams(
+                                                                        main_window.id,
                                                                     )
                                                                     .chain(task),
                                                                     None,
@@ -485,7 +482,7 @@ impl Dashboard {
                                             }
                                         }
 
-                                        return (Task::done(Message::RefreshStreams), None);
+                                        return (self.refresh_streams(main_window.id), None);
                                     }
                                     Some(modal::stream::Action::TicksizeSelected(
                                         new_multiplier,
@@ -512,31 +509,6 @@ impl Dashboard {
                         }
                     }
                 }
-            }
-            Message::LayoutFetchAll => {
-                let mut fetched_panes = vec![];
-
-                self.iter_all_panes(main_window.id)
-                    .for_each(|(window, pane, pane_state)| {
-                        if let pane::Content::Kline(_, _) = pane_state.content {
-                            if pane_state
-                                .settings
-                                .selected_basis
-                                .is_some_and(|basis| basis.is_time())
-                            {
-                                fetched_panes.push((window, pane));
-                            }
-                        }
-                    });
-
-                return (self.klines_fetch_all_task(*layout_id, main_window.id), None);
-            }
-            Message::RefreshStreams => {
-                let all_pane_streams = self
-                    .iter_all_panes(main_window.id)
-                    .flat_map(|(_, _, pane_state)| &pane_state.streams);
-
-                self.streams = UniqueStreams::from(all_pane_streams);
             }
             Message::ChartRequestedFetch {
                 pane,
@@ -1169,8 +1141,8 @@ impl Dashboard {
         if found_match {
             Task::none()
         } else {
-            log::warn!("{stream:?} stream had no matching panes - dropping");
-            Task::done(Message::RefreshStreams)
+            log::debug!("{stream:?} stream had no matching panes - dropping");
+            self.refresh_streams(main_window)
         }
     }
 
@@ -1208,8 +1180,8 @@ impl Dashboard {
         if found_match {
             Task::none()
         } else {
-            log::error!("No matching pane found for the stream: {stream:?}");
-            Task::done(Message::RefreshStreams)
+            log::debug!("No matching pane found for the stream: {stream:?}");
+            self.refresh_streams(main_window)
         }
     }
 
@@ -1284,6 +1256,15 @@ impl Dashboard {
             .collect::<Vec<Subscription<exchange::Event>>>();
 
         Subscription::batch(unique_streams)
+    }
+
+    fn refresh_streams(&mut self, main_window: window::Id) -> Task<Message> {
+        let all_pane_streams = self
+            .iter_all_panes(main_window)
+            .flat_map(|(_, _, pane_state)| &pane_state.streams);
+        self.streams = UniqueStreams::from(all_pane_streams);
+
+        Task::none()
     }
 
     fn klines_fetch_all_task(
