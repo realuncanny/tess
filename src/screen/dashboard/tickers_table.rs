@@ -52,6 +52,15 @@ pub enum TickerTab {
 }
 
 #[derive(Clone)]
+struct TickerRowData {
+    exchange: Exchange,
+    ticker: Ticker,
+    stats: TickerStats,
+    previous_stats: Option<TickerStats>,
+    is_favorited: bool,
+}
+
+#[derive(Clone)]
 struct TickerDisplayData {
     display_ticker: String,
     daily_change_pct: String,
@@ -63,14 +72,7 @@ struct TickerDisplayData {
     card_color_alpha: f32,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-enum PriceChangeDirection {
-    Increased,
-    Decreased,
-    Unchanged,
-}
-
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub enum SortOptions {
     VolumeAsc,
     VolumeDesc,
@@ -97,11 +99,9 @@ pub enum Message {
 }
 
 pub struct TickersTable {
-    ticker_stats: HashMap<Exchange, Vec<(Ticker, TickerStats)>>,
-    combined_tickers: Vec<(Exchange, Ticker, TickerStats, bool)>,
-    favorited_tickers: Vec<(Exchange, Ticker)>,
+    ticker_rows: Vec<TickerRowData>,
+    pub favorited_tickers: HashSet<(Exchange, Ticker)>,
     display_cache: HashMap<(Exchange, Ticker), TickerDisplayData>,
-    previous_prices: HashMap<(Exchange, Ticker), f32>,
     selected_tab: TickerTab,
     search_query: String,
     show_sort_options: bool,
@@ -117,11 +117,9 @@ impl TickersTable {
     pub fn new(favorited_tickers: Vec<(Exchange, Ticker)>) -> (Self, Task<Message>) {
         (
             Self {
-                ticker_stats: HashMap::new(),
-                combined_tickers: Vec::new(),
+                ticker_rows: Vec::new(),
                 display_cache: HashMap::new(),
-                favorited_tickers,
-                previous_prices: HashMap::new(),
+                favorited_tickers: favorited_tickers.into_iter().collect(),
                 selected_tab: TickerTab::All,
                 search_query: String::new(),
                 show_sort_options: false,
@@ -136,75 +134,77 @@ impl TickersTable {
         )
     }
 
-    pub fn update_table(&mut self, exchange: Exchange, ticker_stats: HashMap<Ticker, TickerStats>) {
+    pub fn update_table(&mut self, exchange: Exchange, ticker_rows: HashMap<Ticker, TickerStats>) {
         self.display_cache.retain(|(ex, _), _| ex != &exchange);
 
-        let tickers_vec: Vec<_> = ticker_stats
-            .into_iter()
-            .map(|(ticker, stats)| {
-                let previous_price = self.previous_prices.get(&(exchange, ticker)).copied();
+        for (ticker, new_stats) in ticker_rows {
+            let (previous_price, updated_row) = if let Some(row_index) = self
+                .ticker_rows
+                .iter()
+                .position(|r| r.exchange == exchange && r.ticker == ticker)
+            {
+                let mut row = self.ticker_rows.remove(row_index);
+                let previous_price = Some(row.stats.mark_price);
+                row.previous_stats = Some(row.stats);
+                row.stats = new_stats;
+                (previous_price, row)
+            } else {
+                (
+                    None,
+                    TickerRowData {
+                        exchange,
+                        ticker,
+                        stats: new_stats,
+                        previous_stats: None,
+                        is_favorited: self.favorited_tickers.contains(&(exchange, ticker)),
+                    },
+                )
+            };
 
-                self.previous_prices
-                    .insert((exchange, ticker), stats.mark_price);
+            self.display_cache.insert(
+                (exchange, ticker),
+                compute_display_data(&ticker, &updated_row.stats, previous_price),
+            );
 
-                self.display_cache.insert(
-                    (exchange, ticker),
-                    Self::compute_display_data(&ticker, &stats, previous_price),
-                );
-                (ticker, stats)
-            })
-            .collect();
+            self.ticker_rows.push(updated_row);
+        }
 
-        self.ticker_stats.insert(exchange, tickers_vec);
-        self.update_combined_tickers();
+        self.sort_ticker_rows();
     }
 
-    fn update_combined_tickers(&mut self) {
-        self.combined_tickers.clear();
-
-        self.ticker_stats.iter().for_each(|(exchange, tickers)| {
-            for (ticker, stats) in tickers {
-                let is_fav = self
-                    .favorited_tickers
-                    .iter()
-                    .any(|(ex, tick)| ex == exchange && tick == ticker);
-                self.combined_tickers
-                    .push((*exchange, *ticker, *stats, is_fav));
-            }
-        });
-
+    fn sort_ticker_rows(&mut self) {
         match self.selected_sort_option {
             SortOptions::VolumeDesc => {
-                self.combined_tickers
-                    .sort_by(|a: &(Exchange, Ticker, TickerStats, bool), b| {
-                        b.2.daily_volume
-                            .partial_cmp(&a.2.daily_volume)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                self.ticker_rows.sort_by(|a, b| {
+                    b.stats
+                        .daily_volume
+                        .partial_cmp(&a.stats.daily_volume)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             SortOptions::VolumeAsc => {
-                self.combined_tickers
-                    .sort_by(|a: &(Exchange, Ticker, TickerStats, bool), b| {
-                        a.2.daily_volume
-                            .partial_cmp(&b.2.daily_volume)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                self.ticker_rows.sort_by(|a, b| {
+                    a.stats
+                        .daily_volume
+                        .partial_cmp(&b.stats.daily_volume)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             SortOptions::ChangeDesc => {
-                self.combined_tickers
-                    .sort_by(|a: &(Exchange, Ticker, TickerStats, bool), b| {
-                        b.2.daily_price_chg
-                            .partial_cmp(&a.2.daily_price_chg)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                self.ticker_rows.sort_by(|a, b| {
+                    b.stats
+                        .daily_price_chg
+                        .partial_cmp(&a.stats.daily_price_chg)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
             SortOptions::ChangeAsc => {
-                self.combined_tickers
-                    .sort_by(|a: &(Exchange, Ticker, TickerStats, bool), b| {
-                        a.2.daily_price_chg
-                            .partial_cmp(&b.2.daily_price_chg)
-                            .unwrap_or(std::cmp::Ordering::Equal)
-                    });
+                self.ticker_rows.sort_by(|a, b| {
+                    a.stats
+                        .daily_price_chg
+                        .partial_cmp(&b.stats.daily_price_chg)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
         }
     }
@@ -221,113 +221,23 @@ impl TickersTable {
             self.selected_sort_option = option;
         }
 
-        self.update_combined_tickers();
+        self.sort_ticker_rows();
     }
 
     fn favorite_ticker(&mut self, exchange: Exchange, ticker: Ticker) {
-        for (ex, tick, _, is_fav) in &mut self.combined_tickers {
-            if ex == &exchange && tick == &ticker {
-                *is_fav = !*is_fav;
-            }
-        }
+        if let Some(row) = self
+            .ticker_rows
+            .iter_mut()
+            .find(|row| row.exchange == exchange && row.ticker == ticker)
+        {
+            row.is_favorited = !row.is_favorited;
 
-        self.favorited_tickers = self
-            .combined_tickers
-            .iter()
-            .filter(|(_, _, _, is_fav)| *is_fav)
-            .map(|(exchange, ticker, _, _)| (*exchange, *ticker))
-            .collect();
-    }
-
-    pub fn favorited_tickers(&self) -> Vec<(Exchange, Ticker)> {
-        self.combined_tickers
-            .iter()
-            .filter(|(_, _, _, is_fav)| *is_fav)
-            .map(|(exchange, ticker, _, _)| (*exchange, *ticker))
-            .collect()
-    }
-
-    fn compute_display_data(
-        ticker: &Ticker,
-        stats: &TickerStats,
-        previous_price: Option<f32>,
-    ) -> TickerDisplayData {
-        let (ticker_str, market) = ticker.display_symbol_and_type();
-        let display_ticker = if ticker_str.len() >= 11 {
-            ticker_str[..9].to_string() + "..."
-        } else {
-            ticker_str + {
-                match market {
-                    MarketKind::Spot => "",
-                    MarketKind::LinearPerps | MarketKind::InversePerps => "P",
-                }
-            }
-        };
-
-        let current_price = stats.mark_price;
-        let (price_unchanged_part, price_changed_part, price_change_direction) =
-            if let Some(prev_price) = previous_price {
-                Self::split_price_changes(prev_price, current_price)
+            if row.is_favorited {
+                self.favorited_tickers.insert((exchange, ticker));
             } else {
-                (
-                    current_price.to_string(),
-                    String::new(),
-                    PriceChangeDirection::Unchanged,
-                )
-            };
-
-        TickerDisplayData {
-            display_ticker,
-            daily_change_pct: data::util::pct_change(stats.daily_price_chg),
-            volume_display: data::util::currency_abbr(stats.daily_volume),
-            mark_price_display: stats.mark_price.to_string(),
-            price_unchanged_part,
-            price_changed_part,
-            price_change_direction,
-            card_color_alpha: { (stats.daily_price_chg / 8.0).clamp(-1.0, 1.0) },
-        }
-    }
-
-    fn split_price_changes(
-        previous_price: f32,
-        current_price: f32,
-    ) -> (String, String, PriceChangeDirection) {
-        if previous_price == current_price {
-            return (
-                current_price.to_string(),
-                String::new(),
-                PriceChangeDirection::Unchanged,
-            );
-        }
-
-        let prev_str = previous_price.to_string();
-        let curr_str = current_price.to_string();
-
-        let direction = if current_price > previous_price {
-            PriceChangeDirection::Increased
-        } else {
-            PriceChangeDirection::Decreased
-        };
-
-        let mut split_index = 0;
-        let prev_chars: Vec<char> = prev_str.chars().collect();
-        let curr_chars: Vec<char> = curr_str.chars().collect();
-
-        for (i, &curr_char) in curr_chars.iter().enumerate() {
-            if i >= prev_chars.len() || prev_chars[i] != curr_char {
-                split_index = i;
-                break;
+                self.favorited_tickers.remove(&(exchange, ticker));
             }
         }
-
-        if split_index == 0 && curr_chars.len() != prev_chars.len() {
-            split_index = prev_chars.len().min(curr_chars.len());
-        }
-
-        let unchanged_part = curr_str[..split_index].to_string();
-        let changed_part = curr_str[split_index..].to_string();
-
-        (unchanged_part, changed_part, direction)
     }
 
     fn matches_exchange(ex: Exchange, tab: &TickerTab) -> bool {
@@ -344,46 +254,12 @@ impl TickersTable {
         }
     }
 
-    fn create_ticker_container<'a>(
-        &'a self,
-        is_visible: bool,
-        exchange: Exchange,
-        ticker: &'a Ticker,
-        is_fav: bool,
-    ) -> Element<'a, Message> {
-        if !is_visible {
-            return column![]
-                .width(Length::Fill)
-                .height(Length::Fixed(60.0))
-                .into();
-        }
-
-        let display_data = &self.display_cache[&(exchange, *ticker)];
-
-        if let Some((selected_ticker, selected_exchange)) = &self.expand_ticker_card {
-            if ticker == selected_ticker && exchange == *selected_exchange {
-                container(create_expanded_ticker_card(
-                    exchange,
-                    ticker,
-                    display_data,
-                    is_fav,
-                ))
-                .style(style::ticker_card)
-                .into()
-            } else {
-                create_ticker_card(exchange, ticker, display_data)
-            }
-        } else {
-            create_ticker_card(exchange, ticker, display_data)
-        }
-    }
-
     fn is_container_visible(&self, index: usize, bounds: Size) -> bool {
         let item_top = SEARCH_BAR_HEIGHT + (index as f32 * TICKER_CARD_HEIGHT);
         let item_bottom = item_top + TICKER_CARD_HEIGHT;
 
-        (item_bottom >= (self.scroll_offset.y - (2.0 * TICKER_CARD_HEIGHT)))
-            && (item_top <= (self.scroll_offset.y + bounds.height + (2.0 * TICKER_CARD_HEIGHT)))
+        (item_bottom >= (self.scroll_offset.y - (3.0 * TICKER_CARD_HEIGHT)))
+            && (item_top <= (self.scroll_offset.y + bounds.height + (4.0 * TICKER_CARD_HEIGHT)))
     }
 
     pub fn update_ticker_info(
@@ -404,7 +280,7 @@ impl TickersTable {
         }
 
         let task = Task::perform(fetch_ticker_prices(exchange), move |result| match result {
-            Ok(ticker_stats) => Message::UpdateTickerStats(exchange, ticker_stats),
+            Ok(ticker_rows) => Message::UpdateTickerStats(exchange, ticker_rows),
 
             Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
         });
@@ -412,7 +288,7 @@ impl TickersTable {
         Action::Fetch(task)
     }
 
-    pub fn update_ticker_stats(&mut self, exchange: Exchange, stats: HashMap<Ticker, TickerStats>) {
+    pub fn update_ticker_rows(&mut self, exchange: Exchange, stats: HashMap<Ticker, TickerStats>) {
         let tickers_set: HashSet<_> = self
             .tickers_info
             .get(&exchange)
@@ -476,24 +352,19 @@ impl TickersTable {
 
                 if self.is_shown {
                     self.display_cache.clear();
-
-                    for (exchange, tickers) in &self.ticker_stats {
-                        for (ticker, stats) in tickers {
-                            self.previous_prices
-                                .insert((*exchange, *ticker), stats.mark_price);
-
-                            self.display_cache.insert(
-                                (*exchange, *ticker),
-                                Self::compute_display_data(ticker, stats, Some(stats.mark_price)),
-                            );
-                        }
+                    for row in self.ticker_rows.iter_mut() {
+                        row.previous_stats = None;
+                        self.display_cache.insert(
+                            (row.exchange, row.ticker),
+                            compute_display_data(&row.ticker, &row.stats, None),
+                        );
                     }
                 }
             }
             Message::FetchForTickerStats(exchange) => {
                 let task = if let Some(exchange) = exchange {
                     Task::perform(fetch_ticker_prices(exchange), move |result| match result {
-                        Ok(ticker_stats) => Message::UpdateTickerStats(exchange, ticker_stats),
+                        Ok(ticker_rows) => Message::UpdateTickerStats(exchange, ticker_rows),
                         Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
                     })
                 } else {
@@ -503,8 +374,8 @@ impl TickersTable {
                             .map(|exchange| {
                                 Task::perform(fetch_ticker_prices(*exchange), move |result| {
                                     match result {
-                                        Ok(ticker_stats) => {
-                                            Message::UpdateTickerStats(*exchange, ticker_stats)
+                                        Ok(ticker_rows) => {
+                                            Message::UpdateTickerStats(*exchange, ticker_rows)
                                         }
 
                                         Err(err) => Message::ErrorOccurred(InternalError::Fetch(
@@ -522,14 +393,14 @@ impl TickersTable {
                 return Some(Action::Fetch(task));
             }
             Message::UpdateTickerStats(exchange, stats) => {
-                self.update_ticker_stats(exchange, stats);
+                self.update_ticker_rows(exchange, stats);
             }
             Message::UpdateTickersInfo(exchange, info) => {
                 self.update_ticker_info(exchange, info);
 
                 let task =
                     Task::perform(fetch_ticker_prices(exchange), move |result| match result {
-                        Ok(ticker_stats) => Message::UpdateTickerStats(exchange, ticker_stats),
+                        Ok(ticker_rows) => Message::UpdateTickerStats(exchange, ticker_rows),
 
                         Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
                     });
@@ -548,6 +419,8 @@ impl TickersTable {
     pub fn view(&self, bounds: Size) -> Element<'_, Message> {
         let show_sorting_button = button(icon_text(Icon::Sort, 14).align_x(Horizontal::Center))
             .on_press(Message::ShowSortingOptions);
+
+        let expanded_card = self.expand_ticker_card;
 
         let search_bar_row = row![
             text_input("Search for a ticker...", &self.search_query)
@@ -579,39 +452,10 @@ impl TickersTable {
                 .on_press(Message::SetMarketFilter(Some(MarketKind::InversePerps)))
                 .style(move |theme, status| style::button::transparent(theme, status, false));
 
-            let volume_sort_button = button(
-                row![
-                    text("Volume"),
-                    icon_text(
-                        if self.selected_sort_option == SortOptions::VolumeDesc {
-                            Icon::SortDesc
-                        } else {
-                            Icon::SortAsc
-                        },
-                        14
-                    )
-                ]
-                .spacing(4)
-                .align_y(Vertical::Center),
-            )
-            .on_press(Message::ChangeSortOption(SortOptions::VolumeAsc));
-
-            let change_sort_button = button(
-                row![
-                    text("Change"),
-                    icon_text(
-                        if self.selected_sort_option == SortOptions::ChangeDesc {
-                            Icon::SortDesc
-                        } else {
-                            Icon::SortAsc
-                        },
-                        14
-                    )
-                ]
-                .spacing(4)
-                .align_y(Vertical::Center),
-            )
-            .on_press(Message::ChangeSortOption(SortOptions::ChangeAsc));
+            let volume_sort_button =
+                sort_button("Volume", SortOptions::VolumeAsc, self.selected_sort_option);
+            let change_sort_button =
+                sort_button("Change", SortOptions::ChangeAsc, self.selected_sort_option);
 
             column![
                 row![
@@ -672,12 +516,11 @@ impl TickersTable {
         };
 
         let exchange_filters_row = {
-            let all_button = create_tab_button(text("ALL"), &self.selected_tab, TickerTab::All);
-            let bybit_button =
-                create_tab_button(text("Bybit"), &self.selected_tab, TickerTab::Bybit);
+            let all_button = tab_button(text("ALL"), &self.selected_tab, TickerTab::All);
+            let bybit_button = tab_button(text("Bybit"), &self.selected_tab, TickerTab::Bybit);
             let binance_button =
-                create_tab_button(text("Binance"), &self.selected_tab, TickerTab::Binance);
-            let favorites_button = create_tab_button(
+                tab_button(text("Binance"), &self.selected_tab, TickerTab::Binance);
+            let favorites_button = tab_button(
                 text(char::from(Icon::StarFilled).to_string()).font(ICONS_FONT),
                 &self.selected_tab,
                 TickerTab::Favorites,
@@ -707,79 +550,49 @@ impl TickersTable {
 
         let mut ticker_cards = column![].spacing(4);
 
-        match self.selected_tab {
-            TickerTab::All => {
-                ticker_cards =
-                    self.combined_tickers
-                        .iter()
-                        .filter(|(_, ticker, _, _)| {
-                            let (ticker, market) = ticker.to_full_symbol_and_type();
-                            ticker.contains(&self.search_query)
-                                && match self.selected_market {
-                                    Some(market_type) => market == market_type,
-                                    None => true,
-                                }
-                        })
-                        .enumerate()
-                        .fold(
-                            ticker_cards,
-                            |ticker_cards, (index, (exchange, ticker, _, is_fav))| {
-                                let is_visible = self.is_container_visible(index, bounds);
-                                ticker_cards.push(self.create_ticker_container(
-                                    is_visible, *exchange, ticker, *is_fav,
-                                ))
-                            },
-                        );
-            }
-            TickerTab::Favorites => {
-                ticker_cards =
-                    self.combined_tickers
-                        .iter()
-                        .filter(|(_, ticker, _, is_fav)| {
-                            let (ticker, market) = ticker.to_full_symbol_and_type();
-                            *is_fav
-                                && ticker.contains(&self.search_query)
-                                && match self.selected_market {
-                                    Some(market_type) => market == market_type,
-                                    None => true,
-                                }
-                        })
-                        .enumerate()
-                        .fold(
-                            ticker_cards,
-                            |ticker_cards, (index, (exchange, ticker, _, is_fav))| {
-                                let is_visible = self.is_container_visible(index, bounds);
-                                ticker_cards.push(self.create_ticker_container(
-                                    is_visible, *exchange, ticker, *is_fav,
-                                ))
-                            },
-                        );
-            }
-            _ => {
-                ticker_cards = self
-                    .combined_tickers
-                    .iter()
-                    .filter(|(ex, ticker, _, _)| {
-                        let (ticker, market) = ticker.to_full_symbol_and_type();
-                        Self::matches_exchange(*ex, &self.selected_tab)
-                            && ticker.contains(&self.search_query)
-                            && match self.selected_market {
-                                Some(market_type) => market == market_type,
-                                None => true,
-                            }
-                    })
-                    .enumerate()
-                    .fold(
-                        ticker_cards,
-                        |ticker_cards, (index, (ex, ticker, _, is_fav))| {
-                            let is_visible = self.is_container_visible(index, bounds);
-                            ticker_cards.push(
-                                self.create_ticker_container(is_visible, *ex, ticker, *is_fav),
-                            )
-                        },
+        let filter_predicate = |row: &TickerRowData| -> bool {
+            let (ticker_str, market) = row.ticker.to_full_symbol_and_type();
+            let search_match = ticker_str.contains(&self.search_query);
+            let market_match = match self.selected_market {
+                Some(market_type) => market == market_type,
+                None => true,
+            };
+
+            let tab_match = match self.selected_tab {
+                TickerTab::All => true,
+                TickerTab::Favorites => row.is_favorited,
+                _ => Self::matches_exchange(row.exchange, &self.selected_tab),
+            };
+
+            search_match && market_match && tab_match
+        };
+
+        ticker_cards = self
+            .ticker_rows
+            .iter()
+            .filter(|row| filter_predicate(row))
+            .enumerate()
+            .fold(ticker_cards, |ticker_cards, (index, row)| {
+                if let Some(display_data) = self.display_cache.get(&(row.exchange, row.ticker)) {
+                    let is_visible = self.is_container_visible(index, bounds);
+
+                    ticker_cards.push(ticker_card_container(
+                        is_visible,
+                        row.exchange,
+                        &row.ticker,
+                        display_data,
+                        expanded_card,
+                        row.is_favorited,
+                    ))
+                } else {
+                    log::warn!(
+                        "Display data not found for {:?} on {:?}, skipping card creation",
+                        row.ticker,
+                        row.exchange
                     );
-            }
-        }
+                    ticker_cards
+                }
+            });
 
         content = content.push(ticker_cards);
 
@@ -801,6 +614,39 @@ impl TickersTable {
             INACTIVE_UPDATE_INTERVAL
         }))
         .map(|_| Message::FetchForTickerStats(None))
+    }
+}
+
+fn ticker_card_container<'a>(
+    is_visible: bool,
+    exchange: Exchange,
+    ticker: &'a Ticker,
+    display_data: &'a TickerDisplayData,
+    expanded_card: Option<(Ticker, Exchange)>,
+    is_fav: bool,
+) -> Element<'a, Message> {
+    if !is_visible {
+        return column![]
+            .width(Length::Fill)
+            .height(Length::Fixed(60.0))
+            .into();
+    }
+
+    if let Some((selected_ticker, selected_exchange)) = &expanded_card {
+        if ticker == selected_ticker && exchange == *selected_exchange {
+            container(create_expanded_ticker_card(
+                exchange,
+                ticker,
+                display_data,
+                is_fav,
+            ))
+            .style(style::ticker_card)
+            .into()
+        } else {
+            create_ticker_card(exchange, ticker, display_data)
+        }
+    } else {
+        create_ticker_card(exchange, ticker, display_data)
     }
 }
 
@@ -832,12 +678,7 @@ fn create_ticker_card<'a>(
         ]
     };
 
-    let icon = match exchange {
-        Exchange::BybitInverse | Exchange::BybitLinear | Exchange::BybitSpot => Icon::BybitLogo,
-        Exchange::BinanceInverse | Exchange::BinanceLinear | Exchange::BinanceSpot => {
-            Icon::BinanceLogo
-        }
-    };
+    let icon = icon_text(style::exchange_icon(exchange), 12);
 
     container(
         button(
@@ -845,7 +686,7 @@ fn create_ticker_card<'a>(
                 color_column,
                 column![
                     row![
-                        row![icon_text(icon, 12), text(&display_data.display_ticker),]
+                        row![icon, text(&display_data.display_ticker),]
                             .spacing(2)
                             .align_y(alignment::Vertical::Center),
                         Space::new(Length::Fill, Length::Shrink),
@@ -940,44 +781,20 @@ fn create_expanded_ticker_card<'a>(
             }
         }),
         column![
-            button(text("Heatmap Chart").align_x(Horizontal::Center))
-                .on_press(Message::TickerSelected(
-                    *ticker,
-                    exchange,
-                    "heatmap".to_string()
-                ))
-                .width(Length::Fixed(180.0)),
-            button(text("Footprint Chart").align_x(Horizontal::Center))
-                .on_press(Message::TickerSelected(
-                    *ticker,
-                    exchange,
-                    "footprint".to_string()
-                ))
-                .width(Length::Fixed(180.0)),
-            button(text("Candlestick Chart").align_x(Horizontal::Center))
-                .on_press(Message::TickerSelected(
-                    *ticker,
-                    exchange,
-                    "candlestick".to_string()
-                ))
-                .width(Length::Fixed(180.0)),
-            button(text("Time&Sales").align_x(Horizontal::Center))
-                .on_press(Message::TickerSelected(
-                    *ticker,
-                    exchange,
-                    "time&sales".to_string()
-                ))
-                .width(Length::Fixed(160.0)),
+            init_content_button("Heatmap Chart", "heatmap", *ticker, exchange, 180.0),
+            init_content_button("Footprint Chart", "footprint", *ticker, exchange, 180.0),
+            init_content_button("Candlestick Chart", "candlestick", *ticker, exchange, 180.0),
+            init_content_button("Time&Sales", "time&sales", *ticker, exchange, 160.0),
         ]
         .width(Length::Fill)
-        .spacing(2),
+        .spacing(2)
     ]
     .padding(padding::top(8).right(16).left(16).bottom(16))
     .spacing(12)
     .into()
 }
 
-fn create_tab_button<'a>(
+fn tab_button<'a>(
     text: Text<'a, Theme, Renderer>,
     current_tab: &TickerTab,
     target_tab: TickerTab,
@@ -988,4 +805,139 @@ fn create_tab_button<'a>(
         btn = btn.on_press(Message::ChangeTickersTableTab(target_tab));
     }
     btn
+}
+
+fn sort_button(
+    label: &str,
+    sort_option: SortOptions,
+    current_sort: SortOptions,
+) -> Button<'_, Message, Theme, Renderer> {
+    let (asc_variant, desc_variant) = match sort_option {
+        SortOptions::VolumeAsc => (SortOptions::VolumeAsc, SortOptions::VolumeDesc),
+        SortOptions::ChangeAsc => (SortOptions::ChangeAsc, SortOptions::ChangeDesc),
+        _ => (sort_option, sort_option), // fallback
+    };
+
+    button(
+        row![
+            text(label),
+            icon_text(
+                if current_sort == desc_variant {
+                    Icon::SortDesc
+                } else {
+                    Icon::SortAsc
+                },
+                14
+            )
+        ]
+        .spacing(4)
+        .align_y(Vertical::Center),
+    )
+    .on_press(Message::ChangeSortOption(asc_variant))
+}
+
+fn init_content_button<'a>(
+    label: &'a str,
+    chart_type: &str,
+    ticker: Ticker,
+    exchange: Exchange,
+    width: f32,
+) -> Button<'a, Message, Theme, Renderer> {
+    button(text(label).align_x(Horizontal::Center))
+        .on_press(Message::TickerSelected(
+            ticker,
+            exchange,
+            chart_type.to_string(),
+        ))
+        .width(Length::Fixed(width))
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum PriceChangeDirection {
+    Increased,
+    Decreased,
+    Unchanged,
+}
+
+fn compute_display_data(
+    ticker: &Ticker,
+    stats: &TickerStats,
+    previous_price: Option<f32>,
+) -> TickerDisplayData {
+    let (ticker_str, market) = ticker.display_symbol_and_type();
+    let display_ticker = if ticker_str.len() >= 11 {
+        ticker_str[..9].to_string() + "..."
+    } else {
+        ticker_str + {
+            match market {
+                MarketKind::Spot => "",
+                MarketKind::LinearPerps | MarketKind::InversePerps => "P",
+            }
+        }
+    };
+
+    let current_price = stats.mark_price;
+    let (price_unchanged_part, price_changed_part, price_change_direction) =
+        if let Some(prev_price) = previous_price {
+            split_price_changes(prev_price, current_price)
+        } else {
+            (
+                current_price.to_string(),
+                String::new(),
+                PriceChangeDirection::Unchanged,
+            )
+        };
+
+    TickerDisplayData {
+        display_ticker,
+        daily_change_pct: data::util::pct_change(stats.daily_price_chg),
+        volume_display: data::util::currency_abbr(stats.daily_volume),
+        mark_price_display: stats.mark_price.to_string(),
+        price_unchanged_part,
+        price_changed_part,
+        price_change_direction,
+        card_color_alpha: { (stats.daily_price_chg / 8.0).clamp(-1.0, 1.0) },
+    }
+}
+
+fn split_price_changes(
+    previous_price: f32,
+    current_price: f32,
+) -> (String, String, PriceChangeDirection) {
+    if previous_price == current_price {
+        return (
+            current_price.to_string(),
+            String::new(),
+            PriceChangeDirection::Unchanged,
+        );
+    }
+
+    let prev_str = previous_price.to_string();
+    let curr_str = current_price.to_string();
+
+    let direction = if current_price > previous_price {
+        PriceChangeDirection::Increased
+    } else {
+        PriceChangeDirection::Decreased
+    };
+
+    let mut split_index = 0;
+    let prev_chars: Vec<char> = prev_str.chars().collect();
+    let curr_chars: Vec<char> = curr_str.chars().collect();
+
+    for (i, &curr_char) in curr_chars.iter().enumerate() {
+        if i >= prev_chars.len() || prev_chars[i] != curr_char {
+            split_index = i;
+            break;
+        }
+    }
+
+    if split_index == 0 && curr_chars.len() != prev_chars.len() {
+        split_index = prev_chars.len().min(curr_chars.len());
+    }
+
+    let unchanged_part = curr_str[..split_index].to_string();
+    let changed_part = curr_str[split_index..].to_string();
+
+    (unchanged_part, changed_part, direction)
 }

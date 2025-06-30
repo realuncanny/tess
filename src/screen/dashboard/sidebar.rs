@@ -219,6 +219,10 @@ impl Sidebar {
     }
 
     pub fn favorited_tickers(&self) -> Vec<(exchange::adapter::Exchange, exchange::Ticker)> {
-        self.tickers_table.favorited_tickers()
+        self.tickers_table
+            .favorited_tickers
+            .iter()
+            .map(|(exchange, ticker)| (*exchange, *ticker))
+            .collect()
     }
 }

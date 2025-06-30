@@ -1,3 +1,5 @@
+use exchange::adapter::Exchange;
+
 use iced::font::{Family, Stretch, Weight};
 use iced::widget::Text;
 use iced::widget::canvas::{LineDash, Stroke};
@@ -91,6 +93,15 @@ pub fn icon_text<'a>(icon: Icon, size: u16) -> Text<'a, Theme, Renderer> {
     iced::widget::text(char::from(icon).to_string())
         .font(ICONS_FONT)
         .size(iced::Pixels(size.into()))
+}
+
+pub fn exchange_icon(exchange: Exchange) -> Icon {
+    match exchange {
+        Exchange::BybitInverse | Exchange::BybitLinear | Exchange::BybitSpot => Icon::BybitLogo,
+        Exchange::BinanceInverse | Exchange::BinanceLinear | Exchange::BinanceSpot => {
+            Icon::BinanceLogo
+        }
+    }
 }
 
 #[cfg(target_os = "macos")]

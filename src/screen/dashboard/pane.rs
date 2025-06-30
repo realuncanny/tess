@@ -325,14 +325,7 @@ impl State {
             .height(Length::Fixed(32.0));
 
         if let Some((exchange, ticker)) = self.stream_pair() {
-            let exchange_info = match exchange {
-                Exchange::BinanceSpot | Exchange::BinanceLinear | Exchange::BinanceInverse => {
-                    icon_text(Icon::BinanceLogo, 14)
-                }
-                Exchange::BybitSpot | Exchange::BybitLinear | Exchange::BybitInverse => {
-                    icon_text(Icon::BybitLogo, 14)
-                }
-            };
+            let exchange_icon = icon_text(style::exchange_icon(exchange), 14);
 
             let ticker_str = {
                 let symbol = ticker.display_symbol_and_type().0;
@@ -343,7 +336,7 @@ impl State {
             };
 
             stream_info_element = stream_info_element.push(
-                row![exchange_info, text(ticker_str).size(14),]
+                row![exchange_icon, text(ticker_str).size(14),]
                     .align_y(Vertical::Center)
                     .spacing(4),
             );
