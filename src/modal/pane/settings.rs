@@ -3,6 +3,8 @@ use crate::screen::dashboard::panel::timeandsales;
 use crate::split_column;
 use crate::widget::{classic_slider_row, labeled_slider};
 use crate::{style, tooltip, widget::scrollable_content};
+use data::chart::heatmap::HeatmapStudy;
+use data::chart::kline::FootprintStudy;
 use data::chart::{
     KlineChartKind, VisualConfig,
     heatmap::{self, CoalesceKind},
@@ -30,7 +32,13 @@ where
         .into()
 }
 
-pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Element<'a, Message> {
+pub fn heatmap_cfg_view<'a>(
+    cfg: heatmap::Config,
+    pane: pane_grid::Pane,
+    study_config: &'a study::Configurator<HeatmapStudy>,
+    studies: &'a [HeatmapStudy],
+    basis: data::chart::Basis,
+) -> Element<'a, Message> {
     let trade_size_slider = {
         let filter = cfg.trade_size_filter;
 
@@ -226,10 +234,15 @@ pub fn heatmap_cfg_view<'a>(cfg: heatmap::Config, pane: pane_grid::Pane) -> Elem
     ]
     .spacing(8);
 
+    let study_cfg = study_config
+        .view(studies, basis)
+        .map(move |msg| Message::StudyConfigurator(pane, study::StudyMessage::Heatmap(msg)));
+
     let content = split_column![
         size_filters_column,
         noise_filters_column,
         trade_viz_column,
+        study_cfg,
         row![
             horizontal_space(),
             sync_all_button(VisualConfig::Heatmap(cfg))
@@ -338,9 +351,10 @@ pub fn timesales_cfg_view<'a>(
 }
 
 pub fn kline_cfg_view<'a>(
-    study_config: &'a study::ChartStudy,
+    study_config: &'a study::Configurator<FootprintStudy>,
     kind: &'a KlineChartKind,
     pane: pane_grid::Pane,
+    basis: data::chart::Basis,
 ) -> Element<'a, Message> {
     let content = match kind {
         KlineChartKind::Candles => column![text(
@@ -352,9 +366,9 @@ pub fn kline_cfg_view<'a>(
                     Message::ClusterKindSelected(pane, new_cluster_kind)
                 });
 
-            let study_cfg = study_config
-                .view(studies)
-                .map(move |msg| Message::StudyConfigurator(pane, msg));
+            let study_cfg = study_config.view(studies, basis).map(move |msg| {
+                Message::StudyConfigurator(pane, study::StudyMessage::Footprint(msg))
+            });
 
             split_column![
                 column![text("Cluster type").size(14), cluster_picklist].spacing(8),
@@ -376,10 +390,13 @@ fn sync_all_button<'a>(config: VisualConfig) -> Element<'a, Message> {
 }
 
 pub mod study {
+    use std::marker::PhantomData;
+
     use crate::{
         split_column,
         style::{self, Icon, icon_text},
     };
+    use data::chart::heatmap::{CLEANUP_THRESHOLD, HeatmapStudy, ProfileKind};
     use data::chart::kline::FootprintStudy;
     use iced::{
         Element, padding,
@@ -387,30 +404,250 @@ pub mod study {
     };
 
     #[derive(Debug, Clone, Copy)]
-    pub enum Message {
-        CardToggled(FootprintStudy),
-        StudyToggled(FootprintStudy, bool),
-        StudyValueChanged(FootprintStudy),
+    pub enum StudyMessage {
+        Footprint(Message<FootprintStudy>),
+        Heatmap(Message<HeatmapStudy>),
     }
 
-    pub enum Action {
-        ToggleStudy(FootprintStudy, bool),
-        ConfigureStudy(FootprintStudy),
+    pub trait Study: Sized + Copy + 'static {
+        fn is_same_type(&self, other: &Self) -> bool;
+        fn all() -> Vec<Self>;
+        fn view_config<'a>(
+            &self,
+            basis: data::chart::Basis,
+            on_change: impl Fn(Self) -> Message<Self> + Copy + 'a,
+        ) -> Element<'a, Message<Self>>;
     }
 
-    #[derive(Default)]
-    pub struct ChartStudy {
-        expanded_card: Option<FootprintStudy>,
-    }
-
-    impl ChartStudy {
-        pub fn new() -> Self {
-            Self {
-                expanded_card: None,
-            }
+    impl Study for FootprintStudy {
+        fn is_same_type(&self, other: &Self) -> bool {
+            std::mem::discriminant(self) == std::mem::discriminant(other)
         }
 
-        pub fn update(&mut self, message: Message) -> Option<Action> {
+        fn all() -> Vec<Self> {
+            FootprintStudy::ALL.to_vec()
+        }
+
+        fn view_config<'a>(
+            &self,
+            _basis: data::chart::Basis,
+            on_change: impl Fn(Self) -> Message<Self> + Copy + 'a,
+        ) -> Element<'a, Message<Self>> {
+            match *self {
+                FootprintStudy::NPoC { lookback } => {
+                    let slider_ui = slider(10.0..=400.0, lookback as f32, move |new_value| {
+                        on_change(FootprintStudy::NPoC {
+                            lookback: new_value as usize,
+                        })
+                    })
+                    .step(10.0);
+
+                    column![text(format!("Lookback: {lookback} datapoints")), slider_ui]
+                        .padding(8)
+                        .spacing(4)
+                        .into()
+                }
+                FootprintStudy::Imbalance {
+                    threshold,
+                    color_scale,
+                    ignore_zeros,
+                } => {
+                    let qty_threshold = {
+                        let info_text = text(format!("Ask:Bid threshold: {threshold}%"));
+
+                        let threshold_slider =
+                            slider(100.0..=800.0, threshold as f32, move |new_value| {
+                                on_change(FootprintStudy::Imbalance {
+                                    threshold: new_value as usize,
+                                    color_scale,
+                                    ignore_zeros,
+                                })
+                            })
+                            .step(25.0);
+
+                        column![info_text, threshold_slider,].padding(8).spacing(4)
+                    };
+
+                    let color_scaling = {
+                        let color_scale_enabled = color_scale.is_some();
+                        let color_scale_value = color_scale.unwrap_or(100);
+
+                        let color_scale_checkbox =
+                            iced::widget::checkbox("Dynamic color scaling", color_scale_enabled)
+                                .on_toggle(move |is_enabled| {
+                                    on_change(FootprintStudy::Imbalance {
+                                        threshold,
+                                        color_scale: if is_enabled {
+                                            Some(color_scale_value)
+                                        } else {
+                                            None
+                                        },
+                                        ignore_zeros,
+                                    })
+                                });
+
+                        if color_scale_enabled {
+                            let scaling_slider = column![
+                                text(format!("Opaque color at: {color_scale_value}x")),
+                                slider(50.0..=2000.0, color_scale_value as f32, move |new_value| {
+                                    on_change(FootprintStudy::Imbalance {
+                                        threshold,
+                                        color_scale: Some(new_value as usize),
+                                        ignore_zeros,
+                                    })
+                                })
+                                .step(50.0)
+                            ]
+                            .spacing(2);
+
+                            column![color_scale_checkbox, scaling_slider]
+                                .padding(8)
+                                .spacing(8)
+                        } else {
+                            column![color_scale_checkbox].padding(8)
+                        }
+                    };
+
+                    let ignore_zeros_checkbox = {
+                        let cbox = iced::widget::checkbox("Ignore zeros", ignore_zeros).on_toggle(
+                            move |is_checked| {
+                                on_change(FootprintStudy::Imbalance {
+                                    threshold,
+                                    color_scale,
+                                    ignore_zeros: is_checked,
+                                })
+                            },
+                        );
+
+                        column![cbox].padding(8).spacing(4)
+                    };
+
+                    split_column![qty_threshold, color_scaling, ignore_zeros_checkbox]
+                        .padding(4)
+                        .into()
+                }
+            }
+        }
+    }
+
+    impl Study for HeatmapStudy {
+        fn is_same_type(&self, other: &Self) -> bool {
+            std::mem::discriminant(self) == std::mem::discriminant(other)
+        }
+
+        fn all() -> Vec<Self> {
+            HeatmapStudy::ALL.to_vec()
+        }
+
+        fn view_config<'a>(
+            &self,
+            basis: data::chart::Basis,
+            on_change: impl Fn(Self) -> Message<Self> + Copy + 'a,
+        ) -> Element<'a, Message<Self>> {
+            let interval_ms = match basis {
+                data::chart::Basis::Time(interval) => interval.to_milliseconds(),
+                data::chart::Basis::Tick(_) => {
+                    return iced::widget::center(text(
+                        "Heatmap studies are not supported for tick-based charts",
+                    ))
+                    .into();
+                }
+            };
+
+            match self {
+                HeatmapStudy::VolumeProfile(kind) => match kind {
+                    ProfileKind::FixedWindow(datapoint_count) => {
+                        let duration_secs = (*datapoint_count as u64 * interval_ms) / 1000;
+                        let min_range = CLEANUP_THRESHOLD / 20;
+
+                        let duration_text = if duration_secs < 60 {
+                            format!("{} seconds", duration_secs)
+                        } else {
+                            let minutes = duration_secs / 60;
+                            let seconds = duration_secs % 60;
+                            if seconds == 0 {
+                                format!("{} minutes", minutes)
+                            } else {
+                                format!("{}m {}s", minutes, seconds)
+                            }
+                        };
+
+                        let slider = slider(
+                            min_range as f32..=CLEANUP_THRESHOLD as f32,
+                            *datapoint_count as f32,
+                            move |new_datapoint_count| {
+                                on_change(HeatmapStudy::VolumeProfile(ProfileKind::FixedWindow(
+                                    new_datapoint_count as usize,
+                                )))
+                            },
+                        )
+                        .step(40.0);
+
+                        let switch_kind = button(text("Switch to visible range")).on_press(
+                            on_change(HeatmapStudy::VolumeProfile(ProfileKind::VisibleRange)),
+                        );
+
+                        column![
+                            row![horizontal_space(), switch_kind,],
+                            text(format!(
+                                "Window: {} datapoints ({})",
+                                datapoint_count, duration_text
+                            )),
+                            slider,
+                        ]
+                        .padding(8)
+                        .spacing(4)
+                        .into()
+                    }
+                    ProfileKind::VisibleRange => {
+                        let switch_kind = button(text("Switch to fixed window")).on_press(
+                            on_change(HeatmapStudy::VolumeProfile(ProfileKind::FixedWindow(
+                                CLEANUP_THRESHOLD / 5 as usize,
+                            ))),
+                        );
+
+                        column![row![horizontal_space(), switch_kind,],]
+                            .padding(8)
+                            .spacing(4)
+                            .into()
+                    }
+                },
+            }
+        }
+    }
+
+    #[derive(Debug, Clone, Copy)]
+    pub enum Message<S: Study> {
+        CardToggled(S),
+        StudyToggled(S, bool),
+        StudyValueChanged(S),
+    }
+
+    pub enum Action<S: Study> {
+        ToggleStudy(S, bool),
+        ConfigureStudy(S),
+    }
+
+    pub struct Configurator<S: Study> {
+        expanded_card: Option<S>,
+        _phantom: PhantomData<S>,
+    }
+
+    impl<S: Study> Default for Configurator<S> {
+        fn default() -> Self {
+            Self {
+                expanded_card: None,
+                _phantom: PhantomData,
+            }
+        }
+    }
+
+    impl<S: Study + ToString> Configurator<S> {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn update(&mut self, message: Message<S>) -> Option<Action<S>> {
             match message {
                 Message::CardToggled(study) => {
                     let should_collapse = self
@@ -435,38 +672,43 @@ pub mod study {
             None
         }
 
-        pub fn view(&self, studies: &Vec<FootprintStudy>) -> Element<Message> {
+        pub fn view<'a>(
+            &self,
+            active_studies: &'a [S],
+            basis: data::chart::Basis,
+        ) -> Element<'a, Message<S>> {
             let mut content = column![].spacing(4);
 
-            for available_study in FootprintStudy::ALL {
-                let (is_selected, study_config) = {
-                    let mut is_selected = false;
-                    let mut study_config = None;
-
-                    for s in studies {
-                        if s.is_same_type(&available_study) {
-                            is_selected = true;
-                            study_config = Some(*s);
-                            break;
-                        }
-                    }
-                    (is_selected, study_config)
-                };
-
+            for available_study in S::all() {
                 content =
-                    content.push(self.create_study_row(available_study, is_selected, study_config));
+                    content.push(self.create_study_row(available_study, active_studies, basis));
             }
 
             content.into()
         }
 
-        fn create_study_row(
+        fn create_study_row<'a>(
             &self,
-            study: FootprintStudy,
-            is_selected: bool,
-            study_config: Option<FootprintStudy>,
-        ) -> Element<Message> {
-            let checkbox = iced::widget::checkbox(study.to_string(), is_selected)
+            study: S,
+            active_studies: &'a [S],
+            basis: data::chart::Basis,
+        ) -> Element<'a, Message<S>> {
+            let (is_selected, study_config) = {
+                let mut is_selected = false;
+                let mut study_config = None;
+
+                for s in active_studies {
+                    if s.is_same_type(&study) {
+                        is_selected = true;
+                        study_config = Some(*s);
+                        break;
+                    }
+                }
+                (is_selected, study_config)
+            };
+
+            let label = study_config.map_or(study.to_string(), |s| s.to_string());
+            let checkbox = iced::widget::checkbox(label, is_selected)
                 .on_toggle(move |checked| Message::StudyToggled(study, checked));
 
             let mut checkbox_row = row![checkbox, horizontal_space()]
@@ -492,114 +734,9 @@ pub mod study {
 
             let mut column = column![checkbox_row];
 
-            if is_expanded && study_config.is_some() {
-                let config = study_config.unwrap();
-
-                match config {
-                    FootprintStudy::NPoC { lookback } => {
-                        let slider_ui = slider(10.0..=400.0, lookback as f32, move |new_value| {
-                            let updated_study = FootprintStudy::NPoC {
-                                lookback: new_value as usize,
-                            };
-                            Message::StudyValueChanged(updated_study)
-                        })
-                        .step(10.0);
-
-                        column = column.push(
-                            column![text(format!("Lookback: {lookback} datapoints")), slider_ui]
-                                .padding(8)
-                                .spacing(4),
-                        );
-                    }
-                    FootprintStudy::Imbalance {
-                        threshold,
-                        color_scale,
-                        ignore_zeros,
-                    } => {
-                        let qty_threshold = {
-                            let info_text = text(format!("Ask:Bid threshold: {threshold}%"));
-
-                            let threshold_slider =
-                                slider(100.0..=800.0, threshold as f32, move |new_value| {
-                                    let updated_study = FootprintStudy::Imbalance {
-                                        threshold: new_value as usize,
-                                        color_scale,
-                                        ignore_zeros,
-                                    };
-                                    Message::StudyValueChanged(updated_study)
-                                })
-                                .step(25.0);
-
-                            column![info_text, threshold_slider,].padding(8).spacing(4)
-                        };
-
-                        let color_scaling = {
-                            let color_scale_enabled = color_scale.is_some();
-                            let color_scale_value = color_scale.unwrap_or(100);
-
-                            let color_scale_checkbox = iced::widget::checkbox(
-                                "Dynamic color scaling",
-                                color_scale_enabled,
-                            )
-                            .on_toggle(move |is_enabled| {
-                                let updated_study = FootprintStudy::Imbalance {
-                                    threshold,
-                                    color_scale: if is_enabled {
-                                        Some(color_scale_value)
-                                    } else {
-                                        None
-                                    },
-                                    ignore_zeros,
-                                };
-                                Message::StudyValueChanged(updated_study)
-                            });
-
-                            if color_scale_enabled {
-                                let scaling_slider = column![
-                                    text(format!("Opaque color at: {color_scale_value}x")),
-                                    slider(
-                                        50.0..=2000.0,
-                                        color_scale_value as f32,
-                                        move |new_value| {
-                                            let updated_study = FootprintStudy::Imbalance {
-                                                threshold,
-                                                color_scale: Some(new_value as usize),
-                                                ignore_zeros,
-                                            };
-                                            Message::StudyValueChanged(updated_study)
-                                        }
-                                    )
-                                    .step(50.0)
-                                ]
-                                .spacing(2);
-
-                                column![color_scale_checkbox, scaling_slider]
-                                    .padding(8)
-                                    .spacing(8)
-                            } else {
-                                column![color_scale_checkbox].padding(8)
-                            }
-                        };
-
-                        let ignore_zeros_checkbox = {
-                            let cbox = iced::widget::checkbox("Ignore zeros", ignore_zeros)
-                                .on_toggle(move |is_checked| {
-                                    let updated_study = FootprintStudy::Imbalance {
-                                        threshold,
-                                        color_scale,
-                                        ignore_zeros: is_checked,
-                                    };
-                                    Message::StudyValueChanged(updated_study)
-                                });
-
-                            column![cbox].padding(8).spacing(4)
-                        };
-
-                        column = column.push(
-                            split_column![qty_threshold, color_scaling, ignore_zeros_checkbox]
-                                .padding(4),
-                        );
-                    }
+            if is_expanded {
+                if let Some(config) = study_config {
+                    column = column.push(config.view_config(basis, Message::StudyValueChanged));
                 }
             }
 

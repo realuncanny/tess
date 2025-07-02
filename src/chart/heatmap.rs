@@ -1,10 +1,15 @@
-use super::{
-    Chart, PlotConstants, Interaction, Message, ViewState, scale::linear::PriceInfoLabel,
+use super::{Chart, Interaction, Message, PlotConstants, ViewState, scale::linear::PriceInfoLabel};
+use crate::{
+    chart::TEXT_SIZE,
+    modal::pane::settings::study::{self, Study},
+    style,
 };
-use crate::{chart::TEXT_SIZE, style};
 use data::chart::{
     Basis, ViewConfig,
-    heatmap::{Config, GroupedTrade, HistoricalDepth, QtyScale},
+    heatmap::{
+        CLEANUP_THRESHOLD, Config, GroupedTrade, HeatmapStudy, HistoricalDepth, ProfileKind,
+        QtyScale,
+    },
     indicator::HeatmapIndicator,
 };
 use data::util::{abbr_large_numbers, count_decimals};
@@ -22,7 +27,16 @@ use std::{
     time::Instant,
 };
 
-const CLEANUP_THRESHOLD: usize = 4800;
+const MIN_SCALING: f32 = 0.6;
+const MAX_SCALING: f32 = 1.2;
+
+const MAX_CELL_WIDTH: f32 = 12.0;
+const MIN_CELL_WIDTH: f32 = 1.0;
+
+const MAX_CELL_HEIGHT: f32 = 10.0;
+const MIN_CELL_HEIGHT: f32 = 1.0;
+
+const DEFAULT_CELL_WIDTH: f32 = 3.0;
 
 const TOOLTIP_WIDTH: f32 = 180.0;
 const TOOLTIP_HEIGHT: f32 = 60.0;
@@ -80,37 +94,36 @@ impl Chart for HeatmapChart {
 
 impl PlotConstants for HeatmapChart {
     fn min_scaling(&self) -> f32 {
-        data::chart::heatmap::MIN_SCALING
+        MIN_SCALING
     }
 
     fn max_scaling(&self) -> f32 {
-        data::chart::heatmap::MAX_SCALING
+        MAX_SCALING
     }
 
     fn max_cell_width(&self) -> f32 {
-        data::chart::heatmap::MAX_CELL_WIDTH
+        MAX_CELL_WIDTH
     }
 
     fn min_cell_width(&self) -> f32 {
-        data::chart::heatmap::MIN_CELL_WIDTH
+        MIN_CELL_WIDTH
     }
 
     fn max_cell_height(&self) -> f32 {
-        data::chart::heatmap::MAX_CELL_HEIGHT
+        MAX_CELL_HEIGHT
     }
 
     fn min_cell_height(&self) -> f32 {
-        data::chart::heatmap::MIN_CELL_HEIGHT
+        MIN_CELL_HEIGHT
     }
 
     fn default_cell_width(&self) -> f32 {
-        data::chart::heatmap::DEFAULT_CELL_WIDTH
+        DEFAULT_CELL_WIDTH
     }
 }
 
 enum IndicatorData {
     Volume,
-    SessionVolumeProfile(HashMap<OrderedFloat<f32>, (f32, f32)>),
 }
 
 pub struct HeatmapChart {
@@ -120,7 +133,9 @@ pub struct HeatmapChart {
     pause_buffer: Vec<(u64, Box<[Trade]>, Depth)>,
     heatmap: HistoricalDepth,
     visual_config: Config,
+    study_configurator: study::Configurator<HeatmapStudy>,
     last_tick: Instant,
+    pub studies: Vec<HeatmapStudy>,
 }
 
 impl HeatmapChart {
@@ -131,10 +146,11 @@ impl HeatmapChart {
         enabled_indicators: &[HeatmapIndicator],
         ticker_info: Option<TickerInfo>,
         config: Option<Config>,
+        studies: Vec<HeatmapStudy>,
     ) -> Self {
         HeatmapChart {
             chart: ViewState {
-                cell_width: data::chart::heatmap::DEFAULT_CELL_WIDTH,
+                cell_width: DEFAULT_CELL_WIDTH,
                 cell_height: 4.0,
                 tick_size,
                 decimals: count_decimals(tick_size),
@@ -149,9 +165,6 @@ impl HeatmapChart {
                     .map(|&indicator| {
                         let data = match indicator {
                             HeatmapIndicator::Volume => IndicatorData::Volume,
-                            HeatmapIndicator::SessionVolumeProfile => {
-                                IndicatorData::SessionVolumeProfile(HashMap::new())
-                            }
                         };
                         (indicator, data)
                     })
@@ -165,6 +178,8 @@ impl HeatmapChart {
             ),
             timeseries: BTreeMap::new(),
             visual_config: config.unwrap_or_default(),
+            study_configurator: study::Configurator::new(),
+            studies,
             last_tick: Instant::now(),
         }
     }
@@ -265,23 +280,6 @@ impl HeatmapChart {
                 }
             }
 
-            if let Some(IndicatorData::SessionVolumeProfile(data)) = self
-                .indicators
-                .get_mut(&HeatmapIndicator::SessionVolumeProfile)
-            {
-                for trade in &grouped_trades {
-                    if trade.is_sell {
-                        data.entry(OrderedFloat(trade.price))
-                            .or_insert_with(|| (0.0, 0.0))
-                            .1 += trade.qty;
-                    } else {
-                        data.entry(OrderedFloat(trade.price))
-                            .or_insert_with(|| (0.0, 0.0))
-                            .0 += trade.qty;
-                    }
-                }
-            }
-
             match self.timeseries.entry(rounded_depth_update) {
                 std::collections::btree_map::Entry::Vacant(entry) => {
                     entry.insert((grouped_trades.into_boxed_slice(), (buy_volume, sell_volume)));
@@ -350,6 +348,35 @@ impl HeatmapChart {
         self.invalidate(None);
     }
 
+    pub fn study_configurator(&self) -> &study::Configurator<HeatmapStudy> {
+        &self.study_configurator
+    }
+
+    pub fn update_study_configurator(&mut self, message: study::Message<HeatmapStudy>) {
+        let studies = &mut self.studies;
+
+        match self.study_configurator.update(message) {
+            Some(study::Action::ToggleStudy(study, is_selected)) => {
+                if is_selected {
+                    let already_exists = studies.iter().any(|s| s.is_same_type(&study));
+                    if !already_exists {
+                        studies.push(study);
+                    }
+                } else {
+                    studies.retain(|s| !s.is_same_type(&study));
+                }
+            }
+            Some(study::Action::ConfigureStudy(study)) => {
+                if let Some(existing_study) = studies.iter_mut().find(|s| s.is_same_type(&study)) {
+                    *existing_study = study;
+                }
+            }
+            None => {}
+        }
+
+        self.invalidate(None);
+    }
+
     pub fn basis_interval(&self) -> Option<u64> {
         match self.chart.basis {
             Basis::Time(interval) => Some(interval.into()),
@@ -369,13 +396,6 @@ impl HeatmapChart {
         chart_state.cell_height = 4.0;
         chart_state.tick_size = new_tick_size;
         chart_state.decimals = count_decimals(new_tick_size);
-
-        if let Some(IndicatorData::SessionVolumeProfile(data)) = self
-            .indicators
-            .get_mut(&HeatmapIndicator::SessionVolumeProfile)
-        {
-            data.clear();
-        }
 
         self.timeseries.clear();
         self.heatmap = HistoricalDepth::new(
@@ -400,9 +420,6 @@ impl HeatmapChart {
             std::collections::hash_map::Entry::Vacant(entry) => {
                 let data = match indicator {
                     HeatmapIndicator::Volume => IndicatorData::Volume,
-                    HeatmapIndicator::SessionVolumeProfile => {
-                        IndicatorData::SessionVolumeProfile(HashMap::new())
-                    }
                 };
                 entry.insert(data);
             }
@@ -544,8 +561,6 @@ impl canvas::Program<Message> for HeatmapChart {
             }
 
             let cell_height = chart.cell_height;
-            let cell_height_scaled = cell_height * chart.scaling;
-
             let qty_scales = self.calc_qty_scales(earliest, latest, highest, lowest);
 
             let max_depth_qty = qty_scales.max_depth_qty;
@@ -739,24 +754,18 @@ impl canvas::Program<Message> for HeatmapChart {
                 },
             );
 
-            if let Some(IndicatorData::SessionVolumeProfile(data)) =
-                self.indicators.get(&HeatmapIndicator::SessionVolumeProfile)
-            {
-                let max_vpsr = data
-                    .iter()
-                    .filter(|(price, _)| {
-                        **price <= OrderedFloat(highest) && **price >= OrderedFloat(lowest)
-                    })
-                    .map(|(_, (buy_v, sell_v))| buy_v + sell_v)
-                    .fold(0.0, f32::max);
+            let volume_profile = self.studies.iter().find_map(|study| match study {
+                HeatmapStudy::VolumeProfile(profile) => Some(profile),
+            });
 
-                let max_bar_width = (bounds.width / chart.scaling) * 0.1;
+            if let Some(profile_kind) = volume_profile {
+                let area_width = (bounds.width / chart.scaling) * 0.1;
 
                 let min_segment_width = 2.0;
-                let segments = ((max_bar_width / min_segment_width).floor() as usize).clamp(10, 40);
+                let segments = ((area_width / min_segment_width).floor() as usize).clamp(10, 40);
 
                 for i in 0..segments {
-                    let segment_width = max_bar_width / segments as f32;
+                    let segment_width = area_width / segments as f32;
                     let segment_x = region.x + (i as f32 * segment_width);
 
                     let alpha = 0.95 - (0.85 * (i as f32 / (segments - 1) as f32).powf(2.0));
@@ -768,45 +777,15 @@ impl canvas::Program<Message> for HeatmapChart {
                     );
                 }
 
-                let vpsr_height = cell_height_scaled * 0.8;
-
-                data.iter()
-                    .filter(|(price, _)| {
-                        **price <= OrderedFloat(highest) && **price >= OrderedFloat(lowest)
-                    })
-                    .for_each(|(price, (buy_v, sell_v))| {
-                        let y_position = chart.price_to_y(**price);
-
-                        super::draw_horizontal_volume_bars(
-                            frame,
-                            region.x,
-                            y_position,
-                            *buy_v,
-                            *sell_v,
-                            max_vpsr,
-                            vpsr_height,
-                            max_bar_width,
-                            palette.success.weak.color,
-                            palette.danger.weak.color,
-                            1.0,
-                        );
-                    });
-
-                if max_vpsr > 0.0 {
-                    let text_size = 9.0 / chart.scaling;
-                    let text_content = abbr_large_numbers(max_vpsr);
-
-                    let text_position = Point::new(region.x + max_bar_width, region.y);
-
-                    frame.fill_text(canvas::Text {
-                        content: text_content,
-                        position: text_position,
-                        size: iced::Pixels(text_size),
-                        color: palette.background.base.text,
-                        font: style::AZERET_MONO,
-                        ..canvas::Text::default()
-                    });
-                }
+                draw_volume_profile(
+                    frame,
+                    &region,
+                    profile_kind,
+                    palette,
+                    chart,
+                    &self.timeseries,
+                    area_width,
+                );
             }
 
             if volume_indicator && max_aggr_volume > 0.0 {
@@ -1001,5 +980,110 @@ fn depth_color(palette: &Extended, is_bid: bool, alpha: f32) -> Color {
         palette.success.strong.color.scale_alpha(alpha)
     } else {
         palette.danger.strong.color.scale_alpha(alpha)
+    }
+}
+
+fn draw_volume_profile(
+    frame: &mut canvas::Frame,
+    region: &Rectangle,
+    kind: &ProfileKind,
+    palette: &Extended,
+    chart: &ViewState,
+    timeseries: &BTreeMap<u64, (Box<[GroupedTrade]>, (f32, f32))>,
+    area_width: f32,
+) {
+    let (highest, lowest) = chart.price_range(&region);
+    let cell_height_scaled = chart.cell_height * chart.scaling;
+
+    let time_range = match kind {
+        ProfileKind::VisibleRange => {
+            let earliest = chart.x_to_interval(region.x);
+            let latest = chart.x_to_interval(region.x + region.width);
+
+            earliest..=latest
+        }
+        ProfileKind::FixedWindow(datapoints) => {
+            let basis_interval: u64 = match chart.basis {
+                Basis::Time(interval) => interval.into(),
+                Basis::Tick(_) => return,
+            };
+
+            let latest = chart.latest_x;
+            let earliest = latest.saturating_sub((*datapoints as u64) * basis_interval);
+
+            earliest..=latest
+        }
+    };
+
+    let tick_size = chart.tick_size;
+    if tick_size <= 0.0 {
+        return;
+    }
+
+    let num_ticks = ((highest - lowest) / tick_size).round() as usize + 1;
+    if num_ticks > 4096 {
+        return;
+    }
+
+    let mut profile = vec![(0.0f32, 0.0f32); num_ticks];
+    let mut max_aggr_volume = 0.0f32;
+
+    timeseries.range(time_range).for_each(|(_, (trades, _))| {
+        trades
+            .iter()
+            .filter(|trade| trade.price >= lowest && trade.price <= highest)
+            .for_each(|trade| {
+                let index = ((trade.price - lowest) / tick_size).round() as usize;
+                if let Some(entry) = profile.get_mut(index) {
+                    if trade.is_sell {
+                        entry.1 += trade.qty;
+                    } else {
+                        entry.0 += trade.qty;
+                    }
+                    max_aggr_volume = max_aggr_volume.max(entry.0 + entry.1);
+                }
+            });
+    });
+
+    let bar_height = cell_height_scaled * 0.8;
+
+    profile
+        .iter()
+        .enumerate()
+        .for_each(|(index, (buy_v, sell_v))| {
+            if *buy_v > 0.0 || *sell_v > 0.0 {
+                let price = lowest + (index as f32 * tick_size);
+                let y_position = chart.price_to_y(price);
+
+                super::draw_horizontal_volume_bars(
+                    frame,
+                    region.x,
+                    y_position,
+                    *buy_v,
+                    *sell_v,
+                    max_aggr_volume,
+                    bar_height,
+                    area_width,
+                    palette.success.weak.color,
+                    palette.danger.weak.color,
+                    1.0,
+                );
+            }
+        });
+
+    if max_aggr_volume > 0.0 {
+        let text_size = 9.0 / chart.scaling;
+        let text_content = abbr_large_numbers(max_aggr_volume);
+
+        let text_position = Point::new(region.x + area_width, region.y);
+
+        frame.fill_text(canvas::Text {
+            content: text_content,
+            position: text_position,
+            size: iced::Pixels(text_size),
+            color: palette.background.base.text,
+            font: style::AZERET_MONO,
+            ..canvas::Text::default()
+        });
     }
 }

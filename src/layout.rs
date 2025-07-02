@@ -114,6 +114,7 @@ impl From<&pane::State> for data::Pane {
                 stream_type: streams,
                 settings: pane.settings,
                 indicators: indicators.clone(),
+                studies: chart.studies.clone(),
             },
             pane::Content::Kline(chart, indicators) => data::Pane::KlineChart {
                 layout: chart.chart_layout(),
@@ -144,6 +145,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
         data::Pane::Starter => Configuration::Pane(pane::State::new()),
         data::Pane::HeatmapChart {
             layout,
+            studies,
             stream_type,
             settings,
             indicators,
@@ -168,6 +170,7 @@ pub fn configuration(pane: data::Pane) -> Configuration<pane::State> {
                             &indicators,
                             settings.ticker_info,
                             config,
+                            studies,
                         ),
                         indicators,
                     ),

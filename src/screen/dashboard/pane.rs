@@ -86,7 +86,7 @@ pub enum Message {
     ReorderIndicator(pane_grid::Pane, column_drag::DragEvent),
     ClusterKindSelected(pane_grid::Pane, data::chart::kline::ClusterKind),
     StreamModifierChanged(pane_grid::Pane, modal::stream::Message),
-    StudyConfigurator(pane_grid::Pane, modal::pane::settings::study::Message),
+    StudyConfigurator(pane_grid::Pane, modal::pane::settings::study::StudyMessage),
 }
 
 pub struct State {
@@ -380,7 +380,15 @@ impl State {
 
                 let base = chart::view(chart, indicators, timezone)
                     .map(move |message| Message::ChartInteraction(id, message));
-                let settings_modal = || heatmap_cfg_view(chart.visual_config(), id);
+                let settings_modal = || {
+                    heatmap_cfg_view(
+                        chart.visual_config(),
+                        id,
+                        chart.study_configurator(),
+                        &chart.studies,
+                        selected_basis,
+                    )
+                };
 
                 self.compose_chart_view(base, id, indicators, settings_modal)
             }
@@ -421,7 +429,8 @@ impl State {
 
                 let base = chart::view(chart, indicators, timezone)
                     .map(move |message| Message::ChartInteraction(id, message));
-                let settings_modal = || kline_cfg_view(chart.study_configurator(), chart_kind, id);
+                let settings_modal =
+                    || kline_cfg_view(chart.study_configurator(), chart_kind, id, chart.basis());
 
                 self.compose_chart_view(base, id, indicators, settings_modal)
             }
@@ -711,18 +720,20 @@ impl Content {
         settings: &Settings,
         tick_size: f32,
     ) -> Self {
-        let (enabled_indicators, layout) = if let Content::Heatmap(chart, inds) = current_content {
-            (inds.clone(), chart.chart_layout())
-        } else {
-            (
-                vec![HeatmapIndicator::Volume],
-                ViewConfig {
-                    crosshair: true,
-                    splits: vec![],
-                    autoscale: Some(data::chart::Autoscale::CenterLatest),
-                },
-            )
-        };
+        let (enabled_indicators, layout, prev_studies) =
+            if let Content::Heatmap(chart, inds) = current_content {
+                (inds.clone(), chart.chart_layout(), chart.studies.clone())
+            } else {
+                (
+                    vec![HeatmapIndicator::Volume],
+                    ViewConfig {
+                        crosshair: true,
+                        splits: vec![],
+                        autoscale: Some(data::chart::Autoscale::CenterLatest),
+                    },
+                    vec![],
+                )
+            };
 
         let basis = settings
             .selected_basis
@@ -737,6 +748,7 @@ impl Content {
                 &enabled_indicators,
                 Some(ticker_info),
                 config,
+                prev_studies,
             ),
             enabled_indicators,
         )
@@ -858,7 +870,6 @@ impl Content {
             Content::Heatmap(chart, indicators) => {
                 let indicator = match indicator_str {
                     "Volume" => HeatmapIndicator::Volume,
-                    "VPSR" => HeatmapIndicator::SessionVolumeProfile,
                     _ => {
                         panic!("heatmap indicator requested to toggle not found: {indicator_str}",);
                     }

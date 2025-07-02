@@ -7,7 +7,9 @@ pub use sidebar::Sidebar;
 
 use super::DashboardError;
 use crate::{
-    chart, modal, style,
+    chart,
+    modal::{self, pane::settings::study::StudyMessage},
+    style,
     widget::toast::Toast,
     window::{self, Window},
 };
@@ -387,10 +389,22 @@ impl Dashboard {
                             }
                         }
                     }
-                    pane::Message::StudyConfigurator(pane, msg) => {
+                    pane::Message::StudyConfigurator(pane, study_msg) => {
                         if let Some(pane_state) = self.get_mut_pane(main_window.id, window, pane) {
-                            if let pane::Content::Kline(chart, _) = &mut pane_state.content {
-                                chart.update_study_configurator(msg);
+                            match study_msg {
+                                StudyMessage::Footprint(message) => {
+                                    if let pane::Content::Kline(chart, _) = &mut pane_state.content
+                                    {
+                                        chart.update_study_configurator(message);
+                                    }
+                                }
+                                StudyMessage::Heatmap(message) => {
+                                    if let pane::Content::Heatmap(chart, _) =
+                                        &mut pane_state.content
+                                    {
+                                        chart.update_study_configurator(message);
+                                    }
+                                }
                             }
                         }
                     }

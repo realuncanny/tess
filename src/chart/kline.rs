@@ -201,7 +201,7 @@ pub struct KlineChart {
     fetching_trades: (bool, Option<Handle>),
     kind: KlineChartKind,
     request_handler: RequestHandler,
-    study_configurator: study::ChartStudy,
+    study_configurator: study::Configurator<FootprintStudy>,
     last_tick: Instant,
 }
 
@@ -288,7 +288,7 @@ impl KlineChart {
                     fetching_trades: (false, None),
                     request_handler: RequestHandler::new(),
                     kind: kind.clone(),
-                    study_configurator: study::ChartStudy::new(),
+                    study_configurator: study::Configurator::new(),
                     last_tick: Instant::now(),
                 }
             }
@@ -354,7 +354,7 @@ impl KlineChart {
                     fetching_trades: (false, None),
                     request_handler: RequestHandler::new(),
                     kind: kind.clone(),
-                    study_configurator: study::ChartStudy::new(),
+                    study_configurator: study::Configurator::new(),
                     last_tick: Instant::now(),
                 }
             }
@@ -507,11 +507,11 @@ impl KlineChart {
         self.chart.tick_size
     }
 
-    pub fn study_configurator(&self) -> &study::ChartStudy {
+    pub fn study_configurator(&self) -> &study::Configurator<FootprintStudy> {
         &self.study_configurator
     }
 
-    pub fn update_study_configurator(&mut self, message: study::Message) {
+    pub fn update_study_configurator(&mut self, message: study::Message<FootprintStudy>) {
         let KlineChartKind::Footprint {
             ref mut studies, ..
         } = self.kind
@@ -554,6 +554,10 @@ impl KlineChart {
         }
 
         self.invalidate(None);
+    }
+
+    pub fn basis(&self) -> Basis {
+        self.chart.basis
     }
 
     pub fn change_tick_size(&mut self, new_tick_size: f32) {

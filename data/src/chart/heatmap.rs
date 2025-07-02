@@ -6,16 +6,7 @@ use serde::{Deserialize, Serialize};
 
 use super::Basis;
 
-pub const MIN_SCALING: f32 = 0.6;
-pub const MAX_SCALING: f32 = 1.2;
-
-pub const MAX_CELL_WIDTH: f32 = 12.0;
-pub const MIN_CELL_WIDTH: f32 = 1.0;
-
-pub const MAX_CELL_HEIGHT: f32 = 10.0;
-pub const MIN_CELL_HEIGHT: f32 = 1.0;
-
-pub const DEFAULT_CELL_WIDTH: f32 = 3.0;
+pub const CLEANUP_THRESHOLD: usize = 4800;
 
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Config {
@@ -475,6 +466,38 @@ impl GroupedTrade {
                 .unwrap_or(std::cmp::Ordering::Equal)
         } else {
             self.is_sell.cmp(&is_sell)
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum HeatmapStudy {
+    VolumeProfile(ProfileKind),
+}
+
+impl HeatmapStudy {
+    pub const ALL: [HeatmapStudy; 1] = [HeatmapStudy::VolumeProfile(ProfileKind::VisibleRange)];
+}
+
+impl std::fmt::Display for HeatmapStudy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            HeatmapStudy::VolumeProfile(kind) => write!(f, "Volume Profile ({})", kind),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+pub enum ProfileKind {
+    FixedWindow(usize),
+    VisibleRange,
+}
+
+impl std::fmt::Display for ProfileKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProfileKind::FixedWindow(_) => write!(f, "Fixed window"),
+            ProfileKind::VisibleRange => write!(f, "Visible range"),
         }
     }
 }

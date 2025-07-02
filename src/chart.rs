@@ -6,7 +6,7 @@ mod scale;
 use crate::style;
 use crate::widget::multi_split::{DRAG_SIZE, MultiSplit};
 use crate::widget::tooltip;
-use data::chart::{Autoscale, Basis, PlotConstants, PlotData, ViewConfig, indicator::Indicator};
+use data::chart::{Autoscale, Basis, PlotData, ViewConfig, indicator::Indicator};
 use exchange::fetcher::{FetchRange, RequestHandler};
 use exchange::{TickerInfo, Timeframe};
 use scale::linear::PriceInfoLabel;
@@ -598,6 +598,16 @@ pub fn view<'a, T: Chart>(
     ]
     .padding(padding::left(1).right(1).bottom(1))
     .into()
+}
+
+pub trait PlotConstants {
+    fn min_scaling(&self) -> f32;
+    fn max_scaling(&self) -> f32;
+    fn max_cell_width(&self) -> f32;
+    fn min_cell_width(&self) -> f32;
+    fn max_cell_height(&self) -> f32;
+    fn min_cell_height(&self) -> f32;
+    fn default_cell_width(&self) -> f32;
 }
 
 #[derive(Default)]

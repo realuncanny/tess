@@ -42,16 +42,6 @@ impl PlotData {
     }
 }
 
-pub trait PlotConstants {
-    fn min_scaling(&self) -> f32;
-    fn max_scaling(&self) -> f32;
-    fn max_cell_width(&self) -> f32;
-    fn min_cell_width(&self) -> f32;
-    fn max_cell_height(&self) -> f32;
-    fn min_cell_height(&self) -> f32;
-    fn default_cell_width(&self) -> f32;
-}
-
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ViewConfig {
     pub crosshair: bool,
