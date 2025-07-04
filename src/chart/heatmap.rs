@@ -993,7 +993,6 @@ fn draw_volume_profile(
     area_width: f32,
 ) {
     let (highest, lowest) = chart.price_range(&region);
-    let cell_height_scaled = chart.cell_height * chart.scaling;
 
     let time_range = match kind {
         ProfileKind::VisibleRange => {
@@ -1020,7 +1019,8 @@ fn draw_volume_profile(
         return;
     }
 
-    let num_ticks = ((highest - lowest) / tick_size).round() as usize + 1;
+    let first_tick = (lowest / tick_size).ceil() * tick_size;
+    let num_ticks = ((highest - first_tick) / tick_size).floor() as usize + 1;
     if num_ticks > 4096 {
         return;
     }
@@ -1033,7 +1033,12 @@ fn draw_volume_profile(
             .iter()
             .filter(|trade| trade.price >= lowest && trade.price <= highest)
             .for_each(|trade| {
-                let index = ((trade.price - lowest) / tick_size).round() as usize;
+                let grouped_price = if trade.is_sell {
+                    (trade.price * (1.0 / tick_size)).floor() * tick_size
+                } else {
+                    (trade.price * (1.0 / tick_size)).ceil() * tick_size
+                };
+                let index = ((grouped_price - first_tick) / tick_size).round() as usize;
                 if let Some(entry) = profile.get_mut(index) {
                     if trade.is_sell {
                         entry.1 += trade.qty;
@@ -1045,15 +1050,16 @@ fn draw_volume_profile(
             });
     });
 
-    let bar_height = cell_height_scaled * 0.8;
-
     profile
         .iter()
         .enumerate()
         .for_each(|(index, (buy_v, sell_v))| {
             if *buy_v > 0.0 || *sell_v > 0.0 {
-                let price = lowest + (index as f32 * tick_size);
+                let price = first_tick + (index as f32 * tick_size);
                 let y_position = chart.price_to_y(price);
+
+                let next_y_position = chart.price_to_y(price + tick_size);
+                let bar_height = (next_y_position - y_position).abs();
 
                 super::draw_horizontal_volume_bars(
                     frame,
