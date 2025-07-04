@@ -138,35 +138,31 @@ impl TickersTable {
         self.display_cache.retain(|(ex, _), _| ex != &exchange);
 
         for (ticker, new_stats) in ticker_rows {
-            let (previous_price, updated_row) = if let Some(row_index) = self
+            let (previous_price, updated_row) = if let Some(row) = self
                 .ticker_rows
-                .iter()
-                .position(|r| r.exchange == exchange && r.ticker == ticker)
+                .iter_mut()
+                .find(|r| r.exchange == exchange && r.ticker == ticker)
             {
-                let mut row = self.ticker_rows.remove(row_index);
                 let previous_price = Some(row.stats.mark_price);
                 row.previous_stats = Some(row.stats);
                 row.stats = new_stats;
-                (previous_price, row)
+                (previous_price, row.clone())
             } else {
-                (
-                    None,
-                    TickerRowData {
-                        exchange,
-                        ticker,
-                        stats: new_stats,
-                        previous_stats: None,
-                        is_favorited: self.favorited_tickers.contains(&(exchange, ticker)),
-                    },
-                )
+                let new_row = TickerRowData {
+                    exchange,
+                    ticker,
+                    stats: new_stats,
+                    previous_stats: None,
+                    is_favorited: self.favorited_tickers.contains(&(exchange, ticker)),
+                };
+                self.ticker_rows.push(new_row.clone());
+                (None, new_row)
             };
 
             self.display_cache.insert(
                 (exchange, ticker),
                 compute_display_data(&ticker, &updated_row.stats, previous_price),
             );
-
-            self.ticker_rows.push(updated_row);
         }
 
         self.sort_ticker_rows();
@@ -585,11 +581,6 @@ impl TickersTable {
                         row.is_favorited,
                     ))
                 } else {
-                    log::warn!(
-                        "Display data not found for {:?} on {:?}, skipping card creation",
-                        row.ticker,
-                        row.exchange
-                    );
                     ticker_cards
                 }
             });
