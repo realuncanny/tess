@@ -593,6 +593,24 @@ impl KlineChart {
         self.invalidate(None);
     }
 
+    pub fn studies(&self) -> Option<Vec<FootprintStudy>> {
+        match &self.kind {
+            KlineChartKind::Footprint { studies, .. } => Some(studies.clone()),
+            _ => None,
+        }
+    }
+
+    pub fn set_studies(&mut self, new_studies: Vec<FootprintStudy>) {
+        if let KlineChartKind::Footprint {
+            ref mut studies, ..
+        } = self.kind
+        {
+            *studies = new_studies;
+        }
+
+        self.invalidate(None);
+    }
+
     fn oi_timerange(&self, latest_kline: u64) -> (u64, u64) {
         let mut from_time = latest_kline;
         let mut to_time = u64::MIN;

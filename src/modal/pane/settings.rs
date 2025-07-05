@@ -48,11 +48,12 @@ pub fn heatmap_cfg_view<'a>(
             filter,
             move |value| {
                 Message::VisualConfigChanged(
-                    Some(pane),
+                    pane,
                     VisualConfig::Heatmap(heatmap::Config {
                         trade_size_filter: value,
                         ..cfg
                     }),
+                    false,
                 )
             },
             |value| format!(">${}", format_with_commas(*value)),
@@ -69,11 +70,12 @@ pub fn heatmap_cfg_view<'a>(
             filter,
             move |value| {
                 Message::VisualConfigChanged(
-                    Some(pane),
+                    pane,
                     VisualConfig::Heatmap(heatmap::Config {
                         order_size_filter: value,
                         ..cfg
                     }),
+                    false,
                 )
             },
             |value| format!(">${}", format_with_commas(*value)),
@@ -87,11 +89,12 @@ pub fn heatmap_cfg_view<'a>(
                 text("Circle radius scaling"),
                 slider(10..=200, radius_scale, move |value| {
                     Message::VisualConfigChanged(
-                        Some(pane),
+                        pane,
                         VisualConfig::Heatmap(heatmap::Config {
                             trade_size_scale: Some(value),
                             ..cfg
                         }),
+                        false,
                     )
                 })
                 .step(10)
@@ -114,11 +117,12 @@ pub fn heatmap_cfg_view<'a>(
                     Some(coalescing),
                     move |value| {
                         Message::VisualConfigChanged(
-                            Some(pane),
+                            pane,
                             VisualConfig::Heatmap(heatmap::Config {
                                 coalescing: Some(value),
                                 ..cfg
                             }),
+                            false,
                         )
                     },
                 )
@@ -130,11 +134,12 @@ pub fn heatmap_cfg_view<'a>(
                     Some(coalescing),
                     move |value| {
                         Message::VisualConfigChanged(
-                            Some(pane),
+                            pane,
                             VisualConfig::Heatmap(heatmap::Config {
                                 coalescing: Some(value),
                                 ..cfg
                             }),
+                            false,
                         )
                     },
                 )
@@ -146,11 +151,12 @@ pub fn heatmap_cfg_view<'a>(
                     Some(coalescing),
                     move |value| {
                         Message::VisualConfigChanged(
-                            Some(pane),
+                            pane,
                             VisualConfig::Heatmap(heatmap::Config {
                                 coalescing: Some(value),
                                 ..cfg
                             }),
+                            false,
                         )
                     },
                 )
@@ -167,11 +173,12 @@ pub fn heatmap_cfg_view<'a>(
                 text("Size similarity"),
                 slider(0.05..=0.8, threshold_pct, move |value| {
                     Message::VisualConfigChanged(
-                        Some(pane),
+                        pane,
                         VisualConfig::Heatmap(heatmap::Config {
                             coalescing: Some(coalescing.with_threshold(value)),
                             ..cfg
                         }),
+                        false,
                     )
                 })
                 .step(0.05)
@@ -202,7 +209,7 @@ pub fn heatmap_cfg_view<'a>(
         )
         .on_toggle(move |value| {
             Message::VisualConfigChanged(
-                Some(pane),
+                pane,
                 VisualConfig::Heatmap(heatmap::Config {
                     coalescing: if value {
                         Some(CoalesceKind::Average(0.15))
@@ -211,6 +218,7 @@ pub fn heatmap_cfg_view<'a>(
                     },
                     ..cfg
                 }),
+                false,
             )
         }),
         coalescer_cfg,
@@ -222,11 +230,12 @@ pub fn heatmap_cfg_view<'a>(
         iced::widget::checkbox("Dynamic circle radius", cfg.trade_size_scale.is_some(),).on_toggle(
             move |value| {
                 Message::VisualConfigChanged(
-                    Some(pane),
+                    pane,
                     VisualConfig::Heatmap(heatmap::Config {
                         trade_size_scale: if value { Some(100) } else { None },
                         ..cfg
                     }),
+                    false,
                 )
             }
         ),
@@ -242,10 +251,10 @@ pub fn heatmap_cfg_view<'a>(
         size_filters_column,
         noise_filters_column,
         trade_viz_column,
-        study_cfg,
+        column![text("Studies").size(14), study_cfg].spacing(8),
         row![
             horizontal_space(),
-            sync_all_button(VisualConfig::Heatmap(cfg))
+            sync_all_button(pane, VisualConfig::Heatmap(cfg))
         ]
         ; spacing = 12, align_x = Alignment::Start
     ];
@@ -267,11 +276,12 @@ pub fn timesales_cfg_view<'a>(
                 filter,
                 move |value| {
                     Message::VisualConfigChanged(
-                        Some(pane),
+                        pane,
                         VisualConfig::TimeAndSales(timeandsales::Config {
                             trade_size_filter: value,
                             ..cfg
                         }),
+                        false,
                     )
                 },
                 |value| format!(">${}", format_with_commas(*value)),
@@ -292,11 +302,12 @@ pub fn timesales_cfg_view<'a>(
                 buffer_size,
                 move |value| {
                     Message::VisualConfigChanged(
-                        Some(pane),
+                        pane,
                         VisualConfig::TimeAndSales(timeandsales::Config {
                             buffer_filter: value as usize,
                             ..cfg
                         }),
+                        false,
                     )
                 },
                 |value| format!("{}", *value as usize),
@@ -325,11 +336,12 @@ pub fn timesales_cfg_view<'a>(
 
         let ratio_picklist = pick_list(StackedBarRatio::ALL, Some(ratio), move |new_ratio| {
             Message::VisualConfigChanged(
-                Some(pane),
+                pane,
                 VisualConfig::TimeAndSales(timeandsales::Config {
                     stacked_bar_ratio: new_ratio,
                     ..cfg
                 }),
+                false,
             )
         });
 
@@ -342,7 +354,7 @@ pub fn timesales_cfg_view<'a>(
         stacked_bar_ratio,
         row![
             horizontal_space(),
-            sync_all_button(VisualConfig::TimeAndSales(cfg))
+            sync_all_button(pane, VisualConfig::TimeAndSales(cfg))
         ],
         ; spacing = 12, align_x = Alignment::Start
     ];
@@ -352,6 +364,7 @@ pub fn timesales_cfg_view<'a>(
 
 pub fn kline_cfg_view<'a>(
     study_config: &'a study::Configurator<FootprintStudy>,
+    cfg: data::chart::kline::Config,
     kind: &'a KlineChartKind,
     pane: pane_grid::Pane,
     basis: data::chart::Basis,
@@ -373,6 +386,10 @@ pub fn kline_cfg_view<'a>(
             split_column![
                 column![text("Cluster type").size(14), cluster_picklist].spacing(8),
                 column![text("Studies").size(14), study_cfg].spacing(8),
+                row![
+                    horizontal_space(),
+                    sync_all_button(pane, VisualConfig::Kline(cfg))
+                ],
                 ; spacing = 12, align_x = Alignment::Start
             ]
         }
@@ -381,17 +398,15 @@ pub fn kline_cfg_view<'a>(
     cfg_view_container(360, content)
 }
 
-fn sync_all_button<'a>(config: VisualConfig) -> Element<'a, Message> {
+fn sync_all_button<'a>(pane: pane_grid::Pane, config: VisualConfig) -> Element<'a, Message> {
     tooltip(
-        button("Sync all").on_press(Message::VisualConfigChanged(None, config)),
+        button("Sync all").on_press(Message::VisualConfigChanged(pane, config, true)),
         Some("Apply configuration to similar panes"),
         TooltipPosition::Top,
     )
 }
 
 pub mod study {
-    use std::marker::PhantomData;
-
     use crate::{
         split_column,
         style::{self, Icon, icon_text},
@@ -630,14 +645,12 @@ pub mod study {
 
     pub struct Configurator<S: Study> {
         expanded_card: Option<S>,
-        _phantom: PhantomData<S>,
     }
 
     impl<S: Study> Default for Configurator<S> {
         fn default() -> Self {
             Self {
                 expanded_card: None,
-                _phantom: PhantomData,
             }
         }
     }

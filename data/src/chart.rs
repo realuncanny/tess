@@ -130,3 +130,9 @@ impl From<exchange::Timeframe> for Basis {
         Self::Time(timeframe)
     }
 }
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum Study {
+    Heatmap(Vec<heatmap::HeatmapStudy>),
+    Footprint(Vec<kline::FootprintStudy>),
+}

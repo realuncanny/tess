@@ -276,40 +276,65 @@ impl Dashboard {
                             }
                         }
                     }
-                    pane::Message::VisualConfigChanged(pane, cfg) => {
-                        if let Some(pane) = pane {
-                            if let Some(state) = self.get_mut_pane(main_window.id, window, pane) {
-                                state.settings.visual_config = Some(cfg);
-                                state.content.change_visual_config(cfg);
-                            }
-                        } else {
-                            self.iter_all_panes_mut(main_window.id)
-                                .for_each(|(_, _, state)| {
-                                    let should_apply = match state.settings.visual_config {
-                                        Some(current_cfg) => {
-                                            std::mem::discriminant(&current_cfg)
-                                                == std::mem::discriminant(&cfg)
-                                        }
-                                        None => matches!(
-                                            (&cfg, &state.content),
-                                            (
-                                                data::chart::VisualConfig::Kline(_),
-                                                pane::Content::Kline(_, _)
-                                            ) | (
-                                                data::chart::VisualConfig::Heatmap(_),
-                                                pane::Content::Heatmap(_, _)
-                                            ) | (
-                                                data::chart::VisualConfig::TimeAndSales(_),
-                                                pane::Content::TimeAndSales(_)
-                                            )
-                                        ),
-                                    };
+                    pane::Message::VisualConfigChanged(pane, cfg, to_sync) => {
+                        if to_sync {
+                            if let Some(state) = self.get_pane(main_window.id, window, pane) {
+                                let studies_cfg = state.content.studies();
+                                let clusters_cfg = match &state.content {
+                                    pane::Content::Kline(chart, _) => match chart.kind() {
+                                        data::chart::KlineChartKind::Footprint {
+                                            clusters, ..
+                                        } => Some(clusters.clone()),
+                                        _ => None,
+                                    },
+                                    _ => None,
+                                };
 
-                                    if should_apply {
-                                        state.settings.visual_config = Some(cfg);
-                                        state.content.change_visual_config(cfg);
-                                    }
-                                });
+                                self.iter_all_panes_mut(main_window.id).for_each(
+                                    |(_, _, state)| {
+                                        let should_apply = match state.settings.visual_config {
+                                            Some(ref current_cfg) => {
+                                                std::mem::discriminant(current_cfg)
+                                                    == std::mem::discriminant(&cfg)
+                                            }
+                                            None => matches!(
+                                                (&cfg, &state.content),
+                                                (
+                                                    data::chart::VisualConfig::Kline(_),
+                                                    pane::Content::Kline(_, _)
+                                                ) | (
+                                                    data::chart::VisualConfig::Heatmap(_),
+                                                    pane::Content::Heatmap(_, _)
+                                                ) | (
+                                                    data::chart::VisualConfig::TimeAndSales(_),
+                                                    pane::Content::TimeAndSales(_)
+                                                )
+                                            ),
+                                        };
+
+                                        if should_apply {
+                                            state.settings.visual_config = Some(cfg);
+                                            state.content.change_visual_config(cfg);
+
+                                            if let Some(studies) = &studies_cfg {
+                                                state.content.update_studies(studies.clone());
+                                            }
+
+                                            if let Some(cluster_kind) = &clusters_cfg {
+                                                if let pane::Content::Kline(chart, _) =
+                                                    &mut state.content
+                                                {
+                                                    chart.set_cluster_kind(cluster_kind.clone());
+                                                }
+                                            }
+                                        }
+                                    },
+                                );
+                            }
+                        } else if let Some(state) = self.get_mut_pane(main_window.id, window, pane)
+                        {
+                            state.settings.visual_config = Some(cfg);
+                            state.content.change_visual_config(cfg);
                         }
                     }
                     pane::Message::InitPaneContent(
@@ -790,7 +815,7 @@ impl Dashboard {
         Task::none()
     }
 
-    fn get_pane(
+    pub fn get_pane(
         &self,
         main_window: window::Id,
         window: window::Id,

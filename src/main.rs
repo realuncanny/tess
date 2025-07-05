@@ -727,70 +727,94 @@ impl Flowsurface {
             sidebar::Menu::Layout => {
                 let main_window = self.main_window.id;
 
-                let (focused_window_id, pane) = if let Some((window_id, focus)) = dashboard.focus {
-                    (Some(window_id), focus)
+                let manage_pane = if let Some((window_id, pane_id)) = dashboard.focus {
+                    let selected_pane_str =
+                        if let Some(pane) = dashboard.get_pane(main_window, window_id, pane_id) {
+                            pane.content.name()
+                        } else {
+                            "".to_string()
+                        };
+
+                    let is_main_window = window_id == main_window;
+
+                    let reset_pane_button = {
+                        let btn = button(text("Reset").align_x(Alignment::Center))
+                            .width(iced::Length::Fill);
+                        if is_main_window {
+                            btn.on_press(Message::Dashboard(
+                                None,
+                                dashboard::Message::Pane(
+                                    main_window,
+                                    dashboard::pane::Message::ReplacePane(pane_id),
+                                ),
+                            ))
+                        } else {
+                            btn
+                        }
+                    };
+                    let split_pane_button = {
+                        let btn = button(text("Split").align_x(Alignment::Center))
+                            .width(iced::Length::Fill);
+                        if is_main_window {
+                            btn.on_press(Message::Dashboard(
+                                None,
+                                dashboard::Message::Pane(
+                                    main_window,
+                                    dashboard::pane::Message::SplitPane(
+                                        pane_grid::Axis::Horizontal,
+                                        pane_id,
+                                    ),
+                                ),
+                            ))
+                        } else {
+                            btn
+                        }
+                    };
+
+                    Some(
+                        column![
+                            text(selected_pane_str),
+                            row![
+                                tooltip(
+                                    reset_pane_button,
+                                    if is_main_window {
+                                        Some("Reset selected pane")
+                                    } else {
+                                        None
+                                    },
+                                    TooltipPosition::Top,
+                                ),
+                                tooltip(
+                                    split_pane_button,
+                                    if is_main_window {
+                                        Some("Split selected pane vertically")
+                                    } else {
+                                        None
+                                    },
+                                    TooltipPosition::Top,
+                                ),
+                            ]
+                            .spacing(8)
+                        ]
+                        .align_x(Alignment::Start)
+                        .spacing(8),
+                    )
                 } else {
-                    (None, *dashboard.panes.iter().next().unwrap().0)
+                    None
                 };
 
-                let reset_pane_button = tooltip(
-                    button(text("Reset").align_x(Alignment::Center))
-                        .width(iced::Length::Fill)
-                        .on_press(Message::Dashboard(
-                            None,
-                            dashboard::Message::Pane(
-                                main_window,
-                                dashboard::pane::Message::ReplacePane(pane),
-                            ),
-                        )),
-                    Some("Reset selected pane"),
-                    TooltipPosition::Top,
-                );
-                let split_pane_button = tooltip(
-                    button(text("Split").align_x(Alignment::Center))
-                        .width(iced::Length::Fill)
-                        .on_press(Message::Dashboard(
-                            None,
-                            dashboard::Message::Pane(
-                                main_window,
-                                dashboard::pane::Message::SplitPane(
-                                    pane_grid::Axis::Horizontal,
-                                    pane,
-                                ),
-                            ),
-                        )),
-                    Some("Split selected pane horizontally"),
-                    TooltipPosition::Top,
-                );
-
                 let manage_layout_modal = {
-                    container(
-                        column![
-                            column![
-                                text("Panes").size(14),
-                                match (dashboard.focus, focused_window_id) {
-                                    (Some((window_id, _)), Some(_)) if window_id == main_window => {
-                                        row![reset_pane_button, split_pane_button,].spacing(8)
-                                    }
-                                    (Some((_, _)), Some(_)) => {
-                                        row![text("Selected pane isn't in the main window"),]
-                                    }
-                                    _ => {
-                                        row![text("No pane selected"),]
-                                    }
-                                },
-                            ]
-                            .align_x(Alignment::Center)
-                            .spacing(8),
-                            iced::widget::horizontal_rule(1.0).style(style::split_ruler),
-                            self.layout_manager.view().map(Message::Layouts),
-                        ]
-                        .align_x(Alignment::Center)
-                        .spacing(20),
-                    )
-                    .width(260)
-                    .padding(24)
-                    .style(style::dashboard_modal)
+                    let mut col = column![];
+                    if let Some(manage_pane) = manage_pane {
+                        col = col.push(manage_pane);
+                        col =
+                            col.push(iced::widget::horizontal_rule(1.0).style(style::split_ruler));
+                    }
+                    col = col.push(self.layout_manager.view().map(Message::Layouts));
+                    container(col.align_x(Alignment::Center).spacing(20))
+                        .width(260)
+                        .padding(24)
+                        .style(style::dashboard_modal)
                 };
 
                 let (align_x, padding) = match sidebar_pos {

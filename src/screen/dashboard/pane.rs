@@ -78,7 +78,7 @@ pub enum Message {
     ReplacePane(pane_grid::Pane),
     ChartInteraction(pane_grid::Pane, chart::Message),
     PanelInteraction(pane_grid::Pane, panel::Message),
-    VisualConfigChanged(Option<pane_grid::Pane>, VisualConfig),
+    VisualConfigChanged(pane_grid::Pane, VisualConfig, bool),
     ToggleIndicator(pane_grid::Pane, String),
     Popout,
     Merge,
@@ -429,8 +429,15 @@ impl State {
 
                 let base = chart::view(chart, indicators, timezone)
                     .map(move |message| Message::ChartInteraction(id, message));
-                let settings_modal =
-                    || kline_cfg_view(chart.study_configurator(), chart_kind, id, chart.basis());
+                let settings_modal = || {
+                    kline_cfg_view(
+                        chart.study_configurator(),
+                        data::chart::kline::Config {},
+                        chart_kind,
+                        id,
+                        chart.basis(),
+                    )
+                };
 
                 self.compose_chart_view(base, id, indicators, settings_modal)
             }
@@ -925,6 +932,39 @@ impl Content {
                 panel.config = cfg;
             }
             _ => {}
+        }
+    }
+
+    pub fn studies(&self) -> Option<data::chart::Study> {
+        match &self {
+            Content::Heatmap(chart, _) => Some(data::chart::Study::Heatmap(chart.studies.clone())),
+            Content::Kline(chart, _) => chart.studies().map(data::chart::Study::Footprint),
+            Content::TimeAndSales(_) => None,
+            Content::Starter => None,
+        }
+    }
+
+    pub fn update_studies(&mut self, studies: data::chart::Study) {
+        match (self, studies) {
+            (Content::Heatmap(chart, _), data::chart::Study::Heatmap(studies)) => {
+                chart.studies = studies;
+            }
+            (Content::Kline(chart, _), data::chart::Study::Footprint(studies)) => {
+                chart.set_studies(studies);
+            }
+            _ => {}
+        }
+    }
+
+    pub fn name(&self) -> String {
+        match self {
+            Content::Heatmap(_, _) => "Heatmap chart".to_string(),
+            Content::Kline(chart, _) => match chart.kind() {
+                data::chart::KlineChartKind::Footprint { .. } => "Footprint chart".to_string(),
+                data::chart::KlineChartKind::Candles => "Candlestick chart".to_string(),
+            },
+            Content::TimeAndSales(_) => "Time & Sales".to_string(),
+            Content::Starter => "Starter pane".to_string(),
         }
     }
 }
