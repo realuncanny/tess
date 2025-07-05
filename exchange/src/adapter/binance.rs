@@ -926,16 +926,22 @@ pub async fn fetch_klines(
 pub async fn fetch_ticksize(
     market: MarketKind,
 ) -> Result<HashMap<Ticker, Option<TickerInfo>>, AdapterError> {
-    let (url, weight) = match market {
+    let (url, _weight) = match market {
         MarketKind::Spot => (SPOT_DOMAIN.to_string() + "/api/v3/exchangeInfo", 20),
         MarketKind::LinearPerps => (LINEAR_PERP_DOMAIN.to_string() + "/fapi/v1/exchangeInfo", 1),
         MarketKind::InversePerps => (INVERSE_PERP_DOMAIN.to_string() + "/dapi/v1/exchangeInfo", 1),
     };
 
-    let limiter = limiter_from_market_type(market);
-    let text = crate::limiter::http_request_with_limiter(&url, limiter, weight).await?;
+    let response_text = crate::limiter::HTTP_CLIENT
+        .get(&url)
+        .send()
+        .await
+        .map_err(AdapterError::FetchError)?
+        .text()
+        .await
+        .map_err(AdapterError::FetchError)?;
 
-    let exchange_info: serde_json::Value = serde_json::from_str(&text)
+    let exchange_info: serde_json::Value = serde_json::from_str(&response_text)
         .map_err(|e| AdapterError::ParseError(format!("Failed to parse exchange info: {e}")))?;
 
     let symbols = exchange_info["symbols"]

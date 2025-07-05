@@ -739,7 +739,14 @@ pub async fn fetch_ticksize(
     let url =
         format!("https://api.bybit.com/v5/market/instruments-info?category={market}&limit=1000",);
 
-    let response_text = http_request_with_limiter(&url, &BYBIT_LIMITER, 1).await?;
+    let response_text = crate::limiter::HTTP_CLIENT
+        .get(&url)
+        .send()
+        .await
+        .map_err(AdapterError::FetchError)?
+        .text()
+        .await
+        .map_err(AdapterError::FetchError)?;
 
     let exchange_info: Value =
         sonic_rs::from_str(&response_text).map_err(|e| AdapterError::ParseError(e.to_string()))?;

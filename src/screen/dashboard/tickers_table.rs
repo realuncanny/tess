@@ -365,15 +365,15 @@ impl TickersTable {
                     })
                 } else {
                     let fetch_tasks = {
-                        Exchange::ALL
-                            .iter()
+                        self.tickers_info
+                            .keys()
                             .map(|exchange| {
-                                Task::perform(fetch_ticker_prices(*exchange), move |result| {
+                                let exchange = *exchange;
+                                Task::perform(fetch_ticker_prices(exchange), move |result| {
                                     match result {
                                         Ok(ticker_rows) => {
-                                            Message::UpdateTickerStats(*exchange, ticker_rows)
+                                            Message::UpdateTickerStats(exchange, ticker_rows)
                                         }
-
                                         Err(err) => Message::ErrorOccurred(InternalError::Fetch(
                                             err.to_string(),
                                         )),
@@ -397,7 +397,6 @@ impl TickersTable {
                 let task =
                     Task::perform(fetch_ticker_prices(exchange), move |result| match result {
                         Ok(ticker_rows) => Message::UpdateTickerStats(exchange, ticker_rows),
-
                         Err(err) => Message::ErrorOccurred(InternalError::Fetch(err.to_string())),
                     });
 

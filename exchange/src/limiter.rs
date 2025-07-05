@@ -4,7 +4,7 @@ use reqwest::{Client, Response};
 use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
-static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
+pub static HTTP_CLIENT: LazyLock<Client> = LazyLock::new(Client::new);
 
 pub trait RateLimiter: Send + Sync {
     /// Prepare for a request with given weight. Returns wait time if needed.
@@ -36,7 +36,10 @@ pub async fn http_request_with_limiter<L: RateLimiter>(
         .map_err(AdapterError::FetchError)?;
 
     if limiter_guard.should_exit_on_response(&response) {
-        eprintln!("Rate limit exceeded for: {url}");
+        let status = response.status();
+        eprintln!(
+            "HTTP error {status} for: {url}. Exiting. (This may be a rate limit, geo-block, or other access issue.)",
+        );
         std::process::exit(1);
     }
 
