@@ -398,19 +398,21 @@ impl Flowsurface {
                 let (task, action) = self.sidebar.update(message);
 
                 match action {
-                    Some(dashboard::sidebar::Action::TickerSelected(
-                        ticker_info,
-                        exchange,
-                        content,
-                    )) => {
+                    Some(dashboard::sidebar::Action::TickerSelected(ticker_info, content)) => {
                         let main_window_id = self.main_window.id;
 
-                        let task = self.active_dashboard_mut().init_pane_task(
-                            main_window_id,
-                            ticker_info,
-                            exchange,
-                            &content,
-                        );
+                        let task = {
+                            if let Some(content_str) = content {
+                                self.active_dashboard_mut().init_focused_pane(
+                                    main_window_id,
+                                    ticker_info,
+                                    &content_str,
+                                )
+                            } else {
+                                self.active_dashboard_mut()
+                                    .switch_tickers_in_group(main_window_id, ticker_info)
+                            }
+                        };
 
                         return task.map(move |msg| Message::Dashboard(None, msg));
                     }
@@ -491,8 +493,8 @@ impl Flowsurface {
             content,
             &self.notifications,
             match sidebar_pos {
-                sidebar::Position::Left => Alignment::End,
-                sidebar::Position::Right => Alignment::Start,
+                sidebar::Position::Left => Alignment::Start,
+                sidebar::Position::Right => Alignment::End,
             },
             Message::RemoveNotification,
         )
@@ -729,8 +731,13 @@ impl Flowsurface {
 
                 let manage_pane = if let Some((window_id, pane_id)) = dashboard.focus {
                     let selected_pane_str =
-                        if let Some(pane) = dashboard.get_pane(main_window, window_id, pane_id) {
-                            pane.content.name()
+                        if let Some(state) = dashboard.get_pane(main_window, window_id, pane_id) {
+                            let link_group_name: String =
+                                state.link_group.as_ref().map_or_else(String::new, |g| {
+                                    " - Group ".to_string() + &g.to_string()
+                                });
+
+                            state.content.to_string() + &link_group_name
                         } else {
                             "".to_string()
                         };
@@ -771,46 +778,42 @@ impl Flowsurface {
                         }
                     };
 
-                    Some(
-                        column![
-                            text(selected_pane_str),
-                            row![
-                                tooltip(
-                                    reset_pane_button,
-                                    if is_main_window {
-                                        Some("Reset selected pane")
-                                    } else {
-                                        None
-                                    },
-                                    TooltipPosition::Top,
-                                ),
-                                tooltip(
-                                    split_pane_button,
-                                    if is_main_window {
-                                        Some("Split selected pane vertically")
-                                    } else {
-                                        None
-                                    },
-                                    TooltipPosition::Top,
-                                ),
-                            ]
-                            .spacing(8)
+                    column![
+                        text(selected_pane_str),
+                        row![
+                            tooltip(
+                                reset_pane_button,
+                                if is_main_window {
+                                    Some("Reset selected pane")
+                                } else {
+                                    None
+                                },
+                                TooltipPosition::Top,
+                            ),
+                            tooltip(
+                                split_pane_button,
+                                if is_main_window {
+                                    Some("Split selected pane horizontally")
+                                } else {
+                                    None
+                                },
+                                TooltipPosition::Top,
+                            ),
                         ]
-                        .align_x(Alignment::Start)
-                        .spacing(8),
-                    )
+                        .spacing(8)
+                    ]
+                    .spacing(8)
                 } else {
-                    None
+                    column![text("No pane selected"),].spacing(8)
                 };
 
                 let manage_layout_modal = {
-                    let mut col = column![];
-                    if let Some(manage_pane) = manage_pane {
-                        col = col.push(manage_pane);
-                        col =
-                            col.push(iced::widget::horizontal_rule(1.0).style(style::split_ruler));
-                    }
-                    col = col.push(self.layout_manager.view().map(Message::Layouts));
+                    let col = column![
+                        manage_pane,
+                        iced::widget::horizontal_rule(1.0).style(style::split_ruler),
+                        self.layout_manager.view().map(Message::Layouts)
+                    ];
+
                     container(col.align_x(Alignment::Center).spacing(20))
                         .width(260)
                         .padding(24)

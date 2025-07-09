@@ -12,7 +12,7 @@ use crate::{
         dashboard::panel::{self, timeandsales::TimeAndSales},
     },
     style::{self, Icon, icon_text},
-    widget::{self, button_with_tooltip, column_drag, toast::Toast},
+    widget::{self, button_with_tooltip, column_drag, link_group_button, toast::Toast},
     window::{self, Window},
 };
 use data::{
@@ -21,17 +21,17 @@ use data::{
         Basis, ViewConfig, VisualConfig,
         indicator::{HeatmapIndicator, Indicator, KlineIndicator},
     },
-    layout::pane::Settings,
+    layout::pane::{LinkGroup, Settings},
 };
 use exchange::{
     Kline, OpenInterest, TickMultiplier, Ticker, TickerInfo, Timeframe,
     adapter::{Exchange, MarketKind, StreamKind},
 };
 use iced::{
-    Alignment, Element, Length, Renderer, Task, Theme,
+    Alignment, Element, Length, Renderer, Theme,
     alignment::Vertical,
     padding,
-    widget::{button, center, pane_grid, row, text, tooltip},
+    widget::{button, center, column, container, pane_grid, row, text, tooltip},
 };
 use serde::{Deserialize, Serialize};
 use std::time::Instant;
@@ -56,6 +56,8 @@ pub enum Modal {
     StreamModifier(modal::stream::Modifier),
     Settings,
     Indicators,
+    LinkGroup,
+    Controls,
 }
 
 pub enum Action {
@@ -74,7 +76,6 @@ pub enum Message {
     Restore,
     ShowModal(pane_grid::Pane, Modal),
     HideModal(pane_grid::Pane),
-    InitPaneContent(String, Option<pane_grid::Pane>, Vec<StreamKind>, TickerInfo),
     ReplacePane(pane_grid::Pane),
     ChartInteraction(pane_grid::Pane, chart::Message),
     PanelInteraction(pane_grid::Pane, panel::Message),
@@ -87,6 +88,7 @@ pub enum Message {
     ClusterKindSelected(pane_grid::Pane, data::chart::kline::ClusterKind),
     StreamModifierChanged(pane_grid::Pane, modal::stream::Message),
     StudyConfigurator(pane_grid::Pane, modal::pane::settings::study::StudyMessage),
+    SwitchLinkGroup(pane_grid::Pane, Option<LinkGroup>),
 }
 
 pub struct State {
@@ -97,6 +99,7 @@ pub struct State {
     pub notifications: Vec<Toast>,
     pub streams: Vec<StreamKind>,
     pub status: Status,
+    pub link_group: Option<LinkGroup>,
 }
 
 impl State {
@@ -104,11 +107,17 @@ impl State {
         Self::default()
     }
 
-    pub fn from_config(content: Content, streams: Vec<StreamKind>, settings: Settings) -> Self {
+    pub fn from_config(
+        content: Content,
+        streams: Vec<StreamKind>,
+        settings: Settings,
+        link_group: Option<LinkGroup>,
+    ) -> Self {
         Self {
             content,
             settings,
             streams,
+            link_group,
             ..Default::default()
         }
     }
@@ -125,94 +134,21 @@ impl State {
             .next()
     }
 
-    pub fn init_content_task(
+    pub fn set_content_and_streams(
         &mut self,
-        content: &str,
-        exchange: Exchange,
         ticker_info: TickerInfo,
-        pane: pane_grid::Pane,
-    ) -> Task<Message> {
-        if (matches!(&self.content, Content::Heatmap(_, _)) && content != "heatmap")
-            || (matches!(&self.content, Content::Kline(_, _)) && content == "heatmap")
+        content_str: &str,
+    ) -> Result<Vec<StreamKind>, DashboardError> {
+        if (matches!(&self.content, Content::Heatmap(_, _)) && content_str != "heatmap")
+            || (matches!(&self.content, Content::Kline(_, _)) && content_str == "heatmap")
         {
             self.settings.selected_basis = None;
         }
 
-        let streams = match content {
-            "heatmap" | "time&sales" => {
-                vec![StreamKind::DepthAndTrades {
-                    exchange,
-                    ticker: ticker_info.ticker,
-                }]
-            }
-            "footprint" => {
-                let basis = self.settings.selected_basis.unwrap_or(Timeframe::M5.into());
-
-                match basis {
-                    Basis::Time(timeframe) => {
-                        vec![
-                            StreamKind::DepthAndTrades {
-                                exchange,
-                                ticker: ticker_info.ticker,
-                            },
-                            StreamKind::Kline {
-                                exchange,
-                                ticker: ticker_info.ticker,
-                                timeframe,
-                            },
-                        ]
-                    }
-                    Basis::Tick(_) => {
-                        vec![StreamKind::DepthAndTrades {
-                            exchange,
-                            ticker: ticker_info.ticker,
-                        }]
-                    }
-                }
-            }
-            "candlestick" => {
-                let basis = self
-                    .settings
-                    .selected_basis
-                    .unwrap_or(Timeframe::M15.into());
-
-                match basis {
-                    Basis::Time(timeframe) => {
-                        vec![StreamKind::Kline {
-                            exchange,
-                            ticker: ticker_info.ticker,
-                            timeframe,
-                        }]
-                    }
-                    Basis::Tick(_) => {
-                        vec![StreamKind::DepthAndTrades {
-                            exchange,
-                            ticker: ticker_info.ticker,
-                        }]
-                    }
-                }
-            }
-            _ => vec![],
-        };
-
-        self.streams.clone_from(&streams);
-
-        Task::done(Message::InitPaneContent(
-            content.to_string(),
-            Some(pane),
-            streams,
-            ticker_info,
-        ))
-    }
-
-    pub fn set_content(
-        &mut self,
-        ticker_info: TickerInfo,
-        content_str: &str,
-    ) -> Result<(), DashboardError> {
         self.settings.ticker_info = Some(ticker_info);
+        let (exchange, ticker) = (ticker_info.exchange(), ticker_info.ticker);
 
-        let new_content = match content_str {
+        let result = match content_str {
             "heatmap" => {
                 let tick_multiplier = Some(TickMultiplier(5));
                 self.settings.tick_multiply = tick_multiplier;
@@ -220,48 +156,88 @@ impl State {
                     tm.multiply_with_min_tick_size(ticker_info)
                 });
 
-                Content::new_heatmap(&self.content, ticker_info, &self.settings, tick_size)
+                let content =
+                    Content::new_heatmap(&self.content, ticker_info, &self.settings, tick_size);
+                let streams = vec![StreamKind::DepthAndTrades { exchange, ticker }];
+                Ok((content, streams))
             }
-            "footprint" | "candlestick" => {
-                let tick_multiplier = if content_str == "footprint" {
-                    Some(TickMultiplier(50))
-                } else {
-                    None
-                };
+            "footprint" => {
+                let tick_multiplier = Some(TickMultiplier(50));
                 self.settings.tick_multiply = tick_multiplier;
                 let tick_size = tick_multiplier.map_or(ticker_info.min_ticksize, |tm| {
                     tm.multiply_with_min_tick_size(ticker_info)
                 });
 
-                Content::new_kline(
+                let content = Content::new_kline(
                     content_str,
                     &self.content,
                     ticker_info,
                     &self.settings,
                     tick_size,
-                )
+                );
+
+                let basis = self.settings.selected_basis.unwrap_or(Timeframe::M5.into());
+                let streams = match basis {
+                    Basis::Time(timeframe) => vec![
+                        StreamKind::DepthAndTrades { exchange, ticker },
+                        StreamKind::Kline {
+                            exchange,
+                            ticker,
+                            timeframe,
+                        },
+                    ],
+                    Basis::Tick(_) => vec![StreamKind::DepthAndTrades { exchange, ticker }],
+                };
+                Ok((content, streams))
+            }
+            "candlestick" => {
+                self.settings.tick_multiply = None;
+                let tick_size = ticker_info.min_ticksize;
+
+                let content = Content::new_kline(
+                    content_str,
+                    &self.content,
+                    ticker_info,
+                    &self.settings,
+                    tick_size,
+                );
+
+                let basis = self
+                    .settings
+                    .selected_basis
+                    .unwrap_or(Timeframe::M15.into());
+                let streams = match basis {
+                    Basis::Time(timeframe) => vec![StreamKind::Kline {
+                        exchange,
+                        ticker,
+                        timeframe,
+                    }],
+                    Basis::Tick(_) => vec![StreamKind::DepthAndTrades { exchange, ticker }],
+                };
+                Ok((content, streams))
             }
             "time&sales" => {
-                self.settings.ticker_info = Some(ticker_info);
-
                 let config = self
                     .settings
                     .visual_config
                     .and_then(|cfg| cfg.time_and_sales());
-
-                Content::TimeAndSales(TimeAndSales::new(config, Some(ticker_info)))
+                let content = Content::TimeAndSales(TimeAndSales::new(config, Some(ticker_info)));
+                let streams = vec![StreamKind::DepthAndTrades { exchange, ticker }];
+                Ok((content, streams))
             }
-            _ => {
-                log::error!("content not found: {}", content_str);
-                return Err(DashboardError::PaneSet(format!(
-                    "content not found: {}",
-                    content_str
-                )));
-            }
+            _ => Err(DashboardError::PaneSet(format!(
+                "A content must be set first."
+            ))),
         };
 
-        self.content = new_content;
-        Ok(())
+        match result {
+            Ok((content, streams)) => {
+                self.content = content;
+                self.streams.clone_from(&streams);
+                Ok(streams)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     pub fn insert_oi_vec(&mut self, req_id: Option<uuid::Uuid>, oi: &[OpenInterest]) {
@@ -318,11 +294,13 @@ impl State {
         main_window: &'a Window,
         timezone: UserTimezone,
     ) -> pane_grid::Content<'a, Message, Theme, Renderer> {
-        let mut stream_info_element = row![]
-            .padding(padding::left(8))
-            .align_y(Vertical::Center)
-            .spacing(8)
-            .height(Length::Fixed(32.0));
+        let mut stream_info_element = if Content::Starter == self.content {
+            row![]
+        } else {
+            row![link_group_button(id, self.link_group, |id| {
+                Message::ShowModal(id, Modal::LinkGroup)
+            })]
+        };
 
         if let Some((exchange, ticker)) = self.stream_pair() {
             let exchange_icon = icon_text(style::exchange_icon(exchange), 14);
@@ -350,15 +328,53 @@ impl State {
             }
         });
 
+        let compact_controls = if self.modal == Some(Modal::Controls) {
+            Some(
+                container(self.view_controls(id, panes, maximized, window != main_window.id))
+                    .style(style::chart_modal)
+                    .into(),
+            )
+        } else {
+            None
+        };
+
         let body = match &self.content {
-            Content::Starter => center(text("select a ticker to start").size(16)).into(),
+            Content::Starter => {
+                let base: Element<_> = widget::toast::Manager::new(
+                    center(text("select a ticker to start").size(16)),
+                    &self.notifications,
+                    Alignment::End,
+                    move |msg| Message::DeleteNotification(id, msg),
+                )
+                .into();
+
+                if let Some(Modal::LinkGroup) = self.modal {
+                    link_group_modal(base, id, self.link_group)
+                } else if self.modal == Some(Modal::Controls) {
+                    stack_modal(
+                        base,
+                        container(self.view_controls(
+                            id,
+                            panes,
+                            maximized,
+                            window != main_window.id,
+                        ))
+                        .style(style::chart_modal),
+                        Message::HideModal(id),
+                        padding::left(12),
+                        Alignment::End,
+                    )
+                } else {
+                    base
+                }
+            }
             Content::TimeAndSales(panel) => {
                 let base = panel::view(panel, timezone)
                     .map(move |message| Message::PanelInteraction(id, message));
 
                 let settings_modal = || modal::pane::settings::timesales_cfg_view(panel.config, id);
 
-                self.compose_panel_view(base, id, settings_modal)
+                self.compose_panel_view(base, id, compact_controls, settings_modal)
             }
             Content::Heatmap(chart, indicators) => {
                 let selected_basis = self
@@ -390,7 +406,7 @@ impl State {
                     )
                 };
 
-                self.compose_chart_view(base, id, indicators, settings_modal)
+                self.compose_chart_view(base, id, indicators, compact_controls, settings_modal)
             }
             Content::Kline(chart, indicators) => {
                 let chart_kind = chart.kind();
@@ -439,7 +455,7 @@ impl State {
                     )
                 };
 
-                self.compose_chart_view(base, id, indicators, settings_modal)
+                self.compose_chart_view(base, id, indicators, compact_controls, settings_modal)
             }
         };
 
@@ -463,9 +479,37 @@ impl State {
         let content = pane_grid::Content::new(body)
             .style(move |theme| style::pane_background(theme, is_focused));
 
-        let title_bar = pane_grid::TitleBar::new(stream_info_element)
-            .controls(self.view_controls(id, panes, maximized, window != main_window.id))
-            .style(style::pane_title_bar);
+        let controls = {
+            let compact_control = container(
+                button(text("...").size(13).align_y(Alignment::End))
+                    .on_press(Message::ShowModal(id, Modal::Controls))
+                    .style(move |theme, status| {
+                        style::button::transparent(theme, status, self.modal.is_some())
+                    }),
+            )
+            .align_y(Alignment::Center)
+            .height(Length::Fixed(32.0))
+            .padding(4);
+
+            if self.modal == Some(Modal::Controls) {
+                pane_grid::Controls::new(compact_control)
+            } else {
+                pane_grid::Controls::dynamic(
+                    self.view_controls(id, panes, maximized, window != main_window.id),
+                    compact_control,
+                )
+            }
+        };
+
+        let title_bar = pane_grid::TitleBar::new(
+            stream_info_element
+                .padding(padding::left(4).top(1))
+                .align_y(Vertical::Center)
+                .spacing(8)
+                .height(Length::Fixed(32.0)),
+        )
+        .controls(controls)
+        .style(style::pane_title_bar);
 
         content.title_bar(if self.modal.is_none() {
             title_bar
@@ -560,7 +604,7 @@ impl State {
         }
 
         buttons
-            .padding(padding::right(4))
+            .padding(padding::right(4).left(4))
             .align_y(Vertical::Center)
             .height(Length::Fixed(32.0))
             .into()
@@ -571,6 +615,7 @@ impl State {
         base: Element<'a, Message>,
         pane: pane_grid::Pane,
         indicators: &'a [impl Indicator],
+        compact_controls: Option<Element<'a, Message>>,
         settings_modal: F,
     ) -> Element<'a, Message>
     where
@@ -608,6 +653,18 @@ impl State {
                 stack_padding,
                 Alignment::End,
             ),
+            Some(Modal::LinkGroup) => link_group_modal(base, pane, self.link_group),
+            Some(Modal::Controls) => stack_modal(
+                base,
+                if let Some(controls) = compact_controls {
+                    controls
+                } else {
+                    column![].into()
+                },
+                Message::HideModal(pane),
+                padding::left(12),
+                Alignment::End,
+            ),
             None => base,
         }
     }
@@ -616,6 +673,7 @@ impl State {
         &'a self,
         base: Element<'a, Message>,
         pane: pane_grid::Pane,
+        compact_controls: Option<Element<'a, Message>>,
         settings_modal: F,
     ) -> Element<'a, Message>
     where
@@ -629,16 +687,27 @@ impl State {
 
         let stack_padding = padding::right(12).left(12);
 
-        if let Some(Modal::Settings) = self.modal {
-            stack_modal(
+        match self.modal {
+            Some(Modal::Settings) => stack_modal(
                 base,
                 settings_modal(),
                 Message::HideModal(pane),
                 stack_padding,
                 Alignment::End,
-            )
-        } else {
-            base
+            ),
+            Some(Modal::LinkGroup) => link_group_modal(base, pane, self.link_group),
+            Some(Modal::Controls) => stack_modal(
+                base,
+                if let Some(controls) = compact_controls {
+                    controls
+                } else {
+                    column![].into()
+                },
+                Message::HideModal(pane),
+                padding::left(12),
+                Alignment::End,
+            ),
+            _ => base,
         }
     }
 
@@ -707,6 +776,7 @@ impl Default for State {
             streams: vec![],
             notifications: vec![],
             status: Status::Ready,
+            link_group: None,
         }
     }
 }
@@ -956,15 +1026,15 @@ impl Content {
         }
     }
 
-    pub fn name(&self) -> String {
+    pub fn identifier_str(&self) -> String {
         match self {
-            Content::Heatmap(_, _) => "Heatmap chart".to_string(),
+            Content::Starter => "starter".to_string(),
+            Content::Heatmap(_, _) => "heatmap".to_string(),
             Content::Kline(chart, _) => match chart.kind() {
-                data::chart::KlineChartKind::Footprint { .. } => "Footprint chart".to_string(),
-                data::chart::KlineChartKind::Candles => "Candlestick chart".to_string(),
+                data::chart::KlineChartKind::Footprint { .. } => "footprint".to_string(),
+                data::chart::KlineChartKind::Candles => "candlestick".to_string(),
             },
-            Content::TimeAndSales(_) => "Time & Sales".to_string(),
-            Content::Starter => "Starter pane".to_string(),
+            Content::TimeAndSales(_) => "time&sales".to_string(),
         }
     }
 }
@@ -978,9 +1048,72 @@ impl std::fmt::Display for Content {
                 data::chart::KlineChartKind::Footprint { .. } => write!(f, "Footprint chart"),
                 data::chart::KlineChartKind::Candles => write!(f, "Candlestick chart"),
             },
-            Content::TimeAndSales(_) => write!(f, "Time&Sales pane"),
+            Content::TimeAndSales(_) => write!(f, "Time&Sales"),
         }
     }
+}
+
+impl PartialEq for Content {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Content::Starter, Content::Starter) => true,
+            (Content::Heatmap(_, _), Content::Heatmap(_, _)) => true,
+            (Content::Kline(_, _), Content::Kline(_, _)) => true,
+            (Content::TimeAndSales(_), Content::TimeAndSales(_)) => true,
+            _ => false,
+        }
+    }
+}
+
+fn link_group_modal<'a>(
+    base: Element<'a, Message>,
+    pane: pane_grid::Pane,
+    selected_group: Option<LinkGroup>,
+) -> Element<'a, Message> {
+    let mut grid = column![].spacing(4);
+    let rows = LinkGroup::ALL.chunks(3);
+
+    for row_groups in rows {
+        let mut button_row = row![].spacing(4);
+
+        for &group in row_groups {
+            let is_selected = selected_group == Some(group);
+            let btn_content = text(group.to_string()).font(style::AZERET_MONO);
+
+            let btn = if is_selected {
+                button_with_tooltip(
+                    btn_content.align_x(iced::Alignment::Center),
+                    Message::SwitchLinkGroup(pane, None),
+                    Some("Unlink"),
+                    tooltip::Position::Bottom,
+                    move |theme, status| style::button::menu_body(theme, status, true),
+                )
+            } else {
+                button(btn_content.align_x(iced::Alignment::Center))
+                    .on_press(Message::SwitchLinkGroup(pane, Some(group)))
+                    .style(move |theme, status| style::button::menu_body(theme, status, false))
+                    .into()
+            };
+
+            button_row = button_row.push(btn);
+        }
+
+        grid = grid.push(button_row);
+    }
+
+    let content: Element<_> = container(grid)
+        .max_width(240)
+        .padding(16)
+        .style(style::chart_modal)
+        .into();
+
+    stack_modal(
+        base,
+        content,
+        Message::HideModal(pane),
+        padding::right(12).left(4),
+        Alignment::Start,
+    )
 }
 
 fn ticksize_modifier<'a>(

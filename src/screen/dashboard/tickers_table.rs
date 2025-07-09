@@ -1,6 +1,9 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::style::{self, ICONS_FONT, Icon, icon_text};
+use crate::{
+    style::{self, ICONS_FONT, Icon, icon_text},
+    widget::button_with_tooltip,
+};
 use data::InternalError;
 use exchange::{
     Ticker, TickerInfo, TickerStats,
@@ -38,7 +41,7 @@ pub fn fetch_tickers_info() -> Task<Message> {
 }
 
 pub enum Action {
-    TickerSelected(TickerInfo, Exchange, String),
+    TickerSelected(TickerInfo, Option<String>),
     ErrorOccurred(data::InternalError),
     Fetch(Task<Message>),
 }
@@ -86,7 +89,7 @@ pub enum Message {
     UpdateSearchQuery(String),
     ChangeSortOption(SortOptions),
     ShowSortingOptions,
-    TickerSelected(Ticker, Exchange, String),
+    TickerSelected(Ticker, Exchange, Option<String>),
     ExpandTickerCard(Option<(Ticker, Exchange)>),
     FavoriteTicker(Exchange, Ticker),
     Scrolled(scrollable::Viewport),
@@ -329,7 +332,7 @@ impl TickersTable {
                     self.selected_market = market;
                 }
             }
-            Message::TickerSelected(ticker, exchange, chart_type) => {
+            Message::TickerSelected(ticker, exchange, content) => {
                 let ticker_info = self
                     .tickers_info
                     .get(&exchange)
@@ -338,7 +341,7 @@ impl TickersTable {
                     .flatten();
 
                 if let Some(ticker_info) = ticker_info {
-                    return Some(Action::TickerSelected(ticker_info, exchange, chart_type));
+                    return Some(Action::TickerSelected(ticker_info, content));
                 } else {
                     log::warn!("Ticker info not found for {ticker:?} on {exchange:?}");
                 }
@@ -723,6 +726,14 @@ fn create_expanded_ticker_card<'a>(
             })
             .on_press(Message::FavoriteTicker(exchange, *ticker))
             .style(move |theme, status| style::button::transparent(theme, status, false)),
+            horizontal_space(),
+            button_with_tooltip(
+                icon_text(Icon::Link, 11),
+                Message::TickerSelected(*ticker, exchange, None),
+                Some("Use this ticker on selected pane/group"),
+                iced::widget::tooltip::Position::Top,
+                move |theme, status| style::button::transparent(theme, status, false)
+            ),
         ]
         .spacing(2),
         row![
@@ -828,7 +839,7 @@ fn sort_button(
 
 fn init_content_button<'a>(
     label: &'a str,
-    chart_type: &str,
+    content: &str,
     ticker: Ticker,
     exchange: Exchange,
     width: f32,
@@ -837,7 +848,7 @@ fn init_content_button<'a>(
         .on_press(Message::TickerSelected(
             ticker,
             exchange,
-            chart_type.to_string(),
+            Some(content.to_string()),
         ))
         .width(Length::Fixed(width))
 }
