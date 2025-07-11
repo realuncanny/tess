@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{WindowSpec, pane::Pane};
-use crate::layout::pane::ok_or_default;
+use crate::util::ok_or_default;
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct Dashboard {

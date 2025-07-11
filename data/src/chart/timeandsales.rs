@@ -1,5 +1,7 @@
 use serde::{Deserialize, Serialize};
 
+use crate::util::ok_or_default;
+
 const DEFAULT_BUFFER_SIZE: usize = 900;
 
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
@@ -7,6 +9,7 @@ pub struct Config {
     pub trade_size_filter: f32,
     #[serde(default = "default_buffer_filter")]
     pub buffer_filter: usize,
+    #[serde(deserialize_with = "ok_or_default", default)]
     pub stacked_bar_ratio: StackedBarRatio,
 }
 
@@ -33,47 +36,31 @@ pub struct TradeDisplay {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize, Default, Copy)]
 pub enum StackedBarRatio {
-    TotalVolume,
     #[default]
     Count,
     AverageSize,
-    VolumeImbalance,
+    Volume,
 }
 
 impl std::fmt::Display for StackedBarRatio {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            StackedBarRatio::TotalVolume => write!(f, "Total Volume"),
             StackedBarRatio::Count => write!(f, "Count"),
             StackedBarRatio::AverageSize => write!(f, "Average Size"),
-            StackedBarRatio::VolumeImbalance => write!(f, "Volume Imbalance"),
+            StackedBarRatio::Volume => write!(f, "Volume"),
         }
     }
 }
 
 impl StackedBarRatio {
-    pub const ALL: [StackedBarRatio; 4] = [
-        StackedBarRatio::TotalVolume,
+    pub const ALL: [StackedBarRatio; 3] = [
         StackedBarRatio::Count,
         StackedBarRatio::AverageSize,
-        StackedBarRatio::VolumeImbalance,
+        StackedBarRatio::Volume,
     ];
 
     pub fn calculate(&self, trades: &[TradeDisplay]) -> Option<(f32, f32)> {
         match self {
-            StackedBarRatio::TotalVolume => {
-                let (buy_volume, sell_volume) = trades.iter().fold((0.0, 0.0), |(buy, sell), t| {
-                    if t.is_sell {
-                        (buy, sell + t.qty)
-                    } else {
-                        (buy + t.qty, sell)
-                    }
-                });
-
-                let total_volume = buy_volume + sell_volume;
-                (total_volume > 0.0)
-                    .then(|| (buy_volume / total_volume, sell_volume / total_volume))
-            }
             StackedBarRatio::Count => {
                 let (buy_count, sell_count) = trades.iter().fold((0, 0), |(buy, sell), t| {
                     if t.is_sell {
@@ -118,7 +105,7 @@ impl StackedBarRatio {
                     )
                 })
             }
-            StackedBarRatio::VolumeImbalance => {
+            StackedBarRatio::Volume => {
                 let (buy_volume, sell_volume) = trades.iter().fold((0.0, 0.0), |(buy, sell), t| {
                     if t.is_sell {
                         (buy, sell + t.qty)

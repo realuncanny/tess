@@ -55,7 +55,11 @@ impl Chart for HeatmapChart {
         &mut self.chart
     }
 
-    fn invalidate(&mut self) {
+    fn invalidate_crosshair(&mut self) {
+        self.chart.cache.clear_crosshair();
+    }
+
+    fn invalidate_all(&mut self) {
         self.invalidate(None);
     }
 
@@ -1011,7 +1015,9 @@ fn draw_volume_profile(
                 Basis::Tick(_) => return,
             };
 
-            let latest = chart.latest_x;
+            let latest = chart
+                .latest_x
+                .min(chart.x_to_interval(region.x + region.width));
             let earliest = latest.saturating_sub((*datapoints as u64) * basis_interval);
 
             earliest..=latest

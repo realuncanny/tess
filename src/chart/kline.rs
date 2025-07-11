@@ -38,7 +38,14 @@ impl Chart for KlineChart {
         &mut self.chart
     }
 
-    fn invalidate(&mut self) {
+    fn invalidate_crosshair(&mut self) {
+        self.chart.cache.clear_crosshair();
+        self.indicators.iter_mut().for_each(|(_, data)| {
+            data.clear_crosshair();
+        });
+    }
+
+    fn invalidate_all(&mut self) {
         self.invalidate(None);
     }
 
@@ -138,10 +145,18 @@ enum IndicatorData {
 }
 
 impl IndicatorData {
-    fn clear_cache(&mut self) {
+    fn clear_all(&mut self) {
         match self {
             IndicatorData::Volume(caches, _) | IndicatorData::OpenInterest(caches, _) => {
                 caches.clear_all();
+            }
+        }
+    }
+
+    fn clear_crosshair(&mut self) {
+        match self {
+            IndicatorData::Volume(caches, _) | IndicatorData::OpenInterest(caches, _) => {
+                caches.clear_crosshair();
             }
         }
     }
@@ -833,9 +848,8 @@ impl KlineChart {
         }
 
         chart.cache.clear_all();
-
         self.indicators.iter_mut().for_each(|(_, data)| {
-            data.clear_cache();
+            data.clear_all();
         });
 
         if let Some(t) = now {

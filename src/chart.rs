@@ -48,8 +48,8 @@ pub enum AxisScaleClicked {
 pub enum Message {
     Translated(Vector),
     Scaled(f32, Vector),
-    AutoscaleToggle,
-    CrosshairToggle,
+    AutoscaleToggled,
+    CrosshairToggled,
     CrosshairMoved,
     YScaling(f32, f32, bool),
     XScaling(f32, f32, bool),
@@ -65,7 +65,9 @@ pub trait Chart: PlotConstants + canvas::Program<Message> {
 
     fn mut_state(&mut self) -> &mut ViewState;
 
-    fn invalidate(&mut self);
+    fn invalidate_all(&mut self);
+
+    fn invalidate_crosshair(&mut self);
 
     fn view_indicators(&self, enabled: &[Self::IndicatorType]) -> Vec<Element<Message>>;
 
@@ -87,18 +89,17 @@ fn canvas_interaction<T: Chart>(
     bounds: Rectangle,
     cursor: mouse::Cursor,
 ) -> Option<canvas::Action<Message>> {
-    if let Event::Mouse(mouse::Event::ButtonReleased(_)) = event {
-        *interaction = Interaction::None;
-    }
-
     if chart.state().bounds != bounds {
         return Some(canvas::Action::publish(Message::BoundsChanged(bounds)));
     }
 
-    let cursor_position = cursor.position_in(bounds.shrink(DRAG_SIZE * 4.0))?;
+    if let Event::Mouse(mouse::Event::ButtonReleased(_)) = event {
+        *interaction = Interaction::None;
+    }
 
     match event {
         Event::Mouse(mouse_event) => {
+            let cursor_position = cursor.position_in(bounds.shrink(DRAG_SIZE * 4.0))?;
             let state = chart.state();
 
             match mouse_event {
@@ -290,7 +291,7 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
 
             state.layout.autoscale = None;
         }
-        Message::AutoscaleToggle => {
+        Message::AutoscaleToggled => {
             let supports_fit_autoscaling = chart.supports_fit_autoscaling();
             let state = chart.mut_state();
 
@@ -312,10 +313,6 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
             if state.layout.autoscale.is_some() {
                 state.scaling = 1.0;
             }
-        }
-        Message::CrosshairToggle => {
-            let state = chart.mut_state();
-            state.layout.crosshair = !state.layout.crosshair;
         }
         Message::XScaling(delta, cursor_to_center_x, is_wheel_scroll) => {
             let min_cell_width = T::min_cell_width(chart);
@@ -460,10 +457,13 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
                 *split = (size * 100.0).round() / 100.0;
             }
         }
-        Message::CrosshairMoved => {}
+        Message::CrosshairMoved => return chart.invalidate_crosshair(),
+        Message::CrosshairToggled => {
+            let state = chart.mut_state();
+            state.layout.crosshair = !state.layout.crosshair;
+        }
     }
-
-    chart.invalidate();
+    chart.invalidate_all();
 }
 
 pub fn view<'a, T: Chart>(
@@ -507,7 +507,7 @@ pub fn view<'a, T: Chart>(
         )
         .width(Length::Shrink)
         .height(Length::Fill)
-        .on_press(Message::AutoscaleToggle)
+        .on_press(Message::AutoscaleToggled)
         .style(move |theme, status| {
             style::button::transparent(theme, status, state.layout.autoscale.is_some())
         });
@@ -515,7 +515,7 @@ pub fn view<'a, T: Chart>(
         let crosshair_button = button(text("+").size(10).align_x(alignment::Horizontal::Center))
             .width(Length::Shrink)
             .height(Length::Fill)
-            .on_press(Message::CrosshairToggle)
+            .on_press(Message::CrosshairToggled)
             .style(move |theme, status| {
                 style::button::transparent(theme, status, state.layout.crosshair)
             });
@@ -624,6 +624,12 @@ impl Caches {
         self.x_labels.clear();
         self.y_labels.clear();
         self.crosshair.clear();
+    }
+
+    fn clear_crosshair(&self) {
+        self.crosshair.clear();
+        self.y_labels.clear();
+        self.x_labels.clear();
     }
 }
 

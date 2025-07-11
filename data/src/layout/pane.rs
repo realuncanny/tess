@@ -1,6 +1,7 @@
 use exchange::{TickMultiplier, TickerInfo, adapter::StreamKind};
-use serde::{Deserialize, Deserializer, Serialize};
-use serde_json::Value;
+use serde::{Deserialize, Serialize};
+
+use crate::util::ok_or_default;
 
 use crate::chart::{
     Basis, ViewConfig, VisualConfig,
@@ -117,13 +118,4 @@ impl std::fmt::Display for LinkGroup {
         };
         write!(f, "{c}")
     }
-}
-
-pub fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, D::Error>
-where
-    T: Deserialize<'a> + Default,
-    D: Deserializer<'a>,
-{
-    let v: Value = Deserialize::deserialize(deserializer)?;
-    Ok(T::deserialize(v).unwrap_or_default())
 }

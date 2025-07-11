@@ -1,4 +1,14 @@
 use chrono::{DateTime, Datelike, Timelike};
+use serde::{Deserialize, Deserializer};
+
+pub fn ok_or_default<'a, T, D>(deserializer: D) -> Result<T, D::Error>
+where
+    T: Deserialize<'a> + Default,
+    D: Deserializer<'a>,
+{
+    let v: serde_json::Value = Deserialize::deserialize(deserializer)?;
+    Ok(T::deserialize(v).unwrap_or_default())
+}
 
 pub fn abbr_large_numbers(value: f32) -> String {
     let abs_value = value.abs();
