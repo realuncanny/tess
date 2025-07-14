@@ -523,8 +523,8 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
                         bounds,
                         x_min_region,
                         x_max_region,
-                        palette,
                         x_labels_can_fit,
+                        palette,
                     );
 
                     labels.extend(generated_labels);
