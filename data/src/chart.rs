@@ -3,18 +3,22 @@ pub mod indicator;
 pub mod kline;
 pub mod timeandsales;
 
-use super::aggr::{self, ticks::TickAggr, time::TimeSeries};
 use exchange::{Timeframe, adapter::Exchange};
 use serde::{Deserialize, Serialize};
 
+use super::aggr::{
+    self,
+    ticks::TickAggr,
+    time::{DataPoint, TimeSeries},
+};
 pub use kline::KlineChartKind;
 
-pub enum PlotData {
-    TimeBased(TimeSeries),
+pub enum PlotData<D: DataPoint> {
+    TimeBased(TimeSeries<D>),
     TickBased(TickAggr),
 }
 
-impl PlotData {
+impl<D: DataPoint> PlotData<D> {
     pub fn latest_y_midpoint(&self, calculate_target_y: impl Fn(exchange::Kline) -> f32) -> f32 {
         match self {
             PlotData::TimeBased(timeseries) => timeseries

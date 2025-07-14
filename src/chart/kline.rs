@@ -4,7 +4,7 @@ use super::{
 };
 use crate::{modal::pane::settings::study, style};
 use data::aggr::ticks::TickAggr;
-use data::aggr::time::TimeSeries;
+use data::aggr::time::{KlineDataPoint, TimeSeries};
 use data::chart::{
     KlineChartKind, ViewConfig,
     indicator::{Indicator, KlineIndicator},
@@ -210,7 +210,7 @@ impl PlotConstants for KlineChart {
 
 pub struct KlineChart {
     chart: ViewState,
-    data_source: PlotData,
+    data_source: PlotData<KlineDataPoint>,
     raw_trades: Vec<Trade>,
     indicators: HashMap<KlineIndicator, IndicatorData>,
     fetching_trades: (bool, Option<Handle>),
@@ -233,7 +233,8 @@ impl KlineChart {
     ) -> Self {
         match basis {
             Basis::Time(interval) => {
-                let timeseries = TimeSeries::new(interval, tick_size, &raw_trades, klines_raw);
+                let timeseries =
+                    TimeSeries::<KlineDataPoint>::new(interval, tick_size, &raw_trades, klines_raw);
 
                 let base_price_y = timeseries.base_price();
                 let latest_x = timeseries.latest_timestamp().unwrap_or(0);
@@ -409,7 +410,7 @@ impl KlineChart {
                 let timeframe = timeseries.interval.to_milliseconds();
 
                 let (visible_earliest, visible_latest) = self.visible_timerange();
-                let (kline_earliest, kline_latest) = timeseries.kline_timerange();
+                let (kline_earliest, kline_latest) = timeseries.timerange();
                 let earliest = visible_earliest - (visible_latest - visible_earliest);
 
                 // priority 1, basic kline data fetch
@@ -1161,7 +1162,7 @@ fn draw_candle_dp(
 }
 
 fn render_data_source<F>(
-    data_source: &PlotData,
+    data_source: &PlotData<KlineDataPoint>,
     frame: &mut canvas::Frame,
     earliest: u64,
     latest: u64,
@@ -1205,7 +1206,7 @@ fn render_data_source<F>(
 }
 
 fn draw_all_npocs(
-    data_source: &PlotData,
+    data_source: &PlotData<KlineDataPoint>,
     frame: &mut canvas::Frame,
     price_to_y: impl Fn(f32) -> f32,
     interval_to_x: impl Fn(u64) -> f32,
@@ -1609,7 +1610,7 @@ fn draw_cluster_text(
 }
 
 fn draw_crosshair_tooltip(
-    data: &PlotData,
+    data: &PlotData<KlineDataPoint>,
     frame: &mut canvas::Frame,
     palette: &Extended,
     at_interval: u64,

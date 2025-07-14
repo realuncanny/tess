@@ -1,3 +1,5 @@
+use crate::chart::Basis;
+use crate::chart::heatmap::GroupedTrade;
 use crate::chart::kline::{ClusterKind, KlineTrades, NPoc};
 use crate::util::round_to_tick;
 use exchange::{Kline, Timeframe, Trade};
@@ -5,12 +7,12 @@ use exchange::{Kline, Timeframe, Trade};
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 
-pub struct DataPoint {
+pub struct KlineDataPoint {
     pub kline: Kline,
     pub footprint: KlineTrades,
 }
 
-impl DataPoint {
+impl KlineDataPoint {
     pub fn max_cluster_qty(
         &self,
         cluster_kind: ClusterKind,
@@ -58,13 +60,247 @@ impl DataPoint {
     }
 }
 
-pub struct TimeSeries {
-    pub datapoints: BTreeMap<u64, DataPoint>,
+impl DataPoint for KlineDataPoint {
+    fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
+        self.add_trade(trade, tick_size);
+    }
+
+    fn clear_trades(&mut self) {
+        self.clear_trades();
+    }
+
+    fn last_trade_time(&self) -> Option<u64> {
+        self.last_trade_time()
+    }
+
+    fn first_trade_time(&self) -> Option<u64> {
+        self.first_trade_time()
+    }
+
+    fn last_price(&self) -> f32 {
+        self.kline.close
+    }
+
+    fn kline(&self) -> Option<&Kline> {
+        Some(&self.kline)
+    }
+
+    fn value_high(&self) -> f32 {
+        self.kline.high
+    }
+
+    fn value_low(&self) -> f32 {
+        self.kline.low
+    }
+}
+
+pub struct HeatmapDataPoint {
+    pub grouped_trades: Box<[GroupedTrade]>,
+    pub buy_sell: (f32, f32),
+}
+
+impl DataPoint for HeatmapDataPoint {
+    fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
+        let grouped_price = if trade.is_sell {
+            (trade.price * (1.0 / tick_size)).floor() * tick_size
+        } else {
+            (trade.price * (1.0 / tick_size)).ceil() * tick_size
+        };
+
+        match self
+            .grouped_trades
+            .binary_search_by(|probe| probe.compare_with(trade.price, trade.is_sell))
+        {
+            Ok(index) => self.grouped_trades[index].qty += trade.qty,
+            Err(index) => {
+                let mut trades = self.grouped_trades.to_vec();
+                trades.insert(
+                    index,
+                    GroupedTrade {
+                        is_sell: trade.is_sell,
+                        price: grouped_price,
+                        qty: trade.qty,
+                    },
+                );
+                self.grouped_trades = trades.into_boxed_slice();
+            }
+        }
+
+        if trade.is_sell {
+            self.buy_sell.1 += trade.qty;
+        } else {
+            self.buy_sell.0 += trade.qty;
+        }
+    }
+
+    fn clear_trades(&mut self) {
+        self.grouped_trades = Box::new([]);
+        self.buy_sell = (0.0, 0.0);
+    }
+
+    fn last_trade_time(&self) -> Option<u64> {
+        None
+    }
+
+    fn first_trade_time(&self) -> Option<u64> {
+        None
+    }
+
+    fn last_price(&self) -> f32 {
+        self.grouped_trades.last().map(|t| t.price).unwrap_or(0.0)
+    }
+
+    fn kline(&self) -> Option<&Kline> {
+        None
+    }
+
+    fn value_high(&self) -> f32 {
+        self.grouped_trades
+            .iter()
+            .map(|t| t.price)
+            .fold(f32::MIN, f32::max)
+    }
+
+    fn value_low(&self) -> f32 {
+        self.grouped_trades
+            .iter()
+            .map(|t| t.price)
+            .fold(f32::MAX, f32::min)
+    }
+}
+
+pub trait DataPoint {
+    fn add_trade(&mut self, trade: &Trade, tick_size: f32);
+
+    fn clear_trades(&mut self);
+
+    fn last_trade_time(&self) -> Option<u64>;
+
+    fn first_trade_time(&self) -> Option<u64>;
+
+    fn last_price(&self) -> f32;
+
+    fn kline(&self) -> Option<&Kline>;
+
+    fn value_high(&self) -> f32;
+
+    fn value_low(&self) -> f32;
+}
+
+pub struct TimeSeries<D: DataPoint> {
+    pub datapoints: BTreeMap<u64, D>,
     pub interval: Timeframe,
     pub tick_size: f32,
 }
 
-impl TimeSeries {
+impl<D: DataPoint> TimeSeries<D> {
+    pub fn base_price(&self) -> f32 {
+        self.datapoints
+            .values()
+            .last()
+            .map_or(0.0, |dp| dp.last_price())
+    }
+
+    pub fn latest_timestamp(&self) -> Option<u64> {
+        self.datapoints.keys().last().copied()
+    }
+
+    pub fn latest_kline(&self) -> Option<&Kline> {
+        self.datapoints.values().last().and_then(|dp| dp.kline())
+    }
+
+    pub fn price_scale(&self, lookback: usize) -> (f32, f32) {
+        let mut scale_high = 0.0f32;
+        let mut scale_low = f32::MAX;
+
+        self.datapoints
+            .iter()
+            .rev()
+            .take(lookback)
+            .for_each(|(_, dp)| {
+                scale_high = scale_high.max(dp.value_high());
+                scale_low = scale_low.min(dp.value_low());
+            });
+
+        (scale_high, scale_low)
+    }
+
+    pub fn volume_data<'a>(&'a self) -> BTreeMap<u64, (f32, f32)>
+    where
+        BTreeMap<u64, (f32, f32)>: From<&'a TimeSeries<D>>,
+    {
+        self.into()
+    }
+
+    pub fn timerange(&self) -> (u64, u64) {
+        let earliest = self.datapoints.keys().next().copied().unwrap_or(0);
+        let latest = self.datapoints.keys().last().copied().unwrap_or(0);
+
+        (earliest, latest)
+    }
+
+    pub fn min_max_price_in_range(&self, earliest: u64, latest: u64) -> Option<(f32, f32)> {
+        let mut min_price = OrderedFloat(f32::MAX);
+        let mut max_price = OrderedFloat(f32::MIN);
+
+        for (_, dp) in self.datapoints.range(earliest..=latest) {
+            min_price = min_price.min(OrderedFloat(dp.value_low()));
+            max_price = max_price.max(OrderedFloat(dp.value_high()));
+        }
+
+        if min_price.0 == f32::MAX || max_price.0 == f32::MIN {
+            None
+        } else {
+            Some((*min_price, *max_price))
+        }
+    }
+
+    pub fn clear_trades(&mut self) {
+        for data_point in self.datapoints.values_mut() {
+            data_point.clear_trades();
+        }
+    }
+
+    pub fn check_kline_integrity(
+        &self,
+        earliest: u64,
+        latest: u64,
+        interval: u64,
+    ) -> Option<Vec<u64>> {
+        let mut time = earliest;
+        let mut missing_count = 0;
+
+        while time < latest {
+            if !self.datapoints.contains_key(&time) {
+                missing_count += 1;
+                break;
+            }
+            time += interval;
+        }
+
+        if missing_count > 0 {
+            let mut missing_keys = Vec::with_capacity(((latest - earliest) / interval) as usize);
+            let mut time = earliest;
+
+            while time < latest {
+                if !self.datapoints.contains_key(&time) {
+                    missing_keys.push(time);
+                }
+                time += interval;
+            }
+
+            log::warn!(
+                "Integrity check failed: missing {} klines",
+                missing_keys.len()
+            );
+            return Some(missing_keys);
+        }
+
+        None
+    }
+}
+
+impl TimeSeries<KlineDataPoint> {
     pub fn new(
         interval: Timeframe,
         tick_size: f32,
@@ -86,63 +322,12 @@ impl TimeSeries {
         timeseries
     }
 
-    pub fn base_price(&self) -> f32 {
-        self.datapoints
-            .values()
-            .last()
-            .map_or(0.0, |dp| dp.kline.close)
-    }
-
-    pub fn latest_timestamp(&self) -> Option<u64> {
-        self.datapoints.keys().last().copied()
-    }
-
-    pub fn latest_kline(&self) -> Option<&Kline> {
-        self.datapoints.values().last().map(|dp| &dp.kline)
-    }
-
-    pub fn price_scale(&self, lookback: usize) -> (f32, f32) {
-        let mut scale_high = 0.0f32;
-        let mut scale_low = f32::MAX;
-
-        self.datapoints
-            .iter()
-            .rev()
-            .take(lookback)
-            .for_each(|(_, data_point)| {
-                scale_high = scale_high.max(data_point.kline.high);
-                scale_low = scale_low.min(data_point.kline.low);
-            });
-
-        (scale_high, scale_low)
-    }
-
-    pub fn volume_data(&self) -> BTreeMap<u64, (f32, f32)> {
-        self.into()
-    }
-
-    pub fn kline_timerange(&self) -> (u64, u64) {
-        let earliest = self.datapoints.keys().next().copied().unwrap_or(0);
-        let latest = self.datapoints.keys().last().copied().unwrap_or(0);
-
-        (earliest, latest)
-    }
-
-    pub fn change_tick_size(&mut self, tick_size: f32, all_raw_trades: &[Trade]) {
-        self.tick_size = tick_size;
-        self.clear_trades();
-
-        if !all_raw_trades.is_empty() {
-            self.insert_trades(all_raw_trades);
-        }
-    }
-
     pub fn insert_klines(&mut self, klines: &[Kline]) {
         for kline in klines {
             let entry = self
                 .datapoints
                 .entry(kline.time)
-                .or_insert_with(|| DataPoint {
+                .or_insert_with(|| KlineDataPoint {
                     kline: *kline,
                     footprint: KlineTrades::new(),
                 });
@@ -151,22 +336,6 @@ impl TimeSeries {
         }
 
         self.update_poc_status();
-    }
-
-    pub fn min_max_price_in_range(&self, earliest: u64, latest: u64) -> Option<(f32, f32)> {
-        let mut min_price = OrderedFloat(f32::MAX);
-        let mut max_price = OrderedFloat(f32::MIN);
-
-        for (_, data_point) in self.datapoints.range(earliest..=latest) {
-            min_price = min_price.min(OrderedFloat(data_point.kline.low));
-            max_price = max_price.max(OrderedFloat(data_point.kline.high));
-        }
-
-        if min_price.0 == f32::MAX || max_price.0 == f32::MIN {
-            None
-        } else {
-            Some((*min_price, *max_price))
-        }
     }
 
     pub fn insert_trades(&mut self, buffer: &[Trade]) {
@@ -186,7 +355,7 @@ impl TimeSeries {
             let entry = self
                 .datapoints
                 .entry(rounded_time)
-                .or_insert_with(|| DataPoint {
+                .or_insert_with(|| KlineDataPoint {
                     kline: Kline {
                         time: rounded_time,
                         open: trade.price,
@@ -205,6 +374,15 @@ impl TimeSeries {
             if let Some(data_point) = self.datapoints.get_mut(&time) {
                 data_point.calculate_poc();
             }
+        }
+    }
+
+    pub fn change_tick_size(&mut self, tick_size: f32, all_raw_trades: &[Trade]) {
+        self.tick_size = tick_size;
+        self.clear_trades();
+
+        if !all_raw_trades.is_empty() {
+            self.insert_trades(all_raw_trades);
         }
     }
 
@@ -249,13 +427,13 @@ impl TimeSeries {
                 if last_t_before_gap.is_none() && first_t_after_gap.is_none() {
                     return None;
                 }
-                let (kline_earliest, kline_latest) = self.kline_timerange();
+                let (data_earliest, data_latest) = self.timerange();
 
                 let fetch_from = last_t_before_gap
-                    .map_or(kline_earliest, |t| t.saturating_add(1))
+                    .map_or(data_earliest, |t| t.saturating_add(1))
                     .max(visible_earliest);
                 let fetch_to = first_t_after_gap
-                    .map_or(kline_latest, |t| t.saturating_sub(1))
+                    .map_or(data_latest, |t| t.saturating_sub(1))
                     .min(visible_latest);
 
                 if fetch_from < fetch_to {
@@ -311,55 +489,26 @@ impl TimeSeries {
 
         max_cluster_qty
     }
+}
 
-    pub fn clear_trades(&mut self) {
-        for data_point in self.datapoints.values_mut() {
-            data_point.clear_trades();
+impl TimeSeries<HeatmapDataPoint> {
+    pub fn new(basis: Basis, tick_size: f32) -> Self {
+        let timeframe = match basis {
+            Basis::Time(interval) => interval,
+            Basis::Tick(_) => unimplemented!(),
+        };
+
+        Self {
+            datapoints: BTreeMap::new(),
+            interval: timeframe,
+            tick_size,
         }
-    }
-
-    pub fn check_kline_integrity(
-        &self,
-        earliest: u64,
-        latest: u64,
-        interval: u64,
-    ) -> Option<Vec<u64>> {
-        let mut time = earliest;
-        let mut missing_count = 0;
-
-        while time < latest {
-            if !self.datapoints.contains_key(&time) {
-                missing_count += 1;
-                break;
-            }
-            time += interval;
-        }
-
-        if missing_count > 0 {
-            let mut missing_keys = Vec::with_capacity(((latest - earliest) / interval) as usize);
-            let mut time = earliest;
-
-            while time < latest {
-                if !self.datapoints.contains_key(&time) {
-                    missing_keys.push(time);
-                }
-                time += interval;
-            }
-
-            log::warn!(
-                "Integrity check failed: missing {} klines",
-                missing_keys.len()
-            );
-            return Some(missing_keys);
-        }
-
-        None
     }
 }
 
-impl From<&TimeSeries> for BTreeMap<u64, (f32, f32)> {
+impl From<&TimeSeries<KlineDataPoint>> for BTreeMap<u64, (f32, f32)> {
     /// Converts datapoints into a map of timestamps and volume data
-    fn from(timeseries: &TimeSeries) -> Self {
+    fn from(timeseries: &TimeSeries<KlineDataPoint>) -> Self {
         timeseries
             .datapoints
             .iter()
