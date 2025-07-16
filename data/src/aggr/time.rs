@@ -363,7 +363,7 @@ impl TimeSeries<HeatmapDataPoint> {
                     }
                 });
 
-                max_aggr_volume = max_aggr_volume.max(buy_volume).max(sell_volume);
+                max_aggr_volume = max_aggr_volume.max(buy_volume + sell_volume);
             });
 
         (max_trade_qty, max_aggr_volume)

@@ -652,47 +652,46 @@ impl canvas::Program<Message> for HeatmapChart {
 
                     if volume_indicator {
                         let bar_width = (chart.cell_width / 2.0) * 0.9;
+                        let area_height = (bounds.height / chart.scaling) * 0.1;
 
                         let (buy_volume, sell_volume) = dp.buy_sell;
 
-                        let buy_bar_height =
-                            (buy_volume / max_aggr_volume) * (bounds.height / chart.scaling) * 0.1;
-                        let sell_bar_height =
-                            (sell_volume / max_aggr_volume) * (bounds.height / chart.scaling) * 0.1;
-
-                        if buy_bar_height > sell_bar_height {
-                            frame.fill_rectangle(
-                                Point::new(x_position, (region.y + region.height) - buy_bar_height),
-                                Size::new(bar_width, buy_bar_height),
-                                palette.success.base.color,
-                            );
-
-                            frame.fill_rectangle(
-                                Point::new(
-                                    x_position,
-                                    (region.y + region.height) - sell_bar_height,
-                                ),
-                                Size::new(bar_width, sell_bar_height),
-                                palette.danger.base.color,
-                            );
-                        } else {
-                            frame.fill_rectangle(
-                                Point::new(
-                                    x_position,
-                                    (region.y + region.height) - sell_bar_height,
-                                ),
-                                Size::new(bar_width, sell_bar_height),
-                                palette.danger.base.color,
-                            );
-
-                            frame.fill_rectangle(
-                                Point::new(x_position, (region.y + region.height) - buy_bar_height),
-                                Size::new(bar_width, buy_bar_height),
-                                palette.success.base.color,
-                            );
-                        }
+                        super::draw_volume_bar(
+                            frame,
+                            x_position,
+                            (region.y + region.height) - area_height,
+                            buy_volume,
+                            sell_volume,
+                            max_aggr_volume,
+                            area_height,
+                            bar_width,
+                            palette.success.base.color,
+                            palette.danger.base.color,
+                            1.0,
+                            false,
+                        );
                     }
                 });
+
+            if volume_indicator && max_aggr_volume > 0.0 {
+                let text_size = 9.0 / chart.scaling;
+                let text_content = abbr_large_numbers(max_aggr_volume);
+                let text_width = (text_content.len() as f32 * text_size) / 1.5;
+
+                let text_position = Point::new(
+                    (region.x + region.width) - text_width,
+                    (region.y + region.height) - (bounds.height / chart.scaling) * 0.1 - text_size,
+                );
+
+                frame.fill_text(canvas::Text {
+                    content: text_content,
+                    position: text_position,
+                    size: text_size.into(),
+                    color: palette.background.base.text,
+                    font: style::AZERET_MONO,
+                    ..canvas::Text::default()
+                });
+            }
 
             let volume_profile = self.studies.iter().find_map(|study| match study {
                 HeatmapStudy::VolumeProfile(profile) => Some(profile),
@@ -726,26 +725,6 @@ impl canvas::Program<Message> for HeatmapChart {
                     &self.trades,
                     area_width,
                 );
-            }
-
-            if volume_indicator && max_aggr_volume > 0.0 {
-                let text_size = 9.0 / chart.scaling;
-                let text_content = abbr_large_numbers(max_aggr_volume);
-                let text_width = (text_content.len() as f32 * text_size) / 1.5;
-
-                let text_position = Point::new(
-                    (region.x + region.width) - text_width,
-                    (region.y + region.height) - (bounds.height / chart.scaling) * 0.1 - text_size,
-                );
-
-                frame.fill_text(canvas::Text {
-                    content: text_content,
-                    position: text_position,
-                    size: iced::Pixels(text_size),
-                    color: palette.background.base.text,
-                    font: style::AZERET_MONO,
-                    ..canvas::Text::default()
-                });
             }
 
             let is_paused = chart.translation.x * chart.scaling > chart.bounds.width / 2.0;
@@ -1003,18 +982,19 @@ fn draw_volume_profile(
                 let next_y_position = chart.price_to_y(price + tick_size);
                 let bar_height = (next_y_position - y_position).abs();
 
-                super::draw_horizontal_volume_bars(
+                super::draw_volume_bar(
                     frame,
                     region.x,
                     y_position,
                     *buy_v,
                     *sell_v,
                     max_aggr_volume,
-                    bar_height,
                     area_width,
+                    bar_height,
                     palette.success.weak.color,
                     palette.danger.weak.color,
                     1.0,
+                    true,
                 );
             }
         });

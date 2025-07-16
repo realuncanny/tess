@@ -1335,18 +1335,19 @@ fn draw_clusters(
 
                 let start_x = x_position + (candle_width / 4.0);
 
-                super::draw_horizontal_volume_bars(
+                super::draw_volume_bar(
                     frame,
                     start_x,
                     y_position,
                     group.buy_qty,
                     group.sell_qty,
                     max_cluster_qty,
-                    cell_height,
                     cell_width * 0.8,
+                    cell_height,
                     palette.success.base.color,
                     palette.danger.base.color,
                     bar_color_alpha,
+                    true,
                 );
 
                 if should_show_text {

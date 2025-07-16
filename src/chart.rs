@@ -901,47 +901,71 @@ fn request_fetch(handler: &mut RequestHandler, range: FetchRange) -> Option<Acti
     }
 }
 
-fn draw_horizontal_volume_bars(
+fn draw_volume_bar(
     frame: &mut canvas::Frame,
     start_x: f32,
-    y_position: f32,
+    start_y: f32,
     buy_qty: f32,
     sell_qty: f32,
     max_qty: f32,
-    bar_height: f32,
-    width_factor: f32,
+    bar_length: f32,
+    thickness: f32,
     buy_color: iced::Color,
     sell_color: iced::Color,
     bar_color_alpha: f32,
+    horizontal: bool,
 ) {
     let total_qty = buy_qty + sell_qty;
-    if total_qty <= 0.0 {
+    if total_qty <= 0.0 || max_qty <= 0.0 {
         return;
     }
 
-    let total_bar_width = (total_qty / max_qty) * width_factor;
+    let total_bar_length = (total_qty / max_qty) * bar_length;
 
     let buy_proportion = buy_qty / total_qty;
     let sell_proportion = sell_qty / total_qty;
 
-    let buy_bar_width = buy_proportion * total_bar_width;
-    let sell_bar_width = sell_proportion * total_bar_width;
+    let buy_bar_length = buy_proportion * total_bar_length;
+    let sell_bar_length = sell_proportion * total_bar_length;
 
-    let start_y = y_position - (bar_height / 2.0);
+    if horizontal {
+        let start_y = start_y - (thickness / 2.0);
 
-    if sell_qty > 0.0 {
-        frame.fill_rectangle(
-            Point::new(start_x, start_y),
-            Size::new(sell_bar_width, bar_height),
-            sell_color.scale_alpha(bar_color_alpha),
-        );
-    }
+        if sell_qty > 0.0 {
+            frame.fill_rectangle(
+                Point::new(start_x, start_y),
+                Size::new(sell_bar_length, thickness),
+                sell_color.scale_alpha(bar_color_alpha),
+            );
+        }
 
-    if buy_qty > 0.0 {
-        frame.fill_rectangle(
-            Point::new(start_x + sell_bar_width, start_y),
-            Size::new(buy_bar_width, bar_height),
-            buy_color.scale_alpha(bar_color_alpha),
-        );
+        if buy_qty > 0.0 {
+            frame.fill_rectangle(
+                Point::new(start_x + sell_bar_length, start_y),
+                Size::new(buy_bar_length, thickness),
+                buy_color.scale_alpha(bar_color_alpha),
+            );
+        }
+    } else {
+        let start_x = start_x - (thickness / 2.0);
+
+        if sell_qty > 0.0 {
+            frame.fill_rectangle(
+                Point::new(start_x, start_y + (bar_length - sell_bar_length)),
+                Size::new(thickness, sell_bar_length),
+                sell_color.scale_alpha(bar_color_alpha),
+            );
+        }
+
+        if buy_qty > 0.0 {
+            frame.fill_rectangle(
+                Point::new(
+                    start_x,
+                    start_y + (bar_length - sell_bar_length - buy_bar_length),
+                ),
+                Size::new(thickness, buy_bar_length),
+                buy_color.scale_alpha(bar_color_alpha),
+            );
+        }
     }
 }
