@@ -4,12 +4,11 @@ use super::{
 };
 use crate::{modal::pane::settings::study, style};
 use data::aggr::ticks::TickAggr;
-use data::aggr::time::{KlineDataPoint, TimeSeries};
+use data::aggr::time::TimeSeries;
 use data::chart::{
     KlineChartKind, ViewConfig,
     indicator::{Indicator, KlineIndicator},
-    kline::PointOfControl,
-    kline::{ClusterKind, FootprintStudy, KlineTrades, NPoc},
+    kline::{ClusterKind, FootprintStudy, KlineDataPoint, KlineTrades, NPoc, PointOfControl},
 };
 use data::util::{abbr_large_numbers, count_decimals, round_to_tick};
 use exchange::{

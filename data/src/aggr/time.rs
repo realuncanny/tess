@@ -1,173 +1,12 @@
-use crate::chart::Basis;
-use crate::chart::heatmap::GroupedTrade;
-use crate::chart::kline::{ClusterKind, KlineTrades, NPoc};
-use crate::util::round_to_tick;
-use exchange::{Kline, Timeframe, Trade};
-
 use ordered_float::OrderedFloat;
 use std::collections::BTreeMap;
 
-pub struct KlineDataPoint {
-    pub kline: Kline,
-    pub footprint: KlineTrades,
-}
+use crate::chart::Basis;
+use crate::chart::heatmap::HeatmapDataPoint;
+use crate::chart::kline::{ClusterKind, KlineDataPoint, KlineTrades, NPoc};
+use crate::util::round_to_tick;
 
-impl KlineDataPoint {
-    pub fn max_cluster_qty(
-        &self,
-        cluster_kind: ClusterKind,
-        highest: OrderedFloat<f32>,
-        lowest: OrderedFloat<f32>,
-    ) -> f32 {
-        match cluster_kind {
-            ClusterKind::BidAsk => self.footprint.max_qty_by(highest, lowest, f32::max),
-            ClusterKind::DeltaProfile => self
-                .footprint
-                .max_qty_by(highest, lowest, |buy, sell| (buy - sell).abs()),
-            ClusterKind::VolumeProfile => {
-                self.footprint
-                    .max_qty_by(highest, lowest, |buy, sell| buy + sell)
-            }
-        }
-    }
-
-    pub fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
-        self.footprint.add_trade_at_price_level(trade, tick_size);
-    }
-
-    pub fn poc_price(&self) -> Option<f32> {
-        self.footprint.poc_price()
-    }
-
-    pub fn set_poc_status(&mut self, status: NPoc) {
-        self.footprint.set_poc_status(status);
-    }
-
-    pub fn clear_trades(&mut self) {
-        self.footprint.clear();
-    }
-
-    pub fn calculate_poc(&mut self) {
-        self.footprint.calculate_poc();
-    }
-
-    pub fn last_trade_time(&self) -> Option<u64> {
-        self.footprint.last_trade_t()
-    }
-
-    pub fn first_trade_time(&self) -> Option<u64> {
-        self.footprint.first_trade_t()
-    }
-}
-
-impl DataPoint for KlineDataPoint {
-    fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
-        self.add_trade(trade, tick_size);
-    }
-
-    fn clear_trades(&mut self) {
-        self.clear_trades();
-    }
-
-    fn last_trade_time(&self) -> Option<u64> {
-        self.last_trade_time()
-    }
-
-    fn first_trade_time(&self) -> Option<u64> {
-        self.first_trade_time()
-    }
-
-    fn last_price(&self) -> f32 {
-        self.kline.close
-    }
-
-    fn kline(&self) -> Option<&Kline> {
-        Some(&self.kline)
-    }
-
-    fn value_high(&self) -> f32 {
-        self.kline.high
-    }
-
-    fn value_low(&self) -> f32 {
-        self.kline.low
-    }
-}
-
-pub struct HeatmapDataPoint {
-    pub grouped_trades: Box<[GroupedTrade]>,
-    pub buy_sell: (f32, f32),
-}
-
-impl DataPoint for HeatmapDataPoint {
-    fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
-        let grouped_price = if trade.is_sell {
-            (trade.price * (1.0 / tick_size)).floor() * tick_size
-        } else {
-            (trade.price * (1.0 / tick_size)).ceil() * tick_size
-        };
-
-        match self
-            .grouped_trades
-            .binary_search_by(|probe| probe.compare_with(trade.price, trade.is_sell))
-        {
-            Ok(index) => self.grouped_trades[index].qty += trade.qty,
-            Err(index) => {
-                let mut trades = self.grouped_trades.to_vec();
-                trades.insert(
-                    index,
-                    GroupedTrade {
-                        is_sell: trade.is_sell,
-                        price: grouped_price,
-                        qty: trade.qty,
-                    },
-                );
-                self.grouped_trades = trades.into_boxed_slice();
-            }
-        }
-
-        if trade.is_sell {
-            self.buy_sell.1 += trade.qty;
-        } else {
-            self.buy_sell.0 += trade.qty;
-        }
-    }
-
-    fn clear_trades(&mut self) {
-        self.grouped_trades = Box::new([]);
-        self.buy_sell = (0.0, 0.0);
-    }
-
-    fn last_trade_time(&self) -> Option<u64> {
-        None
-    }
-
-    fn first_trade_time(&self) -> Option<u64> {
-        None
-    }
-
-    fn last_price(&self) -> f32 {
-        self.grouped_trades.last().map(|t| t.price).unwrap_or(0.0)
-    }
-
-    fn kline(&self) -> Option<&Kline> {
-        None
-    }
-
-    fn value_high(&self) -> f32 {
-        self.grouped_trades
-            .iter()
-            .map(|t| t.price)
-            .fold(f32::MIN, f32::max)
-    }
-
-    fn value_low(&self) -> f32 {
-        self.grouped_trades
-            .iter()
-            .map(|t| t.price)
-            .fold(f32::MAX, f32::min)
-    }
-}
+use exchange::{Kline, Timeframe, Trade};
 
 pub trait DataPoint {
     fn add_trade(&mut self, trade: &Trade, tick_size: f32);
@@ -503,6 +342,31 @@ impl TimeSeries<HeatmapDataPoint> {
             interval: timeframe,
             tick_size,
         }
+    }
+
+    pub fn max_trade_qty_and_aggr_volume(&self, earliest: u64, latest: u64) -> (f32, f32) {
+        let mut max_trade_qty = 0.0f32;
+        let mut max_aggr_volume = 0.0f32;
+
+        self.datapoints
+            .range(earliest..=latest)
+            .for_each(|(_, dp)| {
+                let (mut buy_volume, mut sell_volume) = (0.0, 0.0);
+
+                dp.grouped_trades.iter().for_each(|trade| {
+                    max_trade_qty = max_trade_qty.max(trade.qty);
+
+                    if trade.is_sell {
+                        sell_volume += trade.qty;
+                    } else {
+                        buy_volume += trade.qty;
+                    }
+                });
+
+                max_aggr_volume = max_aggr_volume.max(buy_volume).max(sell_volume);
+            });
+
+        (max_trade_qty, max_aggr_volume)
     }
 }
 

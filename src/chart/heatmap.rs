@@ -5,18 +5,19 @@ use crate::{
     style,
 };
 use data::{
+    aggr::time::DataPoint,
+    util::{abbr_large_numbers, count_decimals},
+};
+use data::{
     aggr::time::TimeSeries,
     chart::{
         Basis, ViewConfig,
         heatmap::{
-            CLEANUP_THRESHOLD, Config, HeatmapStudy, HistoricalDepth, ProfileKind, QtyScale,
+            CLEANUP_THRESHOLD, Config, HeatmapDataPoint, HeatmapStudy, HistoricalDepth,
+            ProfileKind, QtyScale,
         },
         indicator::HeatmapIndicator,
     },
-};
-use data::{
-    aggr::time::{DataPoint, HeatmapDataPoint},
-    util::{abbr_large_numbers, count_decimals},
 };
 use exchange::{TickerInfo, Trade, adapter::MarketKind, depth::Depth};
 
@@ -96,7 +97,7 @@ impl Chart for HeatmapChart {
     }
 
     fn is_empty(&self) -> bool {
-        self.timeseries.datapoints.is_empty()
+        self.trades.datapoints.is_empty()
     }
 }
 
@@ -136,7 +137,7 @@ enum IndicatorData {
 
 pub struct HeatmapChart {
     chart: ViewState,
-    timeseries: TimeSeries<HeatmapDataPoint>,
+    trades: TimeSeries<HeatmapDataPoint>,
     indicators: HashMap<HeatmapIndicator, IndicatorData>,
     pause_buffer: Vec<(u64, Box<[Trade]>, Depth)>,
     heatmap: HistoricalDepth,
@@ -184,7 +185,7 @@ impl HeatmapChart {
                 tick_size,
                 basis,
             ),
-            timeseries: TimeSeries::<HeatmapDataPoint>::new(basis, tick_size),
+            trades: TimeSeries::<HeatmapDataPoint>::new(basis, tick_size),
             visual_config: config.unwrap_or_default(),
             study_configurator: study::Configurator::new(),
             studies,
@@ -228,9 +229,9 @@ impl HeatmapChart {
     }
 
     fn cleanup_old_data(&mut self) {
-        if self.timeseries.datapoints.len() > CLEANUP_THRESHOLD {
+        if self.trades.datapoints.len() > CLEANUP_THRESHOLD {
             let keys_to_remove = self
-                .timeseries
+                .trades
                 .datapoints
                 .keys()
                 .take(CLEANUP_THRESHOLD / 10)
@@ -238,10 +239,10 @@ impl HeatmapChart {
                 .collect::<Vec<u64>>();
 
             for key in keys_to_remove {
-                self.timeseries.datapoints.remove(&key);
+                self.trades.datapoints.remove(&key);
             }
 
-            if let Some(oldest_time) = self.timeseries.datapoints.keys().next().copied() {
+            if let Some(oldest_time) = self.trades.datapoints.keys().next().copied() {
                 self.heatmap.cleanup_old_price_levels(oldest_time);
             }
         }
@@ -259,7 +260,7 @@ impl HeatmapChart {
 
         {
             let entry = self
-                .timeseries
+                .trades
                 .datapoints
                 .entry(rounded_depth_update)
                 .or_insert_with(|| HeatmapDataPoint {
@@ -295,7 +296,7 @@ impl HeatmapChart {
     pub fn set_basis(&mut self, basis: Basis) {
         self.chart.basis = basis;
 
-        self.timeseries.datapoints.clear();
+        self.trades.datapoints.clear();
         self.heatmap = HistoricalDepth::new(
             self.chart
                 .ticker_info
@@ -363,7 +364,7 @@ impl HeatmapChart {
         chart_state.tick_size = new_tick_size;
         chart_state.decimals = count_decimals(new_tick_size);
 
-        self.timeseries.datapoints.clear();
+        self.trades.datapoints.clear();
         self.heatmap = HistoricalDepth::new(
             self.chart
                 .ticker_info
@@ -421,50 +422,17 @@ impl HeatmapChart {
             None => return QtyScale::default(),
         };
 
-        let (mut max_aggr_volume, mut max_trade_qty) = (0.0f32, 0.0f32);
-        let mut max_depth_qty = 0.0f32;
+        let (max_trade_qty, max_aggr_volume) =
+            self.trades.max_trade_qty_and_aggr_volume(earliest, latest);
 
-        self.timeseries
-            .datapoints
-            .range(earliest..=latest)
-            .for_each(|(_, dp)| {
-                let (mut buy_volume, mut sell_volume) = (0.0, 0.0);
-
-                dp.grouped_trades.iter().for_each(|trade| {
-                    max_trade_qty = max_trade_qty.max(trade.qty);
-
-                    if trade.is_sell {
-                        sell_volume += trade.qty;
-                    } else {
-                        buy_volume += trade.qty;
-                    }
-                });
-
-                max_aggr_volume = max_aggr_volume.max(buy_volume).max(sell_volume);
-            });
-
-        self.heatmap
-            .iter_time_filtered(earliest, latest, highest, lowest)
-            .for_each(|(price, runs)| {
-                runs.iter()
-                    .filter_map(|run| {
-                        let visible_run = run.with_range(earliest, latest)?;
-
-                        let order_size = match market_type {
-                            MarketKind::InversePerps => visible_run.qty(),
-                            _ => **price * visible_run.qty(),
-                        };
-
-                        if order_size > self.visual_config.order_size_filter {
-                            Some(visible_run)
-                        } else {
-                            None
-                        }
-                    })
-                    .for_each(|run| {
-                        max_depth_qty = max_depth_qty.max(run.qty());
-                    });
-            });
+        let max_depth_qty = self.heatmap.max_depth_qty_in_range(
+            earliest,
+            latest,
+            highest,
+            lowest,
+            market_type,
+            self.visual_config.order_size_filter,
+        );
 
         QtyScale {
             max_trade_qty,
@@ -602,7 +570,7 @@ impl canvas::Program<Message> for HeatmapChart {
                     });
             }
 
-            if let Some(latest_timestamp) = self.timeseries.latest_timestamp() {
+            if let Some(latest_timestamp) = self.trades.latest_timestamp() {
                 let max_qty = self
                     .heatmap
                     .latest_order_runs(highest, lowest, latest_timestamp)
@@ -642,7 +610,7 @@ impl canvas::Program<Message> for HeatmapChart {
                 }
             };
 
-            self.timeseries
+            self.trades
                 .datapoints
                 .range(earliest..=latest)
                 .for_each(|(time, dp)| {
@@ -755,7 +723,7 @@ impl canvas::Program<Message> for HeatmapChart {
                     profile_kind,
                     palette,
                     chart,
-                    &self.timeseries,
+                    &self.trades,
                     area_width,
                 );
             }

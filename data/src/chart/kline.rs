@@ -1,10 +1,97 @@
 use std::collections::HashMap;
 
-use exchange::Trade;
+use exchange::{Kline, Trade};
 use ordered_float::OrderedFloat;
 use serde::{Deserialize, Serialize};
 
-use crate::util::round_to_tick;
+use crate::{aggr::time::DataPoint, util::round_to_tick};
+
+pub struct KlineDataPoint {
+    pub kline: Kline,
+    pub footprint: KlineTrades,
+}
+
+impl KlineDataPoint {
+    pub fn max_cluster_qty(
+        &self,
+        cluster_kind: ClusterKind,
+        highest: OrderedFloat<f32>,
+        lowest: OrderedFloat<f32>,
+    ) -> f32 {
+        match cluster_kind {
+            ClusterKind::BidAsk => self.footprint.max_qty_by(highest, lowest, f32::max),
+            ClusterKind::DeltaProfile => self
+                .footprint
+                .max_qty_by(highest, lowest, |buy, sell| (buy - sell).abs()),
+            ClusterKind::VolumeProfile => {
+                self.footprint
+                    .max_qty_by(highest, lowest, |buy, sell| buy + sell)
+            }
+        }
+    }
+
+    pub fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
+        self.footprint.add_trade_at_price_level(trade, tick_size);
+    }
+
+    pub fn poc_price(&self) -> Option<f32> {
+        self.footprint.poc_price()
+    }
+
+    pub fn set_poc_status(&mut self, status: NPoc) {
+        self.footprint.set_poc_status(status);
+    }
+
+    pub fn clear_trades(&mut self) {
+        self.footprint.clear();
+    }
+
+    pub fn calculate_poc(&mut self) {
+        self.footprint.calculate_poc();
+    }
+
+    pub fn last_trade_time(&self) -> Option<u64> {
+        self.footprint.last_trade_t()
+    }
+
+    pub fn first_trade_time(&self) -> Option<u64> {
+        self.footprint.first_trade_t()
+    }
+}
+
+impl DataPoint for KlineDataPoint {
+    fn add_trade(&mut self, trade: &Trade, tick_size: f32) {
+        self.add_trade(trade, tick_size);
+    }
+
+    fn clear_trades(&mut self) {
+        self.clear_trades();
+    }
+
+    fn last_trade_time(&self) -> Option<u64> {
+        self.last_trade_time()
+    }
+
+    fn first_trade_time(&self) -> Option<u64> {
+        self.first_trade_time()
+    }
+
+    fn last_price(&self) -> f32 {
+        self.kline.close
+    }
+
+    fn kline(&self) -> Option<&Kline> {
+        Some(&self.kline)
+    }
+
+    fn value_high(&self) -> f32 {
+        self.kline.high
+    }
+
+    fn value_low(&self) -> f32 {
+        self.kline.low
+    }
+}
 
 #[derive(Debug, Clone, Default)]
 pub struct GroupedTrades {

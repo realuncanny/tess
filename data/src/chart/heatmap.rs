@@ -1,10 +1,11 @@
+use ordered_float::OrderedFloat;
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, HashMap};
 
 use exchange::{adapter::MarketKind, depth::Depth};
-use ordered_float::OrderedFloat;
-use serde::{Deserialize, Serialize};
 
 use super::Basis;
+use super::aggr::time::DataPoint;
 
 pub const CLEANUP_THRESHOLD: usize = 4800;
 
@@ -24,6 +25,81 @@ impl Default for Config {
             trade_size_scale: Some(100),
             coalescing: Some(CoalesceKind::Average(0.15)),
         }
+    }
+}
+
+pub struct HeatmapDataPoint {
+    pub grouped_trades: Box<[GroupedTrade]>,
+    pub buy_sell: (f32, f32),
+}
+
+impl DataPoint for HeatmapDataPoint {
+    fn add_trade(&mut self, trade: &exchange::Trade, tick_size: f32) {
+        let grouped_price = if trade.is_sell {
+            (trade.price * (1.0 / tick_size)).floor() * tick_size
+        } else {
+            (trade.price * (1.0 / tick_size)).ceil() * tick_size
+        };
+
+        match self
+            .grouped_trades
+            .binary_search_by(|probe| probe.compare_with(trade.price, trade.is_sell))
+        {
+            Ok(index) => self.grouped_trades[index].qty += trade.qty,
+            Err(index) => {
+                let mut trades = self.grouped_trades.to_vec();
+                trades.insert(
+                    index,
+                    GroupedTrade {
+                        is_sell: trade.is_sell,
+                        price: grouped_price,
+                        qty: trade.qty,
+                    },
+                );
+                self.grouped_trades = trades.into_boxed_slice();
+            }
+        }
+
+        if trade.is_sell {
+            self.buy_sell.1 += trade.qty;
+        } else {
+            self.buy_sell.0 += trade.qty;
+        }
+    }
+
+    fn clear_trades(&mut self) {
+        self.grouped_trades = Box::new([]);
+        self.buy_sell = (0.0, 0.0);
+    }
+
+    fn last_trade_time(&self) -> Option<u64> {
+        None
+    }
+
+    fn first_trade_time(&self) -> Option<u64> {
+        None
+    }
+
+    fn last_price(&self) -> f32 {
+        self.grouped_trades.last().map(|t| t.price).unwrap_or(0.0)
+    }
+
+    fn kline(&self) -> Option<&exchange::Kline> {
+        None
+    }
+
+    fn value_high(&self) -> f32 {
+        self.grouped_trades
+            .iter()
+            .map(|t| t.price)
+            .fold(f32::MIN, f32::max)
+    }
+
+    fn value_low(&self) -> f32 {
+        self.grouped_trades
+            .iter()
+            .map(|t| t.price)
+            .fold(f32::MAX, f32::min)
     }
 }
 
@@ -345,6 +421,42 @@ impl HistoricalDepth {
             }
         }
         grid_quantities
+    }
+
+    pub fn max_depth_qty_in_range(
+        &self,
+        earliest: u64,
+        latest: u64,
+        highest: f32,
+        lowest: f32,
+        market_type: MarketKind,
+        order_size_filter: f32,
+    ) -> f32 {
+        let mut max_depth_qty = 0.0f32;
+
+        self.iter_time_filtered(earliest, latest, highest, lowest)
+            .for_each(|(price, runs)| {
+                runs.iter()
+                    .filter_map(|run| {
+                        let visible_run = run.with_range(earliest, latest)?;
+
+                        let order_size = match market_type {
+                            MarketKind::InversePerps => visible_run.qty(),
+                            _ => **price * visible_run.qty(),
+                        };
+
+                        if order_size > order_size_filter {
+                            Some(visible_run)
+                        } else {
+                            None
+                        }
+                    })
+                    .for_each(|run| {
+                        max_depth_qty = max_depth_qty.max(run.qty());
+                    });
+            });
+
+        max_depth_qty
     }
 }
 
