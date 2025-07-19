@@ -1615,82 +1615,74 @@ fn draw_crosshair_tooltip(
     palette: &Extended,
     at_interval: u64,
 ) {
-    let tooltip = match data {
-        PlotData::TimeBased(timeseries) => {
-            let dp_opt = timeseries
-                .datapoints
-                .iter()
-                .find(|(time, _)| **time == at_interval)
-                .map(|(_, dp)| dp);
-
-            let dp_opt = if dp_opt.is_none() && !timeseries.datapoints.is_empty() {
-                if let Some((last_time, _)) = timeseries.datapoints.last_key_value() {
+    let kline_opt = match data {
+        PlotData::TimeBased(timeseries) => timeseries
+            .datapoints
+            .iter()
+            .find(|(time, _)| **time == at_interval)
+            .map(|(_, dp)| &dp.kline)
+            .or_else(|| {
+                if !timeseries.datapoints.is_empty() {
+                    let (last_time, dp) = timeseries.datapoints.last_key_value()?;
                     if at_interval > *last_time {
-                        timeseries.datapoints.last_key_value().map(|(_, dp)| dp)
+                        Some(&dp.kline)
                     } else {
                         None
                     }
                 } else {
                     None
                 }
-            } else {
-                dp_opt
-            };
-
-            if let Some(dp) = dp_opt {
-                let change_pct = ((dp.kline.close - dp.kline.open) / dp.kline.open) * 100.0;
-
-                let tooltip_text = format!(
-                    "O: {} H: {} L: {} C: {} {:+.2}%",
-                    dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close, change_pct
-                );
-
-                Some((
-                    tooltip_text,
-                    if change_pct >= 0.0 {
-                        palette.success.base.color
-                    } else {
-                        palette.danger.base.color
-                    },
-                ))
-            } else {
-                None
-            }
-        }
+            }),
         PlotData::TickBased(tick_aggr) => {
             let index = (at_interval / u64::from(tick_aggr.interval.0)) as usize;
-
             if index < tick_aggr.datapoints.len() {
-                let dp = &tick_aggr.datapoints[tick_aggr.datapoints.len() - 1 - index];
-
-                let change_pct = ((dp.kline.close - dp.kline.open) / dp.kline.open) * 100.0;
-
-                let tooltip_text = format!(
-                    "O: {} H: {} L: {} C: {} {:+.2}%",
-                    dp.kline.open, dp.kline.high, dp.kline.low, dp.kline.close, change_pct
-                );
-
-                Some((
-                    tooltip_text,
-                    if change_pct >= 0.0 {
-                        palette.success.base.color
-                    } else {
-                        palette.danger.base.color
-                    },
-                ))
+                Some(&tick_aggr.datapoints[tick_aggr.datapoints.len() - 1 - index].kline)
             } else {
                 None
             }
         }
     };
 
-    if let Some((content, color)) = tooltip {
+    if let Some(kline) = kline_opt {
+        let change_pct = ((kline.close - kline.open) / kline.open) * 100.0;
+        let change_color = if change_pct >= 0.0 {
+            palette.success.base.color
+        } else {
+            palette.danger.base.color
+        };
+
+        let base_color = palette.background.base.text;
+
+        let segments = [
+            ("O", base_color, false),
+            (&format!("{}", kline.open), change_color, true),
+            ("H", base_color, false),
+            (&format!("{}", kline.high), change_color, true),
+            ("L", base_color, false),
+            (&format!("{}", kline.low), change_color, true),
+            ("C", base_color, false),
+            (&format!("{}", kline.close), change_color, true),
+            (&format!("{:+.2}%", change_pct), change_color, true),
+        ];
+
+        let total_width: f32 = segments
+            .iter()
+            .map(|(s, _, _)| {
+                s.len() as f32 * 8.0
+                    + if !s.chars().all(char::is_numeric) {
+                        1.0
+                    } else {
+                        0.0
+                    }
+            })
+            .sum();
+
         let position = Point::new(8.0, 8.0);
 
         let tooltip_rect = Rectangle {
             x: position.x,
             y: position.y,
-            width: content.len() as f32 * 8.0,
+            width: total_width,
             height: 16.0,
         };
 
@@ -1700,14 +1692,18 @@ fn draw_crosshair_tooltip(
             palette.background.weakest.color.scale_alpha(0.9),
         );
 
-        let text = canvas::Text {
-            content,
-            position,
-            size: iced::Pixels(12.0),
-            color,
-            font: style::AZERET_MONO,
-            ..canvas::Text::default()
-        };
-        frame.fill_text(text);
+        let mut x = position.x;
+        for (text, seg_color, is_value) in segments {
+            frame.fill_text(canvas::Text {
+                content: text.to_string(),
+                position: Point::new(x, position.y),
+                size: iced::Pixels(12.0),
+                color: seg_color,
+                font: style::AZERET_MONO,
+                ..canvas::Text::default()
+            });
+            x += text.len() as f32 * 8.0;
+            x += if is_value { 6.0 } else { 2.0 };
+        }
     }
 }

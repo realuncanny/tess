@@ -305,22 +305,22 @@ impl canvas::Program<Message> for TimeAndSales {
                     continue;
                 }
 
-                let (bg_color, text_color) = if trade.is_sell {
-                    (palette.danger.weak.color, palette.danger.strong.color)
+                let bg_color = if trade.is_sell {
+                    palette.danger.weak.color
                 } else {
-                    (palette.success.weak.color, palette.success.strong.color)
+                    palette.success.weak.color
                 };
 
-                let row_bg_color_alpha = (trade.qty / self.max_filtered_qty).clamp(0.04, 0.96);
+                let bg_color_alpha = (trade.qty / self.max_filtered_qty).clamp(0.02, 1.0);
 
                 let mut text_color = if palette.is_dark {
-                    lighten(text_color, row_bg_color_alpha)
+                    lighten(bg_color, bg_color_alpha.max(0.1))
                 } else {
-                    darken(text_color, row_bg_color_alpha)
+                    darken(bg_color, (bg_color_alpha * 0.8).max(0.1))
                 };
 
                 if is_scroll_paused && y_position < HISTOGRAM_HEIGHT + (TRADE_ROW_HEIGHT * 0.8) {
-                    text_color = text_color.scale_alpha(0.2);
+                    text_color = text_color.scale_alpha(0.1);
                 }
 
                 frame.fill_rectangle(
@@ -332,7 +332,7 @@ impl canvas::Program<Message> for TimeAndSales {
                         width: row_width,
                         height: row_height,
                     },
-                    bg_color.scale_alpha(row_bg_color_alpha),
+                    bg_color.scale_alpha(bg_color_alpha.min(0.9)),
                 );
 
                 let trade_time = create_text(

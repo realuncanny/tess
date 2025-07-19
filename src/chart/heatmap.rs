@@ -41,8 +41,8 @@ const MIN_CELL_HEIGHT: f32 = 1.0;
 
 const DEFAULT_CELL_WIDTH: f32 = 3.0;
 
-const TOOLTIP_WIDTH: f32 = 180.0;
-const TOOLTIP_HEIGHT: f32 = 60.0;
+const TOOLTIP_WIDTH: f32 = 198.0;
+const TOOLTIP_HEIGHT: f32 = 66.0;
 const TOOLTIP_PADDING: f32 = 12.0;
 
 const MAX_CIRCLE_RADIUS: f32 = 16.0;
@@ -841,9 +841,9 @@ impl canvas::Program<Message> for HeatmapChart {
                             {
                                 let text_content = abbr_large_numbers(*qty);
                                 let color = if *is_bid {
-                                    palette.success.base.color
+                                    palette.success.strong.color
                                 } else {
-                                    palette.danger.base.color
+                                    palette.danger.strong.color
                                 };
 
                                 let text_pos_x = overlay_top_left_x
