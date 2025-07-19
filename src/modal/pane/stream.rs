@@ -436,6 +436,7 @@ impl Modifier {
                                 selected_tf,
                                 |tf| Message::BasisSelected(tf.into()),
                                 &create_button,
+                                3,
                             );
                             basis_selection_column =
                                 basis_selection_column.push(kline_timeframe_grid);
@@ -452,6 +453,7 @@ impl Modifier {
                                 selected_tf,
                                 |tf| Message::BasisSelected(tf.into()),
                                 &create_button,
+                                2,
                             );
                             basis_selection_column =
                                 basis_selection_column.push(heatmap_timeframe_grid);
@@ -472,6 +474,7 @@ impl Modifier {
                             selected_tick_count,
                             |tc| Message::BasisSelected(Basis::Tick(tc)),
                             &create_button,
+                            3,
                         );
 
                         let custom_input = {
@@ -522,6 +525,7 @@ impl Modifier {
                         Some(ticksize),
                         Message::TicksizeSelected,
                         &create_button,
+                        3,
                     );
 
                     let custom_input = {
@@ -590,6 +594,7 @@ fn modifiers_grid<'a, T, FMsg>(
         Option<Message>,
         bool,
     ) -> iced::widget::Button<'a, Message>,
+    items_per_row: usize,
 ) -> iced::widget::Column<'a, Message>
 where
     T: Copy + PartialEq + ToString,
@@ -597,7 +602,7 @@ where
 {
     let mut grid_column = column![].spacing(4);
 
-    for chunk in items_source.chunks(3) {
+    for chunk in items_source.chunks(items_per_row) {
         let mut button_row = row![].spacing(4);
 
         for &item_value in chunk {

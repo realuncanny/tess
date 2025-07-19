@@ -203,6 +203,10 @@ impl HistoricalDepth {
                 if qty_diff_pct <= self.min_order_qty || last_run.qty == OrderedFloat(qty) {
                     last_run.until_time = time + self.aggr_time;
                 } else {
+                    // end the previous run when a new one starts
+                    if last_run.until_time > time {
+                        last_run.until_time = time;
+                    }
                     price_level.push(OrderRun {
                         start_time: time,
                         until_time: time + self.aggr_time,
@@ -211,7 +215,22 @@ impl HistoricalDepth {
                     });
                 }
             }
-            _ => {
+            Some(last_run) => {
+                // side has flipped (e.g., from bid to ask)
+                // end the previous run
+                if last_run.until_time > time {
+                    last_run.until_time = time;
+                }
+                // start a new run for the new side
+                price_level.push(OrderRun {
+                    start_time: time,
+                    until_time: time + self.aggr_time,
+                    qty: OrderedFloat(qty),
+                    is_bid,
+                });
+            }
+            None => {
+                // no previous runs at this price level
                 price_level.push(OrderRun {
                     start_time: time,
                     until_time: time + self.aggr_time,
