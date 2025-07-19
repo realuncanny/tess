@@ -4,7 +4,7 @@ use iced::widget::canvas::{self, Cache, Event, Geometry, Path, Stroke};
 use iced::widget::{Canvas, center, container, row, text, vertical_rule};
 use iced::{Element, Length, Point, Rectangle, Renderer, Size, Theme, Vector, mouse};
 
-use crate::chart::{Basis, Caches, ViewState, Interaction, Message};
+use crate::chart::{Basis, Caches, Interaction, Message, ViewState};
 use crate::style::{self, dashed_line};
 use data::util::{format_with_commas, guesstimate_ticks, round_to_tick};
 use exchange::Timeframe;
@@ -63,7 +63,6 @@ pub fn indicator_elem<'a>(
         label_cache: &cache.y_labels,
         max: max_value,
         min: min_value,
-        crosshair: chart_state.layout.crosshair,
         chart_bounds: chart_state.bounds,
     })
     .height(Length::Fill)
@@ -113,7 +112,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
             Event::Mouse(mouse::Event::CursorMoved { .. }) => {
                 let message = match *interaction {
                     Interaction::None => {
-                        if self.chart_state.layout.crosshair && cursor.is_over(bounds) {
+                        if cursor.is_over(bounds) {
                             Some(Message::CrosshairMoved)
                         } else {
                             None
@@ -228,110 +227,105 @@ impl canvas::Program<Message> for OpenInterest<'_> {
             }
         });
 
-        if chart_state.layout.crosshair {
-            let crosshair = self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
-                let dashed_line = dashed_line(theme);
+        let crosshair = self.crosshair_cache.draw(renderer, bounds.size(), |frame| {
+            let dashed_line = dashed_line(theme);
 
-                if let Some(cursor_position) = cursor.position_in(chart_state.bounds) {
-                    let region = self.visible_region(frame.size());
+            if let Some(cursor_position) = cursor.position_in(chart_state.bounds) {
+                let region = self.visible_region(frame.size());
 
-                    // Vertical time line
-                    let earliest = chart_state.x_to_interval(region.x) as f64;
-                    let latest = chart_state.x_to_interval(region.x + region.width) as f64;
+                // Vertical time line
+                let earliest = chart_state.x_to_interval(region.x) as f64;
+                let latest = chart_state.x_to_interval(region.x + region.width) as f64;
 
-                    let crosshair_ratio = f64::from(cursor_position.x / bounds.width);
-                    let crosshair_millis = earliest + crosshair_ratio * (latest - earliest);
+                let crosshair_ratio = f64::from(cursor_position.x / bounds.width);
+                let crosshair_millis = earliest + crosshair_ratio * (latest - earliest);
 
-                    let rounded_timestamp =
-                        (crosshair_millis / (timeframe as f64)).round() as u64 * timeframe;
-                    let snap_ratio =
-                        ((rounded_timestamp as f64 - earliest) / (latest - earliest)) as f32;
+                let rounded_timestamp =
+                    (crosshair_millis / (timeframe as f64)).round() as u64 * timeframe;
+                let snap_ratio =
+                    ((rounded_timestamp as f64 - earliest) / (latest - earliest)) as f32;
 
-                    frame.stroke(
-                        &Path::line(
-                            Point::new(snap_ratio * bounds.width, 0.0),
-                            Point::new(snap_ratio * bounds.width, bounds.height),
-                        ),
-                        dashed_line,
-                    );
+                frame.stroke(
+                    &Path::line(
+                        Point::new(snap_ratio * bounds.width, 0.0),
+                        Point::new(snap_ratio * bounds.width, bounds.height),
+                    ),
+                    dashed_line,
+                );
 
-                    let oi_data = {
-                        let exact_match = self
-                            .timeseries
-                            .iter()
-                            .find(|(time, _)| **time == rounded_timestamp);
+                let oi_data = {
+                    let exact_match = self
+                        .timeseries
+                        .iter()
+                        .find(|(time, _)| **time == rounded_timestamp);
 
-                        if exact_match.is_none()
-                            && rounded_timestamp
-                                > self.timeseries.keys().last().copied().unwrap_or(0)
-                        {
-                            self.timeseries.iter().last()
-                        } else {
-                            exact_match
-                        }
-                    };
-
-                    if let Some((_, oi_value)) = oi_data {
-                        let next_value = self
-                            .timeseries
-                            .range((rounded_timestamp + timeframe)..=u64::MAX)
-                            .next()
-                            .map(|(_, val)| *val);
-
-                        let change_text = if let Some(next_oi) = next_value {
-                            let difference = next_oi - *oi_value;
-                            let sign = if difference >= 0.0 { "+" } else { "" };
-                            format!("Change: {}{}", sign, format_with_commas(difference))
-                        } else {
-                            "Change: N/A".to_string()
-                        };
-                        let value_text = format!("Value: {}", format_with_commas(*oi_value));
-
-                        let tooltip_text = format!("{}\n{}", value_text, change_text);
-                        let tooltip_bg_width = value_text.len().max(change_text.len()) as f32 * 8.0;
-
-                        frame.fill_rectangle(
-                            Point::new(4.0, 0.0),
-                            Size::new(tooltip_bg_width, 28.0),
-                            palette.background.weakest.color.scale_alpha(0.9),
-                        );
-
-                        let text = canvas::Text {
-                            content: tooltip_text,
-                            position: Point::new(8.0, 2.0),
-                            size: iced::Pixels(9.0),
-                            color: palette.background.base.text,
-                            font: style::AZERET_MONO,
-                            ..canvas::Text::default()
-                        };
-                        frame.fill_text(text);
+                    if exact_match.is_none()
+                        && rounded_timestamp > self.timeseries.keys().last().copied().unwrap_or(0)
+                    {
+                        self.timeseries.iter().last()
+                    } else {
+                        exact_match
                     }
-                } else if let Some(cursor_position) = cursor.position_in(bounds) {
-                    // Horizontal price line
-                    let highest = self.max_value;
-                    let lowest = 0.0;
+                };
 
-                    let crosshair_ratio = cursor_position.y / bounds.height;
-                    let crosshair_price = highest + crosshair_ratio * (lowest - highest);
+                if let Some((_, oi_value)) = oi_data {
+                    let next_value = self
+                        .timeseries
+                        .range((rounded_timestamp + timeframe)..=u64::MAX)
+                        .next()
+                        .map(|(_, val)| *val);
 
-                    let rounded_price =
-                        round_to_tick(crosshair_price, guesstimate_ticks(highest - lowest));
-                    let snap_ratio = (rounded_price - highest) / (lowest - highest);
+                    let change_text = if let Some(next_oi) = next_value {
+                        let difference = next_oi - *oi_value;
+                        let sign = if difference >= 0.0 { "+" } else { "" };
+                        format!("Change: {}{}", sign, format_with_commas(difference))
+                    } else {
+                        "Change: N/A".to_string()
+                    };
+                    let value_text = format!("Value: {}", format_with_commas(*oi_value));
 
-                    frame.stroke(
-                        &Path::line(
-                            Point::new(0.0, snap_ratio * bounds.height),
-                            Point::new(bounds.width, snap_ratio * bounds.height),
-                        ),
-                        dashed_line,
+                    let tooltip_text = format!("{}\n{}", value_text, change_text);
+                    let tooltip_bg_width = value_text.len().max(change_text.len()) as f32 * 8.0;
+
+                    frame.fill_rectangle(
+                        Point::new(4.0, 0.0),
+                        Size::new(tooltip_bg_width, 28.0),
+                        palette.background.weakest.color.scale_alpha(0.9),
                     );
-                }
-            });
 
-            vec![indicator, crosshair]
-        } else {
-            vec![indicator]
-        }
+                    let text = canvas::Text {
+                        content: tooltip_text,
+                        position: Point::new(8.0, 2.0),
+                        size: iced::Pixels(10.0),
+                        color: palette.background.base.text,
+                        font: style::AZERET_MONO,
+                        ..canvas::Text::default()
+                    };
+                    frame.fill_text(text);
+                }
+            } else if let Some(cursor_position) = cursor.position_in(bounds) {
+                // Horizontal price line
+                let highest = self.max_value;
+                let lowest = 0.0;
+
+                let crosshair_ratio = cursor_position.y / bounds.height;
+                let crosshair_price = highest + crosshair_ratio * (lowest - highest);
+
+                let rounded_price =
+                    round_to_tick(crosshair_price, guesstimate_ticks(highest - lowest));
+                let snap_ratio = (rounded_price - highest) / (lowest - highest);
+
+                frame.stroke(
+                    &Path::line(
+                        Point::new(0.0, snap_ratio * bounds.height),
+                        Point::new(bounds.width, snap_ratio * bounds.height),
+                    ),
+                    dashed_line,
+                );
+            }
+        });
+
+        vec![indicator, crosshair]
     }
 
     fn mouse_interaction(
@@ -343,13 +337,7 @@ impl canvas::Program<Message> for OpenInterest<'_> {
         match interaction {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
-            Interaction::None if cursor.is_over(bounds) => {
-                if self.chart_state.layout.crosshair {
-                    mouse::Interaction::Crosshair
-                } else {
-                    mouse::Interaction::default()
-                }
-            }
+            Interaction::None if cursor.is_over(bounds) => mouse::Interaction::Crosshair,
             _ => mouse::Interaction::default(),
         }
     }

@@ -15,10 +15,9 @@ use scale::{AxisLabelsX, AxisLabelsY};
 use iced::theme::palette::Extended;
 use iced::widget::canvas::{self, Cache, Canvas, Event, Frame, LineDash, Path, Stroke};
 use iced::{
-    Element, Length, Point, Rectangle, Size, Theme, Vector, alignment, mouse, padding,
+    Alignment, Element, Length, Point, Rectangle, Size, Theme, Vector, mouse, padding,
     widget::{
-        Space, button, center, column, container, horizontal_rule, mouse_area, row, text,
-        vertical_rule,
+        button, center, column, container, horizontal_rule, mouse_area, row, text, vertical_rule,
     },
 };
 
@@ -49,7 +48,6 @@ pub enum Message {
     Translated(Vector),
     Scaled(f32, Vector),
     AutoscaleToggled,
-    CrosshairToggled,
     CrosshairMoved,
     YScaling(f32, f32, bool),
     XScaling(f32, f32, bool),
@@ -117,13 +115,7 @@ fn canvas_interaction<T: Chart>(
                         Interaction::Panning { translation, start } => Some(Message::Translated(
                             translation + (cursor_position - start) * (1.0 / state.scaling),
                         )),
-                        Interaction::None => {
-                            if state.layout.crosshair {
-                                Some(Message::CrosshairMoved)
-                            } else {
-                                None
-                            }
-                        }
+                        Interaction::None => Some(Message::CrosshairMoved),
                         _ => None,
                     };
 
@@ -458,10 +450,6 @@ pub fn update<T: Chart>(chart: &mut T, message: Message) {
             }
         }
         Message::CrosshairMoved => return chart.invalidate_crosshair(),
-        Message::CrosshairToggled => {
-            let state = chart.mut_state();
-            state.layout.crosshair = !state.layout.crosshair;
-        }
     }
     chart.invalidate_all();
 }
@@ -471,18 +459,17 @@ pub fn view<'a, T: Chart>(
     indicators: &'a [T::IndicatorType],
     timezone: data::UserTimezone,
 ) -> Element<'a, Message> {
-    let state = chart.state();
-
     if chart.is_empty() {
         return center(text("Waiting for data...").size(16)).into();
     }
+
+    let state = chart.state();
 
     let axis_labels_x = Canvas::new(AxisLabelsX {
         labels_cache: &state.cache.x_labels,
         scaling: state.scaling,
         translation_x: state.translation.x,
         max: state.latest_x,
-        crosshair: state.layout.crosshair,
         basis: state.basis,
         cell_width: state.cell_width,
         timezone,
@@ -497,39 +484,28 @@ pub fn view<'a, T: Chart>(
         let (autoscale_btn_placeholder, autoscale_btn_tooltip) = match state.layout.autoscale {
             Some(Autoscale::CenterLatest) => (text("C"), Some("Center last price")),
             Some(Autoscale::FitToVisible) => (text("A"), Some("Auto")),
-            None => (text("C"), None),
+            None => (text("C"), Some("Toggle autoscaling")),
         };
+        let is_active = state.layout.autoscale.is_some();
 
         let autoscale_button = button(
             autoscale_btn_placeholder
                 .size(10)
-                .align_x(alignment::Horizontal::Center),
+                .align_x(Alignment::Center)
+                .align_y(Alignment::Center),
         )
-        .width(Length::Shrink)
         .height(Length::Fill)
         .on_press(Message::AutoscaleToggled)
-        .style(move |theme, status| {
-            style::button::transparent(theme, status, state.layout.autoscale.is_some())
-        });
+        .style(move |theme: &Theme, status| style::button::transparent(theme, status, is_active));
 
-        let crosshair_button = button(text("+").size(10).align_x(alignment::Horizontal::Center))
-            .width(Length::Shrink)
-            .height(Length::Fill)
-            .on_press(Message::CrosshairToggled)
-            .style(move |theme, status| {
-                style::button::transparent(theme, status, state.layout.crosshair)
-            });
-
-        let tooltip_pos = iced::widget::tooltip::Position::Top;
-
-        container(
-            row![
-                Space::new(Length::Fill, Length::Fill),
-                tooltip(autoscale_button, autoscale_btn_tooltip, tooltip_pos),
-                tooltip(crosshair_button, Some("Crosshair"), tooltip_pos),
-            ]
-            .spacing(2),
-        )
+        row![
+            iced::widget::horizontal_space(),
+            tooltip(
+                autoscale_button,
+                autoscale_btn_tooltip,
+                iced::widget::tooltip::Position::Top
+            ),
+        ]
         .padding(2)
     };
 
@@ -543,7 +519,6 @@ pub fn view<'a, T: Chart>(
             decimals: state.decimals,
             min: state.base_price_y,
             last_price: state.last_price,
-            crosshair: state.layout.crosshair,
             tick_size: state.tick_size,
             cell_height: state.cell_height,
             basis: state.basis,
@@ -872,7 +847,6 @@ impl ViewState {
     fn layout(&self) -> ViewConfig {
         let layout = &self.layout;
         ViewConfig {
-            crosshair: layout.crosshair,
             splits: layout.splits.clone(),
             autoscale: layout.autoscale,
         }

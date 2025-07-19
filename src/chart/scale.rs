@@ -211,7 +211,6 @@ impl AxisLabel {
 // X-AXIS LABELS
 pub struct AxisLabelsX<'a> {
     pub labels_cache: &'a Cache,
-    pub crosshair: bool,
     pub max: u64,
     pub scaling: f32,
     pub translation_x: f32,
@@ -240,10 +239,6 @@ impl AxisLabelsX<'_> {
         bounds: Rectangle,
         palette: &Extended,
     ) -> Option<AxisLabel> {
-        if !self.crosshair {
-            return None;
-        }
-
         match self.basis {
             Basis::Tick(interval) => {
                 let Some(interval_keys) = &self.interval_keys else {
@@ -561,7 +556,6 @@ impl canvas::Program<Message> for AxisLabelsX<'_> {
 // Y-AXIS LABELS
 pub struct AxisLabelsY<'a> {
     pub labels_cache: &'a Cache,
-    pub crosshair: bool,
     pub translation_y: f32,
     pub scaling: f32,
     pub min: f32,
@@ -753,28 +747,25 @@ impl canvas::Program<Message> for AxisLabelsY<'_> {
             }
 
             // Crosshair price (priority 3)
-            if self.crosshair {
-                if let Some(crosshair_pos) = cursor.position_in(self.chart_bounds) {
-                    let rounded_price = round_to_tick(
-                        lowest + (range * (bounds.height - crosshair_pos.y) / bounds.height),
-                        self.tick_size,
-                    );
-                    let y_position =
-                        bounds.height - ((rounded_price - lowest) / range * bounds.height);
+            if let Some(crosshair_pos) = cursor.position_in(self.chart_bounds) {
+                let rounded_price = round_to_tick(
+                    lowest + (range * (bounds.height - crosshair_pos.y) / bounds.height),
+                    self.tick_size,
+                );
+                let y_position = bounds.height - ((rounded_price - lowest) / range * bounds.height);
 
-                    let label = LabelContent {
-                        content: format!("{:.*}", self.decimals, rounded_price),
-                        background_color: Some(palette.secondary.base.color),
-                        text_color: palette.secondary.base.text,
-                        text_size: 12.0,
-                    };
+                let label = LabelContent {
+                    content: format!("{:.*}", self.decimals, rounded_price),
+                    background_color: Some(palette.secondary.base.color),
+                    text_color: palette.secondary.base.text,
+                    text_size: 12.0,
+                };
 
-                    all_labels.push(AxisLabel::Y {
-                        bounds: calc_label_rect(y_position, 1, text_size, bounds),
-                        value_label: label,
-                        timer_label: None,
-                    });
-                }
+                all_labels.push(AxisLabel::Y {
+                    bounds: calc_label_rect(y_position, 1, text_size, bounds),
+                    value_label: label,
+                    timer_label: None,
+                });
             }
 
             AxisLabel::filter_and_draw(&all_labels, frame);

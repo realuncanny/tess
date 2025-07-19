@@ -2,6 +2,7 @@ use super::{
     Action, Basis, Caches, Chart, Interaction, Message, PlotConstants, PlotData, ViewState,
     indicator, request_fetch, scale::linear::PriceInfoLabel,
 };
+use crate::chart::TEXT_SIZE;
 use crate::{modal::pane::settings::study, style};
 use data::aggr::ticks::TickAggr;
 use data::aggr::time::TimeSeries;
@@ -1044,20 +1045,16 @@ impl canvas::Program<Message> for KlineChart {
             chart.draw_last_price_line(frame, palette, region);
         });
 
-        if chart.layout.crosshair {
-            let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
-                if let Some(cursor_position) = cursor.position_in(bounds) {
-                    let (_, rounded_aggregation) =
-                        chart.draw_crosshair(frame, theme, bounds_size, cursor_position);
+        let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
+            if let Some(cursor_position) = cursor.position_in(bounds) {
+                let (_, rounded_aggregation) =
+                    chart.draw_crosshair(frame, theme, bounds_size, cursor_position);
 
-                    draw_crosshair_tooltip(&self.data_source, frame, palette, rounded_aggregation);
-                }
-            });
+                draw_crosshair_tooltip(&self.data_source, frame, palette, rounded_aggregation);
+            }
+        });
 
-            vec![klines, crosshair]
-        } else {
-            vec![klines]
-        }
+        vec![klines, crosshair]
     }
 
     fn mouse_interaction(
@@ -1070,10 +1067,11 @@ impl canvas::Program<Message> for KlineChart {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
             Interaction::None => {
-                if cursor.is_over(bounds) && self.chart.layout.crosshair {
-                    return mouse::Interaction::Crosshair;
+                if cursor.is_over(bounds) {
+                    mouse::Interaction::Crosshair
+                } else {
+                    mouse::Interaction::default()
                 }
-                mouse::Interaction::default()
             }
         }
     }
@@ -1655,26 +1653,19 @@ fn draw_crosshair_tooltip(
 
         let segments = [
             ("O", base_color, false),
-            (&format!("{}", kline.open), change_color, true),
+            (&kline.open.to_string(), change_color, true),
             ("H", base_color, false),
-            (&format!("{}", kline.high), change_color, true),
+            (&kline.high.to_string(), change_color, true),
             ("L", base_color, false),
-            (&format!("{}", kline.low), change_color, true),
+            (&kline.low.to_string(), change_color, true),
             ("C", base_color, false),
-            (&format!("{}", kline.close), change_color, true),
+            (&kline.close.to_string(), change_color, true),
             (&format!("{:+.2}%", change_pct), change_color, true),
         ];
 
         let total_width: f32 = segments
             .iter()
-            .map(|(s, _, _)| {
-                s.len() as f32 * 8.0
-                    + if !s.chars().all(char::is_numeric) {
-                        1.0
-                    } else {
-                        0.0
-                    }
-            })
+            .map(|(s, _, _)| s.len() as f32 * (TEXT_SIZE * 0.8))
             .sum();
 
         let position = Point::new(8.0, 8.0);

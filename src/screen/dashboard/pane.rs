@@ -804,7 +804,6 @@ impl Content {
                 (
                     vec![HeatmapIndicator::Volume],
                     ViewConfig {
-                        crosshair: true,
                         splits: vec![],
                         autoscale: Some(data::chart::Autoscale::CenterLatest),
                     },
@@ -906,7 +905,6 @@ impl Content {
         let layout = prev_layout
             .filter(|l| l.splits.len() == splits.len())
             .unwrap_or(ViewConfig {
-                crosshair: true,
                 splits,
                 autoscale: Some(data::chart::Autoscale::FitToVisible),
             });

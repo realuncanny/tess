@@ -756,7 +756,7 @@ impl canvas::Program<Message> for HeatmapChart {
             }
         });
 
-        if chart.layout.crosshair & !self.is_empty() {
+        if !self.is_empty() {
             let crosshair = chart.cache.crosshair.draw(renderer, bounds_size, |frame| {
                 if let Some(cursor_position) = cursor.position_in(bounds) {
                     let (cursor_at_price, cursor_at_time) =
@@ -885,7 +885,7 @@ impl canvas::Program<Message> for HeatmapChart {
             Interaction::Panning { .. } => mouse::Interaction::Grabbing,
             Interaction::Zoomin { .. } => mouse::Interaction::ZoomIn,
             Interaction::None => {
-                if cursor.is_over(bounds) && self.chart.layout.crosshair {
+                if cursor.is_over(bounds) {
                     return mouse::Interaction::Crosshair;
                 }
                 mouse::Interaction::default()

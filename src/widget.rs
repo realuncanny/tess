@@ -239,47 +239,7 @@ where
 
     button(icon)
         .style(move |theme: &Theme, status| {
-            let palette = theme.extended_palette();
-
-            iced::widget::button::Style {
-                text_color: if is_active {
-                    palette.secondary.strong.color
-                } else {
-                    palette.secondary.base.color
-                },
-                border: iced::Border {
-                    radius: 3.0.into(),
-                    width: if is_active { 2.0 } else { 1.0 },
-                    color: if is_active {
-                        palette.background.strong.color
-                    } else {
-                        palette.background.weak.color
-                    },
-                },
-                background: match status {
-                    iced::widget::button::Status::Active => {
-                        if is_active {
-                            Some(palette.background.base.color.into())
-                        } else {
-                            Some(palette.background.weakest.color.into())
-                        }
-                    }
-                    iced::widget::button::Status::Pressed => {
-                        Some(palette.background.weakest.color.into())
-                    }
-                    iced::widget::button::Status::Hovered => {
-                        Some(palette.background.weak.color.into())
-                    }
-                    iced::widget::button::Status::Disabled => {
-                        if is_active {
-                            None
-                        } else {
-                            Some(palette.secondary.base.color.into())
-                        }
-                    }
-                },
-                ..Default::default()
-            }
+            style::button::bordered_toggle(theme, status, is_active)
         })
         .on_press(on_press(id))
         .width(28)

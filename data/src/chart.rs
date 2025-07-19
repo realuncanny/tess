@@ -48,7 +48,6 @@ impl<D: DataPoint> PlotData<D> {
 
 #[derive(Debug, Clone, Deserialize, Serialize, Default)]
 pub struct ViewConfig {
-    pub crosshair: bool,
     pub splits: Vec<f32>,
     pub autoscale: Option<Autoscale>,
 }
