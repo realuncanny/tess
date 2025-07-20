@@ -8,6 +8,7 @@ use super::Basis;
 use super::aggr::time::DataPoint;
 
 pub const CLEANUP_THRESHOLD: usize = 4800;
+const GRACE_PERIOD_MS: u64 = 500;
 
 #[derive(Debug, Copy, Clone, PartialEq, Deserialize, Serialize)]
 pub struct Config {
@@ -193,7 +194,20 @@ impl HistoricalDepth {
 
         match price_level.last_mut() {
             Some(last_run) if last_run.is_bid == is_bid => {
+                if time > last_run.until_time + GRACE_PERIOD_MS {
+                    last_run.until_time = last_run.start_time + self.aggr_time;
+
+                    price_level.push(OrderRun {
+                        start_time: time,
+                        until_time: time + self.aggr_time,
+                        qty: OrderedFloat(qty),
+                        is_bid,
+                    });
+                    return;
+                }
+
                 let last_qty = last_run.qty.0;
+
                 let qty_diff_pct = if last_qty > 0.0 {
                     (qty - last_qty).abs() / last_qty
                 } else {
@@ -203,7 +217,6 @@ impl HistoricalDepth {
                 if qty_diff_pct <= self.min_order_qty || last_run.qty == OrderedFloat(qty) {
                     last_run.until_time = time + self.aggr_time;
                 } else {
-                    // end the previous run when a new one starts
                     if last_run.until_time > time {
                         last_run.until_time = time;
                     }
@@ -216,8 +229,7 @@ impl HistoricalDepth {
                 }
             }
             Some(last_run) => {
-                // side has flipped (e.g., from bid to ask)
-                // end the previous run
+                // side has flipped, end the previous run
                 if last_run.until_time > time {
                     last_run.until_time = time;
                 }
